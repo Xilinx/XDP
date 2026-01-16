@@ -200,7 +200,7 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
         //       hence we should stop adding partition shift to col for passing to XAIE Apis.
         uint8_t relCol = ((db->getStaticInfo()).getAppStyle() == xdp::AppStyle::LOAD_XCLBIN_STYLE) ? gmio.shimColumn + startColShift : gmio.shimColumn;
         (db->getStaticInfo()).addTraceGMIO(deviceID, gmio.id, relCol, gmio.channelNum,
-                                            gmio.streamId, gmio.burstLength);
+                                            gmio.streamId, gmio.burstLength, gmio.bufferDescriptorId);
       }
     }
 

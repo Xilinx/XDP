@@ -157,6 +157,38 @@ AIEControlConfigFiletype::getValidBuffers() const
 std::unordered_map<std::string, io_config>
 AIEControlConfigFiletype::getTraceGMIOs() const
 {
+    // First check for mladf_metadata.TraceShimDMAs
+    auto traceShimDMAs = aie_meta.get_child_optional("mladf_metadata.TraceShimDMAs");
+    if (traceShimDMAs) {
+        std::unordered_map<std::string, io_config> gmios;
+        for (auto& dma_node : traceShimDMAs.get()) {
+            io_config gmio;
+            gmio.type = io_type::GMIO;
+            gmio.id = dma_node.second.get<uint32_t>("id", 0);
+            gmio.shimColumn = dma_node.second.get<uint8_t>("shim_column");
+            gmio.channelNum = dma_node.second.get<uint8_t>("channel_number");
+            gmio.streamId = dma_node.second.get<uint8_t>("stream_id", 0);
+            gmio.burstLength = dma_node.second.get<uint8_t>("burst_length_in_16byte", 4);
+            gmio.slaveOrMaster = 0;  // S2MM for trace
+            
+            // Get buffer_descriptor_ids array and use the first element
+            auto bdIds = dma_node.second.get_child_optional("buffer_descriptor_ids");
+            if (bdIds) {
+                for (auto& bd : bdIds.get()) {
+                    gmio.bufferDescriptorId = bd.second.get_value<uint16_t>();
+                    break;  // Use first BD ID
+                }
+            } else {
+                gmio.bufferDescriptorId = 14 + gmio.channelNum;
+            }
+
+            std::string gmioKey = xdp::aie::getGraphUniqueId(gmio);
+            gmios[gmioKey] = gmio;
+        }
+        return gmios;
+    }
+    
+    // Fall back to aie_metadata.TraceGMIOs
     return getChildGMIOs("aie_metadata.TraceGMIOs");
 }
 
@@ -215,6 +247,9 @@ AIEControlConfigFiletype::getChildGMIOs( const std::string& childStr) const
         return {};
     }
 
+    // Only set default BD for trace GMIOs
+    bool isTrace = (childStr.find("Trace") != std::string::npos);
+
     std::unordered_map<std::string, io_config> gmios;
 
     for (auto& gmio_node : gmiosMetadata.get()) {
@@ -237,6 +272,9 @@ AIEControlConfigFiletype::getChildGMIOs( const std::string& childStr) const
         gmio.channelNum = (slaveOrMaster == 0) ? (channelNumber - 2) : channelNumber;
         gmio.streamId = gmio_node.second.get<uint8_t>("stream_id");
         gmio.burstLength = gmio_node.second.get<uint8_t>("burst_length_in_16byte");
+        // Only set default BD ID for trace GMIOs (channel 0 -> BD 14, channel 1 -> BD 15)
+        if (isTrace)
+            gmio.bufferDescriptorId = 14 + gmio.channelNum;
 
         std::string gmioKey = xdp::aie::getGraphUniqueId(gmio);
         gmios[gmioKey] = gmio;
@@ -252,6 +290,25 @@ AIEControlConfigFiletype::getMicrocontrollers(bool useColumn,
 {
     if (getHardwareGeneration() < 5)
         return {};
+
+    // First check for mladf_metadata.Microcontrollers
+    auto ucInfo = aie_meta.get_child_optional("mladf_metadata.Microcontrollers");
+    if (!ucInfo) {
+        // Fall back to root-level Microcontrollers
+        ucInfo = aie_meta.get_child_optional("Microcontrollers");
+    }
+    
+    if (ucInfo) {
+        std::vector<tile_type> tiles;
+        for (auto const &e : ucInfo.get()) {
+            tile_type tile;
+            tile.col = e.second.get<uint8_t>("shim_column");
+            tile.row = 0;
+            tiles.emplace_back(std::move(tile));
+        }
+        if (!tiles.empty())
+            return tiles;
+    }
 
     // Use specified range or tile 0,0
     // TODO: parse from metadata once available

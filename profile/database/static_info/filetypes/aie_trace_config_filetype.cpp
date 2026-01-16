@@ -252,7 +252,12 @@ AIETraceConfigFiletype::getActiveMicroControllers() const
     if (getHardwareGeneration() < 5)
       return {};
 
-    auto activeUCInfo = aie_meta.get_child_optional("Microcontrollers");
+    // First check for mladf_metadata.Microcontrollers
+    auto activeUCInfo = aie_meta.get_child_optional("mladf_metadata.Microcontrollers");
+    if (!activeUCInfo) {
+        // Fall back to root-level Microcontrollers
+        activeUCInfo = aie_meta.get_child_optional("Microcontrollers");
+    }
     if (!activeUCInfo) {
        xrt_core::message::send(severity_level::info, "XRT", getMessage("Microcontrollers"));
        return {}; 

@@ -156,6 +156,8 @@ namespace xdp {
     uint8_t burstLength;
     // I/O type
     io_type type;
+    // Buffer descriptor ID for DMA configuration (default: 14 for channel 0, 15 for channel 1)
+    uint16_t bufferDescriptorId = UINT16_MAX;
   };
 
   /*
@@ -203,14 +205,16 @@ namespace xdp {
     uint8_t channelNumber;
     uint8_t streamId;
     uint8_t burstLength;
+    uint16_t bufferDescriptorId;
 
     TraceGMIO(uint32_t i, uint8_t col, uint8_t num, 
-              uint8_t stream, uint8_t len)
+              uint8_t stream, uint8_t len, uint16_t bdId = UINT16_MAX)
       : id(i)
       , shimColumn(col)
       , channelNumber(num)
       , streamId(stream)
       , burstLength(len)
+      , bufferDescriptorId((bdId == UINT16_MAX) ? (14 + num) : bdId)
     {}
   };
 

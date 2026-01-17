@@ -122,9 +122,21 @@ namespace xdp {
     xrt::hw_context hwContext = xrt_core::hw_context_int::create_hw_context_from_implementation(hwCtxImpl);
     std::shared_ptr<xrt_core::device> coreDevice = xrt_core::hw_context_int::get_core_device(hwContext);
 
+    xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Identify flow type");
+
+    bool isFullELFFlow = false;
+    try {
+      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
+    } catch (const std::exception& e) {
+      std::stringstream msg;
+      msg << e.what() << " ML Timeline cannot be enabled for current hardware context." << std::endl;   
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
+      return;
+    }
+
     uint64_t deviceId = 0;
     uint64_t implId   = 0;
-    if (xrt_core::hw_context_int::get_elf_flow(hwContext)) {
+    if (isFullELFFlow) {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "In Full ELF flow");
 
       deviceId = (db->getStaticInfo()).getHwCtxImplUidElf(hwCtxImpl);
@@ -175,9 +187,21 @@ namespace xdp {
       return;
     }
 
+    xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Identify flow type");
+
+    bool isFullELFFlow = false;
+    try {
+      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
+    } catch (const std::exception& e) {
+      std::stringstream msg;
+      msg << e.what() << " ML Timeline cannot be enabled for current hardware context." << std::endl;   
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
+      return;
+    }
+
     uint64_t deviceId = 0;
     uint64_t implId   = 0;
-    if (xrt_core::hw_context_int::get_elf_flow(hwContext)) {
+    if (isFullELFFlow) {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "In Full ELF flow");
 
       deviceId = (db->getStaticInfo()).getHwCtxImplUidElf(hwCtxImpl);

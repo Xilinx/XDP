@@ -107,6 +107,8 @@ namespace xdp::aie::profile {
       {"output_throughputs",        {XAIE_EVENT_GROUP_DMA_ACTIVITY_PL, XAIE_EVENT_PORT_RUNNING_0_PL}},
       {METRIC_BYTE_COUNT,           {XAIE_EVENT_PORT_RUNNING_0_PL,     XAIE_EVENT_PORT_RUNNING_0_PL}},
       {METRIC_LATENCY,              {XAIE_EVENT_PORT_RUNNING_0_PL,     XAIE_EVENT_PORT_RUNNING_0_PL}},
+      {"ddr_throughput",            {XAIE_EVENT_PORT_RUNNING_0_PL,     XAIE_EVENT_PORT_RUNNING_1_PL,
+                                     XAIE_EVENT_PORT_RUNNING_2_PL,     XAIE_EVENT_PORT_RUNNING_3_PL}},
     };
 
     if (aie::isAIE1(hwGen)) {

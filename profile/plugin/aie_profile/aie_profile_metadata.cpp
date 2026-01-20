@@ -122,12 +122,36 @@ namespace xdp {
       "tile_based_aie_metrics", "tile_based_aie_memory_metrics",
       "tile_based_memory_tile_metrics", "tile_based_interface_tile_metrics",
       "interval_us", "interface_tile_latency", "start_type", "start_iteration",
-      "tile_based_microcontroller_metrics", "config_one_partition"};
+      "tile_based_microcontroller_metrics", "config_one_partition", "dtrace_debug"};
     const std::map<std::string, std::string> deprecatedSettings {
       {"aie_profile_core_metrics", "AIE_profile_settings.graph_based_aie_metrics or tile_based_aie_metrics"},
       {"aie_profile_memory_metrics", "AIE_profile_settings.graph_based_aie_memory_metrics or tile_based_aie_memory_metrics"},
       {"aie_profile_interface_metrics", "AIE_profile_settings.tile_based_interface_tile_metrics"},
       {"aie_profile_interval_us", "AIE_profile_settings.interval_us"}};
+
+    // Check dtrace_debug configuration requirements
+    std::string dtraceDebug = xrt_core::config::get_aie_profile_settings_dtrace_debug();
+    if (!dtraceDebug.empty()) {
+      std::string dtraceLibPath = xrt_core::config::get_dtrace_lib_path();
+      if (dtraceLibPath.empty()) {
+        std::stringstream msg;
+        msg << "AIE_profile_settings.dtrace_debug is set to '" << dtraceDebug 
+            << "' but Debug.dtrace_lib_path is not specified. "
+            << "Please set Debug.dtrace_lib_path=<design_path>/libcert_dtrace_arm.so in xrt.ini";
+        xrt_core::message::send(severity_level::warning, "XRT", msg.str());
+      }
+
+      bool mlTimeline = xrt_core::config::get_ml_timeline();
+      bool aieProfile = xrt_core::config::get_aie_profile();
+      if (!mlTimeline || !aieProfile) {
+        std::stringstream msg;
+        msg << "AIE_profile_settings.dtrace_debug is set to '" << dtraceDebug 
+            << "' but requires both Debug.ml_timeline=true and Debug.aie_profile=true. "
+            << "Current settings: ml_timeline=" << (mlTimeline ? "true" : "false")
+            << ", aie_profile=" << (aieProfile ? "true" : "false");
+        xrt_core::message::send(severity_level::warning, "XRT", msg.str());
+      }
+    }
 
     // Verify settings in AIE_profile_settings section
     auto tree1 = xrt_core::config::detail::get_ptree_value("AIE_profile_settings");

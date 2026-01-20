@@ -405,7 +405,9 @@ namespace xdp {
           auto endEvent      = endEvents.at(i);
           auto resetEvent    = XAIE_EVENT_NONE_CORE;
           auto portnum       = xdp::aie::getPortNumberFromEvent(startEvent);
-          uint8_t channel    = (portnum == 0) ? channel0 : channel1;
+          // For metric sets with 4 ports (like ddr_throughput), use modulo for channel mapping
+          uint8_t channelNum = portnum % 2;
+          uint8_t channel    = (channelNum == 0) ? channel0 : channel1;
 
           // Configure group event before reserving and starting counter
           aie::profile::configGroupEvents(aieDevInst, loc, mod, type, metricSet, startEvent, channel);

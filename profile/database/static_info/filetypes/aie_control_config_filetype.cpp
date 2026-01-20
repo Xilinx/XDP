@@ -172,14 +172,13 @@ AIEControlConfigFiletype::getTraceGMIOs() const
             gmio.slaveOrMaster = 0;  // S2MM for trace
             
             // Get buffer_descriptor_ids array and use the first element
+            // Default to UINT16_MAX if not found (computed in offload based on platform)
             auto bdIds = dma_node.second.get_child_optional("buffer_descriptor_ids");
             if (bdIds) {
                 for (auto& bd : bdIds.get()) {
                     gmio.bufferDescriptorId = bd.second.get_value<uint16_t>();
                     break;  // Use first BD ID
                 }
-            } else {
-                gmio.bufferDescriptorId = 14 + gmio.channelNum;
             }
 
             std::string gmioKey = xdp::aie::getGraphUniqueId(gmio);
@@ -272,9 +271,7 @@ AIEControlConfigFiletype::getChildGMIOs( const std::string& childStr) const
         gmio.channelNum = (slaveOrMaster == 0) ? (channelNumber - 2) : channelNumber;
         gmio.streamId = gmio_node.second.get<uint8_t>("stream_id");
         gmio.burstLength = gmio_node.second.get<uint8_t>("burst_length_in_16byte");
-        // Only set default BD ID for trace GMIOs (channel 0 -> BD 14, channel 1 -> BD 15)
-        if (isTrace)
-            gmio.bufferDescriptorId = 14 + gmio.channelNum;
+        // BD ID defaults to UINT16_MAX (computed in offload based on platform)
 
         std::string gmioKey = xdp::aie::getGraphUniqueId(gmio);
         gmios[gmioKey] = gmio;

@@ -214,7 +214,7 @@ namespace xdp {
       , channelNumber(num)
       , streamId(stream)
       , burstLength(len)
-      , bufferDescriptorId((bdId == UINT16_MAX) ? (14 + num) : bdId)
+      , bufferDescriptorId(bdId)
     {}
   };
 

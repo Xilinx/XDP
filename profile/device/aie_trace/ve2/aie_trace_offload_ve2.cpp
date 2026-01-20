@@ -159,8 +159,10 @@ bool AIETraceOffload::initReadTrace()
 
       XAie_DmaEnableBd(&(gmioDMAInsts[i].shimDmaInst));
 
-      // Use buffer descriptor ID from metadata
-      uint16_t bdNum = traceGMIO->bufferDescriptorId;
+      // Compute BD: use metadata value if set, otherwise channelNumber * 4
+      uint16_t bdNum = (traceGMIO->bufferDescriptorId != UINT16_MAX) 
+                       ? traceGMIO->bufferDescriptorId 
+                       : channelNumber * 4;
       std::stringstream bdMsg;
       bdMsg << "AIE Trace: Using BD " << bdNum << " for channel " << (int)channelNumber
             << " on shim column " << (int)traceGMIO->shimColumn;

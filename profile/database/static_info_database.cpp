@@ -450,6 +450,21 @@ namespace xdp {
     // Check if new xclbin has new PL metadata
     if ((newXclbinType == XCLBIN_AIE_PL) || (newXclbinType == XCLBIN_PL_ONLY))
     {
+      if (deviceId) {
+        if ((!config->plDeviceIntf) && (getAppStyle() == AppStyle::REGISTER_XCLBIN_STYLE)) {
+          xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", " Create PL Device For AIE Register xclbin ");
+          // If AIE_ONLY xclbin loaded first, dummy PLDeviceIntf is created
+          if (deviceInfo.find(DEFAULT_PL_DEVICE_ID) == deviceInfo.end()) {
+            deviceInfo[DEFAULT_PL_DEVICE_ID] = std::make_unique<DeviceInfo>();
+            deviceInfo[DEFAULT_PL_DEVICE_ID]->createEmptyConfig();
+            ConfigInfo* plConfig = deviceInfo[DEFAULT_PL_DEVICE_ID]->currentConfig();
+            plConfig->type = CONFIG_PL_DEVICE_INTF_ONLY;
+            plConfig->plDeviceIntf = new PLDeviceIntf();
+            plConfig->plDeviceIntf->setDevice(std::move(dev));
+          }
+          return;
+        }
+      }
       /* Delete previous dummy plDeviceIntf if available and re-create using xclbin with PL.
       * For now, if HW Ctx for PL xclbin is created after a dummy PL Device Interface has been created for AIE only xclbin (for aie_trace), 
       * XDP errors out and aborts while processing the new PL xclbin. 
@@ -1733,6 +1748,14 @@ namespace xdp {
     }
 
     auto device = util::convertToCoreDevice(hwCtxImpl, true);
+
+    if (xrt_core::config::get_xdp_mode() == "xdna" && device->get_device_id() == 0) {
+       db->associateContextWithId(nextAieOnlyHwCtxUId, hwCtxImpl);
+
+       hwCtxImplUIDMap.emplace(hwCtxImpl, HwContextInfo(nextAieOnlyHwCtxUId++, 1));
+       return hwCtxImplUIDMap.at(hwCtxImpl).uid;
+    }
+
     xrt::uuid loadedXclbinUuid = getXclbinUuidOnDeviceHwCtxFlow(hwCtxImpl);
     xrt::xclbin loadedXclbin     = device->get_xclbin(loadedXclbinUuid);
     XclbinInfoType loadedXclbinType = getXclbinType(loadedXclbin);

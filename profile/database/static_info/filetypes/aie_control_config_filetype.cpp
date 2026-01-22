@@ -246,9 +246,6 @@ AIEControlConfigFiletype::getChildGMIOs( const std::string& childStr) const
         return {};
     }
 
-    // Only set default BD for trace GMIOs
-    bool isTrace = (childStr.find("Trace") != std::string::npos);
-
     std::unordered_map<std::string, io_config> gmios;
 
     for (auto& gmio_node : gmiosMetadata.get()) {

@@ -4,6 +4,7 @@
 #define XDP_PLUGIN_SOURCE 
 
 #include "xdp/profile/plugin/aie_profile/ve2/aie_profile.h"
+#include "xdp/profile/plugin/aie_profile/ve2/aie_profile_ct_writer.h"
 #include "xdp/profile/plugin/aie_profile/aie_profile_defs.h"
 #include "xdp/profile/plugin/aie_profile/aie_profile_metadata.h"
 #include "xdp/profile/plugin/aie_profile/util/aie_profile_util.h"
@@ -106,6 +107,13 @@ namespace xdp {
       }
 
       bool runtimeCounters = setMetricsSettings(deviceID, metadata->getHandle());
+
+      std::cout << "Debug: runtimeCounters: " << runtimeCounters << std::endl;
+      // Generate CT file for AIE profile counters after metrics settings are configured
+      if (runtimeCounters) {
+        AieProfileCTWriter ctWriter(db, metadata, deviceID);
+        ctWriter.generate();
+      }
   
       if (!runtimeCounters) {
         std::shared_ptr<xrt_core::device> device = xrt_core::get_userpf_device(metadata->getHandle());

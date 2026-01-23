@@ -175,9 +175,9 @@ AIEControlConfigFiletype::getTraceGMIOs() const
             // Default to UINT16_MAX if not found (computed in offload based on platform)
             auto bdIds = dma_node.second.get_child_optional("buffer_descriptor_ids");
             if (bdIds) {
-                for (auto& bd : bdIds.get()) {
-                    gmio.bufferDescriptorId = bd.second.get_value<uint16_t>();
-                    break;  // Use first BD ID
+                auto e = bdIds.get();
+                if (!e.empty()) {
+                  gmio.bufferDescriptorId = e.front().second.get_value<uint16_t>();
                 }
             }
 

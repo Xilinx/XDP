@@ -137,6 +137,10 @@ namespace xdp {
     uint64_t deviceId = 0;
     uint64_t implId   = 0;
     if (isFullELFFlow) {
+      /* For Full ELF flow, debug buffer configuration happens only once
+       * for a fully configured HWCtx, even if multiple elfs are loaded.
+       * For now, number of uCs in the first ELF is considered.
+       */
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "In Full ELF flow");
 
       deviceId = (db->getStaticInfo()).getHwCtxImplUidElf(hwCtxImpl);

@@ -323,7 +323,8 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
             // Catch metric sets that don't follow above naming convention
             if ((metricStr != "packets") &&
                 (metricStr != METRIC_LATENCY) &&
-                (metricStr != METRIC_BYTE_COUNT))
+                (metricStr != METRIC_BYTE_COUNT) &&
+                (metricStr != "ddr_throughput"))
                 continue;
         }
 
@@ -406,6 +407,28 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
         std::string msg = "No shim tiles used specified ID " + std::to_string(specifiedId) 
                         + ". Please specify a valid ID for AIE Profiling. ";
         xrt_core::message::send(severity_level::warning, "XRT", msg);
+    }
+
+    // For ddr_throughput, ensure we have 4 ports (2 MM2S + 2 S2MM) per tile
+    // Synthesize missing ports if design only has GMIOs in one direction
+    if (metricStr == "ddr_throughput") {
+        for (auto& tile : tiles) {
+            while (tile.stream_ids.size() < 4) {
+                uint8_t nextStreamId = tile.stream_ids.size();
+                tile.stream_ids.push_back(nextStreamId);
+                // Ports 0-1 are slave (MM2S), ports 2-3 are master (S2MM)
+                bool isMaster = (nextStreamId >= 2);
+                tile.is_master_vec.push_back(isMaster);
+                
+                if (aie::isDebugVerbosity()) {
+                    std::stringstream msg;
+                    msg << "ddr_throughput: Synthesizing missing " 
+                        << (isMaster ? "S2MM" : "MM2S") << " port " << (int)nextStreamId
+                        << " for interface tile (" << +tile.col << "," << +tile.row << ")";
+                    xrt_core::message::send(severity_level::debug, "XRT", msg.str());
+                }
+            }
+        }
     }
 
     return tiles;

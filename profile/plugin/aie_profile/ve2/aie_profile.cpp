@@ -25,7 +25,10 @@
 
 #include "core/common/message.h"
 #include "core/common/time.h"
+#include "core/common/config_reader.h"
 #include "core/include/xrt/xrt_kernel.h"
+
+#include <filesystem>
 #include "core/common/shim/hwctx_handle.h"
 #include "core/common/api/hw_context_int.h"
 #include "shim_ve2/xdna_hwctx.h"
@@ -75,6 +78,15 @@ namespace xdp {
     shimStartEvents = aie::profile::getInterfaceTileEventSets(hwGen);
     shimEndEvents = shimStartEvents;
     shimEndEvents[METRIC_BYTE_COUNT] = {XAIE_EVENT_PORT_RUNNING_0_PL, XAIE_EVENT_PERF_CNT_0_PL};
+    
+    if (aie::isDebugVerbosity()) {
+      auto it = shimStartEvents.find("ddr_throughput");
+      if (it != shimStartEvents.end()) {
+        std::stringstream msg;
+        msg << "ddr_throughput event set has " << it->second.size() << " events";
+        xrt_core::message::send(severity_level::debug, "XRT", msg.str());
+      }
+    }
 
     memTileStartEvents = aie::profile::getMemoryTileEventSets(hwGen);
     memTileEndEvents = memTileStartEvents;
@@ -99,6 +111,25 @@ namespace xdp {
       if(!checkAieDevice(deviceID, metadata->getHandle()))
               return;
 
+      // Check if dtrace_debug is enabled and set control file path BEFORE submitNopElf
+      // This is critical because xrt_module.cpp calls get_dtrace_control_file_path() 
+      // during module creation, and config reader locks keys after first access
+      bool dtraceDebug = xrt_core::config::get_aie_profile_settings_dtrace_debug();
+      if (dtraceDebug) {
+        std::string ctFilePath = (std::filesystem::current_path() / "aie_profile.ct").string();
+        try {
+          xrt_core::config::detail::set("Debug.dtrace_control_file_path", ctFilePath);
+          std::stringstream msg;
+          msg << "AIE Profile: Set dtrace_control_file_path to '" << ctFilePath << "'";
+          xrt_core::message::send(severity_level::info, "XRT", msg.str());
+        }
+        catch (const std::exception& e) {
+          std::stringstream msg;
+          msg << "AIE Profile: Could not set dtrace_control_file_path: " << e.what();
+          xrt_core::message::send(severity_level::warning, "XRT", msg.str());
+        }
+      }
+
       // Submit nop.elf before configuring profile
       if (!aie::submitNopElf(metadata->getHandle())) {
         xrt_core::message::send(severity_level::warning, "XRT",
@@ -110,7 +141,7 @@ namespace xdp {
 
       std::cout << "Debug: runtimeCounters: " << runtimeCounters << std::endl;
       // Generate CT file for AIE profile counters after metrics settings are configured
-      if (runtimeCounters) {
+      if (runtimeCounters && dtraceDebug) {
         AieProfileCTWriter ctWriter(db, metadata, deviceID);
         ctWriter.generate();
       }
@@ -350,6 +381,19 @@ namespace xdp {
 
         int numCounters  = 0;
         auto numFreeCtr  = stats.getNumRsc(loc, mod, xaiefal::XAIE_PERFCOUNT);
+        if ((type == module_type::shim) && (metricSet == "ddr_throughput")) {
+          numFreeCtr = startEvents.size();  // Use all 4 events
+        }
+        
+        if (aie::isDebugVerbosity() && (metricSet == "ddr_throughput")) {
+          std::stringstream msg;
+          msg << "ddr_throughput counter reservation: tile (" << +col << "," << +row 
+              << ") startEvents.size()=" << startEvents.size()
+              << " hardware_counters=" << numFreeCtr
+              << " tile.stream_ids.size()=" << tile.stream_ids.size();
+          xrt_core::message::send(severity_level::debug, "XRT", msg.str());
+        }
+        
         numFreeCtr = (startEvents.size() < numFreeCtr) ? startEvents.size() : numFreeCtr;
 
         int numFreeCtrSS = numFreeCtr;

@@ -130,13 +130,13 @@ namespace xdp {
       {"aie_profile_interval_us", "AIE_profile_settings.interval_us"}};
 
     // Check dtrace_debug configuration requirements
-    std::string dtraceDebug = xrt_core::config::get_aie_profile_settings_dtrace_debug();
-    if (!dtraceDebug.empty()) {
+    bool dtraceDebug = xrt_core::config::get_aie_profile_settings_dtrace_debug();
+    if (dtraceDebug) {
       std::string dtraceLibPath = xrt_core::config::get_dtrace_lib_path();
       if (dtraceLibPath.empty()) {
         std::stringstream msg;
-        msg << "AIE_profile_settings.dtrace_debug is set to '" << dtraceDebug 
-            << "' but Debug.dtrace_lib_path is not specified. "
+        msg << "AIE_profile_settings.dtrace_debug is enabled "
+            << "but Debug.dtrace_lib_path is not specified. "
             << "Please set Debug.dtrace_lib_path=<design_path>/libcert_dtrace_arm.so in xrt.ini";
         xrt_core::message::send(severity_level::warning, "XRT", msg.str());
       }
@@ -145,8 +145,8 @@ namespace xdp {
       bool aieProfile = xrt_core::config::get_aie_profile();
       if (!mlTimeline || !aieProfile) {
         std::stringstream msg;
-        msg << "AIE_profile_settings.dtrace_debug is set to '" << dtraceDebug 
-            << "' but requires both Debug.ml_timeline=true and Debug.aie_profile=true. "
+        msg << "AIE_profile_settings.dtrace_debug is enabled "
+            << "but requires both Debug.ml_timeline=true and Debug.aie_profile=true. "
             << "Current settings: ml_timeline=" << (mlTimeline ? "true" : "false")
             << ", aie_profile=" << (aieProfile ? "true" : "false");
         xrt_core::message::send(severity_level::warning, "XRT", msg.str());

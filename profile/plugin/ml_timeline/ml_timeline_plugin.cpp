@@ -129,7 +129,7 @@ namespace xdp {
       isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
     } catch (const std::exception& e) {
       std::stringstream msg;
-      msg << e.what() << " ML Timeline cannot be enabled for current hardware context." << std::endl;   
+      msg << e.what() << " ML Timeline cannot be enabled before complete configuration." << std::endl;
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
       return;
     }

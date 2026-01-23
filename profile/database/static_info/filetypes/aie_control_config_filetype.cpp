@@ -177,7 +177,7 @@ AIEControlConfigFiletype::getTraceGMIOs() const
             if (bdIds) {
                 auto e = bdIds.get();
                 if (!e.empty()) {
-                  gmio.bufferDescriptorId = e.front().second.get_value<uint16_t>();
+                    gmio.bufferDescriptorId = e.front().second.get_value<uint16_t>();
                 }
             }
 

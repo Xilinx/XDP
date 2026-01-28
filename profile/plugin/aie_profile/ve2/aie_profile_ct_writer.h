@@ -85,17 +85,11 @@ public:
 
 private:
   /**
-   * @brief Search for aie_runtime_control<id>.asm files in current directory
-   * @return Vector of ASMFileInfo structures for found files
+   * @brief Read ASM file information from CSV file
+   * @param csvPath Path to the CSV file (aie_profile_timestamps.csv)
+   * @return Vector of ASMFileInfo structures with timestamps
    */
-  std::vector<ASMFileInfo> findASMFiles();
-
-  /**
-   * @brief Parse an ASM file to find SAVE_TIMESTAMPS instructions
-   * @param filepath Path to the ASM file
-   * @return Vector of SaveTimestampInfo for found SAVE_TIMESTAMPS lines
-   */
-  std::vector<SaveTimestampInfo> parseSaveTimestamps(const std::string& filepath);
+  std::vector<ASMFileInfo> readASMInfoFromCSV(const std::string& csvPath);
 
   /**
    * @brief Get all configured AIE counters from the database

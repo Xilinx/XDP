@@ -15,6 +15,8 @@
 #include <iomanip>
 #include <regex>
 #include <sstream>
+#include <vector>
+#include <numeric>
 
 namespace xdp {
 
@@ -38,11 +40,12 @@ AieProfileCTWriter::AieProfileCTWriter(VPDatabase* database,
 
 bool AieProfileCTWriter::generate()
 {
-  // Step 1: Find all aie_runtime_control<id>.asm files
-  auto asmFiles = findASMFiles();
+  // Step 1: Read ASM file information from CSV
+  std::string csvPath = (fs::current_path() / "aie_profile_timestamps.csv").string();
+  auto asmFiles = readASMInfoFromCSV(csvPath);
   if (asmFiles.empty()) {
     xrt_core::message::send(severity_level::debug, "XRT",
-        "No aie_runtime_control<id>.asm files found. CT file will not be generated.");
+        "No ASM file information found in CSV. CT file will not be generated.");
     return false;
   }
 
@@ -54,11 +57,9 @@ bool AieProfileCTWriter::generate()
     return false;
   }
 
-  // Step 3: Parse SAVE_TIMESTAMPS and filter counters for each ASM file
+  // Step 3: Filter counters for each ASM file's column range
   bool hasTimestamps = false;
   for (auto& asmFile : asmFiles) {
-    // Parse SAVE_TIMESTAMPS from ASM file
-    asmFile.timestamps = parseSaveTimestamps(asmFile.filename);
     if (!asmFile.timestamps.empty())
       hasTimestamps = true;
 
@@ -70,7 +71,7 @@ bool AieProfileCTWriter::generate()
 
   if (!hasTimestamps) {
     xrt_core::message::send(severity_level::debug, "XRT",
-        "No SAVE_TIMESTAMPS instructions found in ASM files. CT file will not be generated.");
+        "No SAVE_TIMESTAMPS instructions found in CSV. CT file will not be generated.");
     return false;
   }
 
@@ -78,44 +79,118 @@ bool AieProfileCTWriter::generate()
   return writeCTFile(asmFiles, allCounters);
 }
 
-std::vector<ASMFileInfo> AieProfileCTWriter::findASMFiles()
+std::vector<ASMFileInfo> AieProfileCTWriter::readASMInfoFromCSV(const std::string& csvPath)
 {
   std::vector<ASMFileInfo> asmFiles;
+
+  std::ifstream csvFile(csvPath);
+  if (!csvFile.is_open()) {
+    std::stringstream msg;
+    msg << "Unable to open CSV file: " << csvPath << ". Please run parse_aie_runtime_to_csv.py first.";
+    xrt_core::message::send(severity_level::warning, "XRT", msg.str());
+    return asmFiles;
+  }
+
+  std::string line;
+  bool isHeader = true;
+  int lineNum = 0;
   
-  // Regex pattern to match aie_runtime_control<id>.asm
+  // Regex pattern to extract ASM ID from filename
   std::regex filenamePattern(R"(aie_runtime_control(\d+)\.asm)");
-  std::smatch match;
 
   try {
-    // Search recursively in current working directory and all subdirectories
-    for (const auto& entry : fs::recursive_directory_iterator(fs::current_path())) {
-      if (!entry.is_regular_file())
+    while (std::getline(csvFile, line)) {
+      lineNum++;
+      
+      // Skip header
+      if (isHeader) {
+        isHeader = false;
+        continue;
+      }
+
+      // Skip empty lines
+      if (line.empty())
         continue;
 
-      std::string filename = entry.path().filename().string();
-      if (std::regex_match(filename, match, filenamePattern)) {
-        ASMFileInfo info;
-        info.filename = entry.path().string();
+      // Parse CSV line: filepath,filename,line_numbers
+      // line_numbers is comma-separated like "6,8,293,439,..."
+      std::vector<std::string> fields;
+      std::string field;
+      bool inQuote = false;
+      
+      for (char c : line) {
+        if (c == '"') {
+          inQuote = !inQuote;
+        } else if (c == ',' && !inQuote) {
+          fields.push_back(field);
+          field.clear();
+        } else {
+          field += c;
+        }
+      }
+      fields.push_back(field);  // Add last field
+
+      // Need exactly 3 fields
+      if (fields.size() != 3) {
+        std::stringstream msg;
+        msg << "Invalid CSV format at line " << lineNum << ": expected 3 fields, got " << fields.size();
+        xrt_core::message::send(severity_level::warning, "XRT", msg.str());
+        continue;
+      }
+
+      ASMFileInfo info;
+      info.filename = fields[1];  // filename column
+      
+      // Extract ASM ID from filename
+      std::smatch match;
+      if (std::regex_search(info.filename, match, filenamePattern)) {
         info.asmId = std::stoi(match[1].str());
         info.ucNumber = 4 * info.asmId;
         info.colStart = info.asmId * 4;
         info.colEnd = info.colStart + 3;
-
-        asmFiles.push_back(info);
-
+      } else {
         std::stringstream msg;
-        msg << "Found ASM file: " << info.filename << " (id=" << info.asmId 
-            << ", uc=" << info.ucNumber << ", columns " << info.colStart 
-            << "-" << info.colEnd << ")";
-        xrt_core::message::send(severity_level::debug, "XRT", msg.str());
+        msg << "Unable to extract ASM ID from filename: " << info.filename;
+        xrt_core::message::send(severity_level::warning, "XRT", msg.str());
+        continue;
       }
+
+      // Parse line numbers (comma-separated string)
+      std::string lineNumbersStr = fields[2];
+      std::stringstream ss(lineNumbersStr);
+      std::string lineNumStr;
+      
+      while (std::getline(ss, lineNumStr, ',')) {
+        if (!lineNumStr.empty()) {
+          try {
+            SaveTimestampInfo ts;
+            ts.lineNumber = std::stoi(lineNumStr);
+            ts.optionalIndex = -1;  // Not used in simplified format
+            info.timestamps.push_back(ts);
+          } catch (const std::exception& e) {
+            std::stringstream msg;
+            msg << "Error parsing line number '" << lineNumStr << "' in " << info.filename;
+            xrt_core::message::send(severity_level::warning, "XRT", msg.str());
+          }
+        }
+      }
+
+      asmFiles.push_back(info);
+
+      std::stringstream msg;
+      msg << "Loaded " << info.filename << " (id=" << info.asmId 
+          << ", uc=" << info.ucNumber << ", columns " << info.colStart 
+          << "-" << info.colEnd << ", " << info.timestamps.size() << " timestamps)";
+      xrt_core::message::send(severity_level::debug, "XRT", msg.str());
     }
   }
   catch (const std::exception& e) {
     std::stringstream msg;
-    msg << "Error searching for ASM files: " << e.what();
+    msg << "Error parsing CSV at line " << lineNum << ": " << e.what();
     xrt_core::message::send(severity_level::warning, "XRT", msg.str());
   }
+
+  csvFile.close();
 
   // Sort by ASM ID for consistent output
   std::sort(asmFiles.begin(), asmFiles.end(), 
@@ -123,52 +198,16 @@ std::vector<ASMFileInfo> AieProfileCTWriter::findASMFiles()
               return a.asmId < b.asmId;
             });
 
-  return asmFiles;
-}
-
-std::vector<SaveTimestampInfo> AieProfileCTWriter::parseSaveTimestamps(const std::string& filepath)
-{
-  std::vector<SaveTimestampInfo> timestamps;
-
-  std::ifstream file(filepath);
-  if (!file.is_open()) {
-    std::stringstream msg;
-    msg << "Unable to open ASM file: " << filepath;
-    xrt_core::message::send(severity_level::warning, "XRT", msg.str());
-    return timestamps;
-  }
-
-  // Regex pattern to match SAVE_TIMESTAMPS with optional index
-  // Matches: "SAVE_TIMESTAMPS" or "SAVE_TIMESTAMPS <number>"
-  std::regex timestampPattern(R"(\s*SAVE_TIMESTAMPS\s*(\d*))", std::regex::icase);
-  std::smatch match;
-
-  std::string line;
-  uint32_t lineNumber = 0;
-
-  while (std::getline(file, line)) {
-    lineNumber++;
-
-    if (std::regex_search(line, match, timestampPattern)) {
-      SaveTimestampInfo info;
-      info.lineNumber = lineNumber;
-      
-      // Check if an optional index was provided
-      if (match[1].matched && !match[1].str().empty()) {
-        info.optionalIndex = std::stoi(match[1].str());
-      } else {
-        info.optionalIndex = -1;
-      }
-
-      timestamps.push_back(info);
-    }
-  }
-
   std::stringstream msg;
-  msg << "Found " << timestamps.size() << " SAVE_TIMESTAMPS in " << filepath;
-  xrt_core::message::send(severity_level::debug, "XRT", msg.str());
+  msg << "Loaded " << asmFiles.size() << " ASM files from CSV with "
+      << std::accumulate(asmFiles.begin(), asmFiles.end(), 0,
+                        [](int sum, const ASMFileInfo& info) { 
+                          return sum + info.timestamps.size(); 
+                        })
+      << " total SAVE_TIMESTAMPS";
+  xrt_core::message::send(severity_level::info, "XRT", msg.str());
 
-  return timestamps;
+  return asmFiles;
 }
 
 std::vector<CTCounterInfo> AieProfileCTWriter::getConfiguredCounters()

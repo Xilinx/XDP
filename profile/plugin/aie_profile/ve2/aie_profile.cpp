@@ -197,6 +197,9 @@ namespace xdp {
       uint8_t idToReport = (tile.subtype == io_type::GMIO) ? channel : streamPortId;
       uint8_t isChannel  = (tile.subtype == io_type::GMIO) ? 1 : 0;
       uint8_t isMaster = aie::isInputSet(type, metricSet)  ? 0 : 1;
+      if ((type == module_type::shim) && (metricSet == "ddr_throughput")) {
+        isMaster = tile.is_master_vec.at(portnum);
+      }
 
       return ((isMaster << PAYLOAD_IS_MASTER_SHIFT)
              | (isChannel << PAYLOAD_IS_CHANNEL_SHIFT) | idToReport);
@@ -381,9 +384,6 @@ namespace xdp {
 
         int numCounters  = 0;
         auto numFreeCtr  = stats.getNumRsc(loc, mod, xaiefal::XAIE_PERFCOUNT);
-        if ((type == module_type::shim) && (metricSet == "ddr_throughput")) {
-          numFreeCtr = startEvents.size();  // Use all 4 events
-        }
         
         if (aie::isDebugVerbosity() && (metricSet == "ddr_throughput")) {
           std::stringstream msg;
@@ -395,6 +395,9 @@ namespace xdp {
         }
         
         numFreeCtr = (startEvents.size() < numFreeCtr) ? startEvents.size() : numFreeCtr;
+        if ((type == module_type::shim) && (metricSet == "ddr_throughput")) {
+          numFreeCtr = tile.stream_ids.size();
+        }
 
         int numFreeCtrSS = numFreeCtr;
         if (aie::profile::profileAPIMetricSet(metricSet)) {

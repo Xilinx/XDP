@@ -324,7 +324,9 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
             if ((metricStr != "packets") &&
                 (metricStr != METRIC_LATENCY) &&
                 (metricStr != METRIC_BYTE_COUNT) &&
-                (metricStr != "ddr_throughput"))
+                (metricStr != "ddr_throughput") &&
+                (metricStr != "read_throughput") &&
+                (metricStr != "write_throughput"))
                 continue;
         }
 
@@ -350,8 +352,18 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
         auto it = std::find_if(tiles.begin(), tiles.end(), compareTileByLoc(tile));
         if (it != tiles.end()) {
             // Add to the existing lists of stream IDs and master/slave
-            it->stream_ids.push_back(streamId);
-            it->is_master_vec.push_back(isMaster);
+            if ((type == module_type::shim) {
+              if ((metricStr == "read_throughput") && (!isMaster)) {
+                it->stream_ids.push_back(streamId);
+                it->is_master_vec.push_back(isMaster);
+              } else if ((metricStr == "write_throughput") && (isMaster)) {
+                it->stream_ids.push_back(streamId);
+                it->is_master_vec.push_back(isMaster);
+              }
+            } else {
+              it->stream_ids.push_back(streamId);
+              it->is_master_vec.push_back(isMaster);
+            }
 
             // Use direct indexing by streamId with bounds checking
             if (streamId < it->port_names.size()) {
@@ -375,8 +387,17 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
         }
         else {
             // Add first stream ID and master/slave to vectors
-            tile.stream_ids.push_back(streamId);
-            tile.is_master_vec.push_back(isMaster);
+            if ((metricStr == "read_throughput") && (!isMaster)) {
+                it->stream_ids.push_back(streamId);
+                it->is_master_vec.push_back(isMaster);
+            } else if ((metricStr == "write_throughput") && (isMaster)) {
+                it->stream_ids.push_back(streamId);
+                it->is_master_vec.push_back(isMaster);
+            }
+            else {
+                tile.stream_ids.push_back(streamId);
+                tile.is_master_vec.push_back(isMaster);
+            }
 
             // Set port name at specific index with bounds checking
             if (streamId < tile.port_names.size()) {

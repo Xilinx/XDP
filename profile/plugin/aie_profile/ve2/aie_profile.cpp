@@ -197,7 +197,7 @@ namespace xdp {
       uint8_t idToReport = (tile.subtype == io_type::GMIO) ? channel : streamPortId;
       uint8_t isChannel  = (tile.subtype == io_type::GMIO) ? 1 : 0;
       uint8_t isMaster = aie::isInputSet(type, metricSet)  ? 0 : 1;
-      if ((type == module_type::shim) && (metricSet == "ddr_throughput")) {
+      if ((type == module_type::shim) && ((metricSet == "ddr_throughput") || (metricSet == "read_throughput") || (metricSet == "write_throughput")) {
         isMaster = tile.is_master_vec.at(portnum);
       }
 

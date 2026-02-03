@@ -359,22 +359,21 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
               } else if ((metricStr == "write_throughput") && (isMaster)) {
                 it->stream_ids.push_back(streamId);
                 it->is_master_vec.push_back(isMaster);
+              } else if ((metricStr != "read_throughput") && (metricStr != "write_throughput")) {
+                it->stream_ids.push_back(streamId);
+                it->is_master_vec.push_back(isMaster);
               }
-            } else {
-              it->stream_ids.push_back(streamId);
-              it->is_master_vec.push_back(isMaster);
-            }
 
-            // Use direct indexing by streamId with bounds checking
-            if (streamId < it->port_names.size()) {
+              // Use direct indexing by streamId with bounds checking
+              if (streamId < it->port_names.size()) {
                 it->port_names[streamId] = name;
-            } else {
+              } else {
                 xrt_core::message::send(severity_level::info, "XRT",
                     "Interface tile streamId " + std::to_string(streamId) +
                     " exceeds maximum ports (" + std::to_string(it->port_names.size()) +
                     "). Unable to store port name.");
+              }
             }
-
             // For GMIOs, also populate mm2s_names and s2mm_names using channelNum
             if (type == io_type::GMIO) {
                 if (channelNum < NUM_MEM_CHANNELS) {
@@ -386,15 +385,15 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
             }
         }
         else {
-            // Add first stream ID and master/slave to vectors
+            // Add first stream ID and master/slave to vectors for new tile
             if ((metricStr == "read_throughput") && (!isMaster)) {
-                it->stream_ids.push_back(streamId);
-                it->is_master_vec.push_back(isMaster);
+                tile.stream_ids.push_back(streamId);
+                tile.is_master_vec.push_back(isMaster);
             } else if ((metricStr == "write_throughput") && (isMaster)) {
-                it->stream_ids.push_back(streamId);
-                it->is_master_vec.push_back(isMaster);
+                tile.stream_ids.push_back(streamId);
+                tile.is_master_vec.push_back(isMaster);
             }
-            else {
+            else if ((metricStr != "read_throughput") && (metricStr != "write_throughput")) {
                 tile.stream_ids.push_back(streamId);
                 tile.is_master_vec.push_back(isMaster);
             }

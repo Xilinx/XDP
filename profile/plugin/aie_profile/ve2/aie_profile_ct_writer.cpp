@@ -215,8 +215,10 @@ std::vector<CTCounterInfo> AieProfileCTWriter::getConfiguredCounters()
 {
   std::vector<CTCounterInfo> counters;
 
-  // Get profile configuration to lookup metric sets for each tile
-  const AIEProfileFinalConfig* profileConfig = db->getStaticInfo().getProfileConfig(deviceId);
+  // Get profile configuration directly from metadata to lookup metric sets for each tile
+  // Note: We get it from metadata because the profile config might not be saved to database yet
+  auto profileConfigPtr = metadata->createAIEProfileConfig();
+  const AIEProfileFinalConfig* profileConfig = profileConfigPtr.get();
 
   uint64_t numCounters = db->getStaticInfo().getNumAIECounter(deviceId);
   

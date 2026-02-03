@@ -36,6 +36,8 @@ struct CTCounterInfo {
   uint8_t counterNumber;
   std::string module;
   uint64_t address;
+  std::string metricSet;      // Metric set name for this counter
+  std::string portDirection;  // "input"/"output" for throughput metrics (empty otherwise)
 };
 
 /**
@@ -142,6 +144,21 @@ private:
    * @return Base offset for the module
    */
   uint64_t getModuleBaseOffset(const std::string& module);
+
+  /**
+   * @brief Check if metric set is a throughput metric
+   * @param metricSet The metric set name
+   * @return true if it's a throughput metric
+   */
+  bool isThroughputMetric(const std::string& metricSet);
+
+  /**
+   * @brief Get port direction for a throughput metric
+   * @param metricSet The metric set name
+   * @param payload The counter payload (encodes master/slave info)
+   * @return "input" or "output" for throughput metrics, empty string otherwise
+   */
+  std::string getPortDirection(const std::string& metricSet, uint64_t payload);
 
 private:
   VPDatabase* db;

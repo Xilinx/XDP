@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <map>
 #include <regex>
 #include <sstream>
 #include <vector>
@@ -214,6 +215,9 @@ std::vector<CTCounterInfo> AieProfileCTWriter::getConfiguredCounters()
 {
   std::vector<CTCounterInfo> counters;
 
+  // Get profile configuration to lookup metric sets for each tile
+  const AIEProfileFinalConfig* profileConfig = db->getStaticInfo().getProfileConfig(deviceId);
+
   uint64_t numCounters = db->getStaticInfo().getNumAIECounter(deviceId);
   
   for (uint64_t i = 0; i < numCounters; i++) {
@@ -228,6 +232,34 @@ std::vector<CTCounterInfo> AieProfileCTWriter::getConfiguredCounters()
     info.module = aieCounter->module;
     info.address = calculateCounterAddress(info.column, info.row, 
                                             info.counterNumber, info.module);
+
+    // Lookup metric set for this counter's tile from profile configuration
+    info.metricSet = "";
+    if (profileConfig) {
+      tile_type targetTile;
+      targetTile.col = aieCounter->column;
+      targetTile.row = aieCounter->row;
+      
+      // Search through all module configurations for this tile
+      for (const auto& moduleMetrics : profileConfig->configMetrics) {
+        for (const auto& tileMetric : moduleMetrics) {
+          if (tileMetric.first.col == targetTile.col && 
+              tileMetric.first.row == targetTile.row) {
+            info.metricSet = tileMetric.second;
+            break;
+          }
+        }
+        if (!info.metricSet.empty())
+          break;
+      }
+    }
+
+    // Get port direction for throughput metrics
+    if (isThroughputMetric(info.metricSet)) {
+      info.portDirection = getPortDirection(info.metricSet, aieCounter->payload);
+    } else {
+      info.portDirection = "";
+    }
 
     counters.push_back(info);
   }
@@ -292,6 +324,38 @@ std::string AieProfileCTWriter::formatAddress(uint64_t address)
   return ss.str();
 }
 
+bool AieProfileCTWriter::isThroughputMetric(const std::string& metricSet)
+{
+  return (metricSet.find("throughput") != std::string::npos);
+}
+
+std::string AieProfileCTWriter::getPortDirection(const std::string& metricSet, uint64_t payload)
+{
+  // For ddr_throughput, read_throughput, write_throughput - use payload
+  // These metrics can have mixed input/output ports per tile
+  if (metricSet == "ddr_throughput" || 
+      metricSet == "read_throughput" || 
+      metricSet == "write_throughput") {
+    constexpr uint8_t PAYLOAD_IS_MASTER_SHIFT = 8;
+    bool isMaster = (payload >> PAYLOAD_IS_MASTER_SHIFT) & 0x1;
+    return isMaster ? "output" : "input";
+  }
+  
+  // For input/s2mm metrics - always input direction
+  if (metricSet.find("input") != std::string::npos || 
+      metricSet.find("s2mm") != std::string::npos) {
+    return "input";
+  }
+  
+  // For output/mm2s metrics - always output direction
+  if (metricSet.find("output") != std::string::npos || 
+      metricSet.find("mm2s") != std::string::npos) {
+    return "output";
+  }
+  
+  return "";  // Not a throughput metric with port direction
+}
+
 bool AieProfileCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
                                       const std::vector<CTCounterInfo>& allCounters)
 {
@@ -330,7 +394,19 @@ bool AieProfileCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
            << ", \"row\": " << static_cast<int>(counter.row)
            << ", \"counter\": " << static_cast<int>(counter.counterNumber)
            << ", \"module\": \"" << counter.module
-           << "\", \"address\": \"" << formatAddress(counter.address) << "\"}";
+           << "\", \"address\": \"" << formatAddress(counter.address) << "\"";
+    
+    // Add metric_set if available
+    if (!counter.metricSet.empty()) {
+      ctFile << ", \"metric_set\": \"" << counter.metricSet << "\"";
+    }
+    
+    // Add port_direction for throughput metrics
+    if (!counter.portDirection.empty()) {
+      ctFile << ", \"port_direction\": \"" << counter.portDirection << "\"";
+    }
+    
+    ctFile << "}";
     if (i < allCounters.size() - 1)
       ctFile << ",";
     ctFile << "\n";
@@ -375,21 +451,44 @@ bool AieProfileCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
              << formatAddress(asmFile.counters[i].address) << ")\n";
     }
 
+    // Group counters by tile (col, row)
+    std::map<std::pair<uint8_t, uint8_t>, std::vector<size_t>> tileCounters;
+    for (size_t i = 0; i < asmFile.counters.size(); i++) {
+      auto key = std::make_pair(asmFile.counters[i].column, asmFile.counters[i].row);
+      tileCounters[key].push_back(i);
+    }
+
     ctFile << "    print(f\"Probe fired: ts={ts}\")\n";
     ctFile << "@blockopen\n";
     ctFile << "profile_data[\"probes\"].append({\n";
     ctFile << "    \"asm_file\": \"" << basename << "\",\n";
     ctFile << "    \"timestamp\": ts,\n";
-    ctFile << "    \"counters\": [";
+    ctFile << "    \"tiles\": [\n";
 
-    // Write counter variable names
-    for (size_t i = 0; i < asmFile.counters.size(); i++) {
-      if (i > 0)
-        ctFile << ", ";
-      ctFile << "ctr_" << i;
+    // Write tile groups with their counters
+    size_t tileIdx = 0;
+    for (const auto& tilePair : tileCounters) {
+      const auto& tile = tilePair.first;
+      const auto& counterIndices = tilePair.second;
+      
+      ctFile << "        {\"col\": " << static_cast<int>(tile.first)
+             << ", \"row\": " << static_cast<int>(tile.second)
+             << ", \"counters\": [";
+      
+      for (size_t j = 0; j < counterIndices.size(); j++) {
+        if (j > 0)
+          ctFile << ", ";
+        ctFile << "ctr_" << counterIndices[j];
+      }
+      
+      ctFile << "]}";
+      if (tileIdx < tileCounters.size() - 1)
+        ctFile << ",";
+      ctFile << "\n";
+      tileIdx++;
     }
 
-    ctFile << "]\n";
+    ctFile << "    ]\n";
     ctFile << "})\n";
     ctFile << "@blockclose\n";
     ctFile << "}\n\n";

@@ -141,18 +141,25 @@ AIETraceConfigV3Filetype::getTiles(const std::string& graph_name,
 
         // Create or get existing core tile
         auto coreKey = std::make_pair(coreCol, coreRow);
+        bool isAieTile = (mapping.second.get<std::string>("tile", "") == "aie");
         if (tileMap.find(coreKey) == tileMap.end()) {
             tile_type coreTile;
             coreTile.col = coreCol;
             coreTile.row = coreRow;
-            coreTile.active_core = (mapping.second.get<std::string>("tile", "") == "aie");
+            coreTile.active_core = isAieTile;
             coreTile.active_memory = false; // Will be set to true if DMA channels exist
             tileMap[coreKey] = coreTile;
+        } else {
+            if (isAieTile)
+                tileMap[coreKey].active_core = true;
+            // active_memory will be updated below if DMA channels exist
         }
 
         // Process DMA channels
         auto dmaChannelsTree = mapping.second.get_child_optional("dmaChannels");
+        bool hasDmaChannels = false;
         if (dmaChannelsTree) {
+            hasDmaChannels = !dmaChannelsTree.get().empty();
             for (auto const &channel : dmaChannelsTree.get()) {
                 uint8_t dmaCol = xdp::aie::convertStringToUint8(channel.second.get<std::string>("column"));
                 uint8_t dmaRow = static_cast<uint8_t>(xdp::aie::convertStringToUint8(channel.second.get<std::string>("row")) + rowOffset);
@@ -162,10 +169,13 @@ AIETraceConfigV3Filetype::getTiles(const std::string& graph_name,
                 // Check if a tile already exists for current DMA channel
                 if (tileMap.find(dmaKey) != tileMap.end()) {
                     // Update existing tile to have DMA activity
+                    // Note: This preserves active_core flag - we only update active_memory
                     tileMap[dmaKey].active_memory = true;
                     populateDMAChannelNames(tileMap[dmaKey], channel.second);
                 } else {
                     // Create new DMA-only tile
+                    // Note: If dmaKey == coreKey, this won't happen because the core tile
+                    // was already created above and will be found in the tileMap
                     tile_type dmaTile;
                     dmaTile.col = dmaCol;
                     dmaTile.row = dmaRow;
@@ -174,6 +184,14 @@ AIETraceConfigV3Filetype::getTiles(const std::string& graph_name,
                     tileMap[dmaKey] = dmaTile;
                     populateDMAChannelNames(tileMap[dmaKey], channel.second);
                 }
+            }
+        }
+
+        // If this mapping has DMA channels, also mark the core tile as having DMA activity
+        // This ensures core tiles with DMA channels are included when querying for type=dma
+        if (hasDmaChannels && (tileMap.find(coreKey) != tileMap.end())) {
+            if (!tileMap[coreKey].active_memory) {
+                tileMap[coreKey].active_memory = true;
             }
         }
     }

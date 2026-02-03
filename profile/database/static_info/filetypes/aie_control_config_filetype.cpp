@@ -352,7 +352,7 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
         auto it = std::find_if(tiles.begin(), tiles.end(), compareTileByLoc(tile));
         if (it != tiles.end()) {
             // Add to the existing lists of stream IDs and master/slave
-            if ((type == module_type::shim) {
+            if (type == io_type::PLIO) {
               if ((metricStr == "read_throughput") && (!isMaster)) {
                 it->stream_ids.push_back(streamId);
                 it->is_master_vec.push_back(isMaster);

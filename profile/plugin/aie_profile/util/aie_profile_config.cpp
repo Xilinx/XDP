@@ -81,55 +81,19 @@ namespace xdp::aie::profile {
         }
         // Interface tiles (e.g., PLIO, GMIO)
         else if (type == module_type::shim) {
-          // Special handling for ddr_throughput metric (needs all 4 ports configured)
-          if (metricSet == "ddr_throughput") {
-            // Configure 4 ports: ports 0-1 for MM2S (slave), ports 2-3 for S2MM (master)
-            // For ddr_throughput on GMIO, need to use stream port IDs from metadata
-            // If not enough ports in metadata, use portnum as stream ID
-            bool isMaster = (portnum >= 2);
-            auto slaveOrMaster = isMaster ? XAIE_STRMSW_MASTER : XAIE_STRMSW_SLAVE;
-            std::string typeName = isMaster ? "S2MM" : "MM2S";
-
-            uint8_t streamPortId;
-            if (portnum < tile.stream_ids.size()) {
-              streamPortId = static_cast<uint8_t>(tile.stream_ids.at(portnum));
-            } else {
-              // If metadata doesn't have this port, use portnum directly as stream ID
-              streamPortId = portnum;
-              if (aie::isDebugVerbosity()) {
-                std::stringstream msg;
-                msg << "Interface tile (" << +tile.col << "," << +tile.row 
-                    << ") ddr_throughput: port " << portnum 
-                    << " not in metadata, using port number as stream ID";
-                xrt_core::message::send(severity_level::debug, "XRT", msg.str());
-              }
-            }
-            
-            switchPortRsc->setPortToSelect(slaveOrMaster, SOUTH, streamPortId);
-
-            if (aie::isDebugVerbosity()) {
-              std::stringstream msg;
-              msg << "Configuring interface tile stream switch for ddr_throughput: " 
-                  << typeName << " port " << (int)portnum 
-                  << " with stream ID " << (int)streamPortId;
-              xrt_core::message::send(severity_level::debug, "XRT", msg.str());
-            }
-          }
-          else {
             // NOTE: skip configuration of extra ports for tile if stream_ids are not available.
             if (portnum >= tile.stream_ids.size())
               continue;
-            // Grab slave/master and stream ID
+          // Grab slave/master and stream ID from metadata
             auto slaveOrMaster = (tile.is_master_vec.at(portnum) == 0) ? XAIE_STRMSW_SLAVE : XAIE_STRMSW_MASTER;
             uint8_t streamPortId = static_cast<uint8_t>(tile.stream_ids.at(portnum));
             switchPortRsc->setPortToSelect(slaveOrMaster, SOUTH, streamPortId);
 
             if (aie::isDebugVerbosity()) {
-              std::string typeName = (tile.is_master_vec.at(portnum) == 0) ? "slave" : "master";
+            std::string typeName = (tile.is_master_vec.at(portnum) == 0) ? "MM2S" : "S2MM";
               std::string msg = "Configuring interface tile stream switch to monitor " 
                               + typeName + " stream port " + std::to_string(streamPortId);
               xrt_core::message::send(severity_level::debug, "XRT", msg);
-            }
           }
         }
         else {

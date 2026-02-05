@@ -1319,6 +1319,20 @@ namespace xdp {
         continue;
       }
 
+      // Validate that tiles have stream_ids populated
+      if (tileSrc[0].stream_ids.empty() || tileDest[0].stream_ids.empty()) {
+        xrt_core::message::send(severity_level::warning, "XRT", "Tiles for graph ports " 
+          + g1 + ":" + p1 + " or " + g2 + ":" + p2 + " have empty stream_ids, skipping latency configuration.");
+        continue;
+      }
+
+      // Validate that tiles have stream_ids populated
+      if (tileSrc[0].stream_ids.empty() || tileDest[0].stream_ids.empty()) {
+        xrt_core::message::send(severity_level::warning, "XRT", "Tiles for graph ports "
+          + g1 + ":" + p1 + " or " + g2 + ":" + p2 + " have empty stream_ids, skipping latency configuration.");
+        continue;
+      }
+
       std::string tranx_no = tileMetrics[i].size() <= 4 ? "0" : tileMetrics[i].back();
       if (!aie::isDigitString(tranx_no) || std::numeric_limits<uint32_t>::max() < std::stoul(tranx_no)) {
         return;

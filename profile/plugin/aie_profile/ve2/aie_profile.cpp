@@ -138,8 +138,6 @@ namespace xdp {
       }
 
       bool runtimeCounters = setMetricsSettings(deviceID, metadata->getHandle());
-
-      std::cout << "Debug: runtimeCounters: " << runtimeCounters << std::endl;
       // Generate CT file for AIE profile counters after metrics settings are configured
       if (runtimeCounters && dtraceDebug) {
         AieProfileCTWriter ctWriter(db, metadata, deviceID);
@@ -159,16 +157,30 @@ namespace xdp {
         else {
           XAie_DevInst* aieDevInst =
             static_cast<XAie_DevInst*>(db->getStaticInfo().getAieDevInst(fetchAieDevInst, metadata->getHandle()));
+          
+          if (!aieDevInst) {
+            xrt_core::message::send(severity_level::warning, "XRT", 
+              "Failed to get AIE device instance for profile counters.");
+            return;
+          }
 
+          xrt_core::message::send(severity_level::debug, "XRT", "Processing " + std::to_string(counters.size()) + " counters");
           for (auto& counter : counters) {
-            tile_type tile;
-            auto payload = getCounterPayload(aieDevInst, tile, module_type::core, counter.column, 
-                                             counter.row, counter.startEvent, "N/A", 0);
-
+            std::stringstream msg;
+            msg << "Adding counter " << counter.id << " at (" 
+                << +counter.column << "," << +counter.row << ") module: " << counter.module;
+            xrt_core::message::send(severity_level::debug, "XRT", msg.str());
+            
+            // For pre-configured counters from xclbin metadata, the hardware is already configured
+            // Payload is used for reporting metadata (channel/stream IDs), set to 0 for these counters
+            // as we don't have full tile information (stream_ids, is_master_vec) to safely compute it
+            uint64_t payload = 0;
+            
             (db->getStaticInfo()).addAIECounter(deviceID, counter.id, counter.column,
                 counter.row, counter.counterNumber, counter.startEvent, counter.endEvent,
                 counter.resetEvent, payload, counter.clockFreqMhz, counter.module, counter.name);
           }
+          xrt_core::message::send(severity_level::debug, "XRT", "Finished processing counters");
         }
       }
   }
@@ -366,6 +378,17 @@ namespace xdp {
             continue;
         }
 
+        // Skip interface tiles with empty stream_ids for throughput metrics
+        if ((type == module_type::shim) && 
+            ((metricSet == "read_throughput") || (metricSet == "write_throughput") || (metricSet == "ddr_throughput")) &&
+            tile.stream_ids.empty()) {
+          std::stringstream msg;
+          msg << "Skipping " << metricSet << " configuration for tile (" << +col << "," << +row 
+              << ") - stream_ids is empty";
+          xrt_core::message::send(severity_level::warning, "XRT", msg.str());
+          continue;
+        }
+
         auto loc         = XAie_TileLoc(col, row);
         auto& xaieTile   = aieDevice->tile(col, row);
         auto xaieModule  = (mod == XAIE_CORE_MOD) ? xaieTile.core()
@@ -385,9 +408,9 @@ namespace xdp {
         int numCounters  = 0;
         auto numFreeCtr  = stats.getNumRsc(loc, mod, xaiefal::XAIE_PERFCOUNT);
         
-        if (aie::isDebugVerbosity() && (metricSet == "ddr_throughput")) {
+        if (aie::isDebugVerbosity() && ((metricSet == "ddr_throughput") || (metricSet == "read_throughput") || (metricSet == "write_throughput"))) {
           std::stringstream msg;
-          msg << "ddr_throughput counter reservation: tile (" << +col << "," << +row 
+          msg << metricSet << " **** counter reservation: tile (" << +col << "," << +row 
               << ") startEvents.size()=" << startEvents.size()
               << " hardware_counters=" << numFreeCtr
               << " tile.stream_ids.size()=" << tile.stream_ids.size();
@@ -395,7 +418,7 @@ namespace xdp {
         }
         
         numFreeCtr = (startEvents.size() < numFreeCtr) ? startEvents.size() : numFreeCtr;
-        if ((type == module_type::shim) && (metricSet == "ddr_throughput")) {
+        if ((type == module_type::shim) && ((metricSet == "ddr_throughput") || (metricSet == "read_throughput") || (metricSet == "write_throughput"))) {
           numFreeCtr = tile.stream_ids.size();
         }
 

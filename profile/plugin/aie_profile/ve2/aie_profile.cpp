@@ -80,10 +80,10 @@ namespace xdp {
     shimEndEvents[METRIC_BYTE_COUNT] = {XAIE_EVENT_PORT_RUNNING_0_PL, XAIE_EVENT_PERF_CNT_0_PL};
     
     if (aie::isDebugVerbosity()) {
-      auto it = shimStartEvents.find("ddr_throughput");
+      auto it = shimStartEvents.find("ddr_bandwidth");
       if (it != shimStartEvents.end()) {
         std::stringstream msg;
-        msg << "ddr_throughput event set has " << it->second.size() << " events";
+        msg << "ddr_bandwidth event set has " << it->second.size() << " events";
         xrt_core::message::send(severity_level::debug, "XRT", msg.str());
       }
     }
@@ -209,7 +209,7 @@ namespace xdp {
       uint8_t idToReport = (tile.subtype == io_type::GMIO) ? channel : streamPortId;
       uint8_t isChannel  = (tile.subtype == io_type::GMIO) ? 1 : 0;
       uint8_t isMaster = aie::isInputSet(type, metricSet)  ? 0 : 1;
-      if ((type == module_type::shim) && ((metricSet == "ddr_throughput") || (metricSet == "read_throughput") || (metricSet == "write_throughput"))) {
+      if ((type == module_type::shim) && ((metricSet == "ddr_bandwidth") || (metricSet == "read_bandwidth") || (metricSet == "write_bandwidth"))) {
         isMaster = tile.is_master_vec.at(portnum);
       }
 
@@ -380,7 +380,7 @@ namespace xdp {
 
         // Skip interface tiles with empty stream_ids for throughput metrics
         if ((type == module_type::shim) && 
-            ((metricSet == "read_throughput") || (metricSet == "write_throughput") || (metricSet == "ddr_throughput")) &&
+            ((metricSet == "read_bandwidth") || (metricSet == "write_bandwidth") || (metricSet == "ddr_bandwidth")) &&
             tile.stream_ids.empty()) {
           std::stringstream msg;
           msg << "Skipping " << metricSet << " configuration for tile (" << +col << "," << +row 
@@ -408,7 +408,7 @@ namespace xdp {
         int numCounters  = 0;
         auto numFreeCtr  = stats.getNumRsc(loc, mod, xaiefal::XAIE_PERFCOUNT);
         
-        if (aie::isDebugVerbosity() && ((metricSet == "ddr_throughput") || (metricSet == "read_throughput") || (metricSet == "write_throughput"))) {
+        if (aie::isDebugVerbosity() && ((metricSet == "ddr_bandwidth") || (metricSet == "read_bandwidth") || (metricSet == "write_bandwidth"))) {
           std::stringstream msg;
           msg << metricSet << " **** counter reservation: tile (" << +col << "," << +row 
               << ") startEvents.size()=" << startEvents.size()
@@ -418,7 +418,7 @@ namespace xdp {
         }
         
         numFreeCtr = (startEvents.size() < numFreeCtr) ? startEvents.size() : numFreeCtr;
-        if ((type == module_type::shim) && ((metricSet == "ddr_throughput") || (metricSet == "read_throughput") || (metricSet == "write_throughput"))) {
+        if ((type == module_type::shim) && ((metricSet == "ddr_bandwidth") || (metricSet == "read_bandwidth") || (metricSet == "write_bandwidth"))) {
           numFreeCtr = tile.stream_ids.size();
         }
 
@@ -483,7 +483,7 @@ namespace xdp {
           auto endEvent      = endEvents.at(i);
           auto resetEvent    = XAIE_EVENT_NONE_CORE;
           auto portnum       = xdp::aie::getPortNumberFromEvent(startEvent);
-          // For metric sets with 4 ports (like ddr_throughput), use modulo for channel mapping
+          // For metric sets with 4 ports (like ddr_bandwidth), use modulo for channel mapping
           uint8_t channelNum = portnum % 2;
           uint8_t channel    = (channelNum == 0) ? channel0 : channel1;
 

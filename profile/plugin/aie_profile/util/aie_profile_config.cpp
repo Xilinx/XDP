@@ -41,7 +41,7 @@ namespace xdp::aie::profile {
 
       bool newPort = false;
       auto portnum = xdp::aie::getPortNumberFromEvent(startEvent);
-      // For metric sets with 4 ports (like ddr_throughput), use modulo for channel mapping
+      // For interface tile metric sets with 4 ports (e.g. ddr_bandwidth), use modulo for channel mapping
       uint8_t channelNum = portnum % 2;
       uint8_t channel = (channelNum == 0) ? channel0 : channel1;
 

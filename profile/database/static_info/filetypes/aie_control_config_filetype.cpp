@@ -324,9 +324,9 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
             if ((metricStr != "packets") &&
                 (metricStr != METRIC_LATENCY) &&
                 (metricStr != METRIC_BYTE_COUNT) &&
-                (metricStr != "ddr_throughput") &&
-                (metricStr != "read_throughput") &&
-                (metricStr != "write_throughput"))
+                (metricStr != "ddr_bandwidth") &&
+                (metricStr != "read_bandwidth") &&
+                (metricStr != "write_bandwidth"))
                 continue;
         }
 
@@ -352,13 +352,13 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
         auto it = std::find_if(tiles.begin(), tiles.end(), compareTileByLoc(tile));
         if (it != tiles.end()) {
             // Add to the existing lists of stream IDs and master/slave
-            if ((metricStr == "read_throughput") && (!isMaster)) {
+            if ((metricStr == "read_bandwidth") && (!isMaster)) {
               it->stream_ids.push_back(streamId);
               it->is_master_vec.push_back(isMaster);
-            } else if ((metricStr == "write_throughput") && (isMaster)) {
+            } else if ((metricStr == "write_bandwidth") && (isMaster)) {
               it->stream_ids.push_back(streamId);
               it->is_master_vec.push_back(isMaster);
-            } else if ((metricStr != "read_throughput") && (metricStr != "write_throughput")) {
+            } else if ((metricStr != "read_bandwidth") && (metricStr != "write_bandwidth")) {
               it->stream_ids.push_back(streamId);
               it->is_master_vec.push_back(isMaster);
             }
@@ -386,14 +386,14 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
         }
         else {
             // Add first stream ID and master/slave to vectors for new tile
-            if ((metricStr == "read_throughput") && (!isMaster)) {
+            if ((metricStr == "read_bandwidth") && (!isMaster)) {
                 tile.stream_ids.push_back(streamId);
                 tile.is_master_vec.push_back(isMaster);
-            } else if ((metricStr == "write_throughput") && (isMaster)) {
+            } else if ((metricStr == "write_bandwidth") && (isMaster)) {
                 tile.stream_ids.push_back(streamId);
                 tile.is_master_vec.push_back(isMaster);
             }
-            else if ((metricStr != "read_throughput") && (metricStr != "write_throughput")) {
+            else if ((metricStr != "read_bandwidth") && (metricStr != "write_bandwidth")) {
                 tile.stream_ids.push_back(streamId);
                 tile.is_master_vec.push_back(isMaster);
             }

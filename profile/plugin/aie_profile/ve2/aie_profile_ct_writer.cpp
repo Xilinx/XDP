@@ -328,16 +328,17 @@ std::string AieProfileCTWriter::formatAddress(uint64_t address)
 
 bool AieProfileCTWriter::isThroughputMetric(const std::string& metricSet)
 {
-  return (metricSet.find("throughput") != std::string::npos);
+  return (metricSet.find("throughput") != std::string::npos) ||
+         (metricSet.find("bandwidth") != std::string::npos);
 }
 
 std::string AieProfileCTWriter::getPortDirection(const std::string& metricSet, uint64_t payload)
 {
-  // For ddr_throughput, read_throughput, write_throughput - use payload
+  // For interface tile ddr_bandwidth, read_bandwidth, write_bandwidth - use payload
   // These metrics can have mixed input/output ports per tile
-  if (metricSet == "ddr_throughput" || 
-      metricSet == "read_throughput" || 
-      metricSet == "write_throughput") {
+  if (metricSet == "ddr_bandwidth" || 
+      metricSet == "read_bandwidth" || 
+      metricSet == "write_bandwidth") {
     constexpr uint8_t PAYLOAD_IS_MASTER_SHIFT = 8;
     bool isMaster = (payload >> PAYLOAD_IS_MASTER_SHIFT) & 0x1;
     return isMaster ? "output" : "input";

@@ -141,14 +141,12 @@ namespace xdp {
         xrt_core::message::send(severity_level::warning, "XRT", msg.str());
       }
 
-      bool mlTimeline = xrt_core::config::get_ml_timeline();
       bool aieProfile = xrt_core::config::get_aie_profile();
-      if (!mlTimeline || !aieProfile) {
+      if (!aieProfile) {
         std::stringstream msg;
         msg << "AIE_profile_settings.dtrace_debug is enabled "
-            << "but requires both Debug.ml_timeline=true and Debug.aie_profile=true. "
-            << "Current settings: ml_timeline=" << (mlTimeline ? "true" : "false")
-            << ", aie_profile=" << (aieProfile ? "true" : "false");
+            << "but requires Debug.aie_profile=true. "
+            << "Current settings : aie_profile=" << (aieProfile ? "true" : "false");
         xrt_core::message::send(severity_level::warning, "XRT", msg.str());
       }
     }

@@ -352,18 +352,18 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
         auto it = std::find_if(tiles.begin(), tiles.end(), compareTileByLoc(tile));
         if (it != tiles.end()) {
             // Add to the existing lists of stream IDs and master/slave
-            if (type == io_type::PLIO) {
-              if ((metricStr == "read_throughput") && (!isMaster)) {
-                it->stream_ids.push_back(streamId);
-                it->is_master_vec.push_back(isMaster);
-              } else if ((metricStr == "write_throughput") && (isMaster)) {
-                it->stream_ids.push_back(streamId);
-                it->is_master_vec.push_back(isMaster);
-              } else if ((metricStr != "read_throughput") && (metricStr != "write_throughput")) {
-                it->stream_ids.push_back(streamId);
-                it->is_master_vec.push_back(isMaster);
-              }
+            if ((metricStr == "read_throughput") && (!isMaster)) {
+              it->stream_ids.push_back(streamId);
+              it->is_master_vec.push_back(isMaster);
+            } else if ((metricStr == "write_throughput") && (isMaster)) {
+              it->stream_ids.push_back(streamId);
+              it->is_master_vec.push_back(isMaster);
+            } else if ((metricStr != "read_throughput") && (metricStr != "write_throughput")) {
+              it->stream_ids.push_back(streamId);
+              it->is_master_vec.push_back(isMaster);
+            }
 
+            if (type == io_type::PLIO) {
               // Use direct indexing by streamId with bounds checking
               if (streamId < it->port_names.size()) {
                 it->port_names[streamId] = name;

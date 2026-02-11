@@ -1650,22 +1650,19 @@ namespace xdp {
      * a duplicate config and leave data saved during runrime (eg: AIE counter data) in the wrong
      * config, since currentConfig() would point to the new config.
      */
+    bool addPlIntfOnly = false;
     if (xdpDevice != nullptr) {
-      bool addPlIntfOnly = false;
-      {
-        std::lock_guard<std::mutex> lock(deviceLock);
-        auto itr = deviceInfo.find(deviceId);
-        if (itr != deviceInfo.end()) {
-          ConfigInfo* config = itr->second->currentConfig();
-          if (config && config->containsXclbin(new_xclbin_uuid))
-            addPlIntfOnly = true;
-        }
+      std::lock_guard<std::mutex> lock(deviceLock);
+      auto itr = deviceInfo.find(deviceId);
+      if (itr != deviceInfo.end()) {
+        ConfigInfo* config = itr->second->currentConfig();
+        addPlIntfOnly = (config && config->containsXclbin(new_xclbin_uuid));
       }
-      if (addPlIntfOnly) {
-        XclbinInfoType xclbinType = getXclbinType(xrtXclbin);
-        createPLDeviceIntf(deviceId, std::move(xdpDevice), xclbinType);
-        return;
-      }
+    }
+    if (addPlIntfOnly) {
+      XclbinInfoType xclbinType = getXclbinType(xrtXclbin);
+      createPLDeviceIntf(deviceId, std::move(xdpDevice), xclbinType);
+      return;
     }
 
     updateDevice(deviceId, xrtXclbin, std::move(xdpDevice), isClient(), readAIEMetadata);

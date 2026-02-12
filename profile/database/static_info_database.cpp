@@ -1644,6 +1644,27 @@ namespace xdp {
       return;
 
     xrt::xclbin xrtXclbin = device->get_xclbin(new_xclbin_uuid);
+
+    /* When another plugin (e.g. AIE profile) already created the config for this xclbin and we are only
+     * being called to add the PL device interface, do not run the full updateDevice() which would push
+     * a duplicate config and leave data saved during runrime (eg: AIE counter data) in the wrong
+     * config, since currentConfig() would point to the new config.
+     */
+    bool addPlIntfOnly = false;
+    if (xdpDevice != nullptr) {
+      std::lock_guard<std::mutex> lock(deviceLock);
+      auto itr = deviceInfo.find(deviceId);
+      if (itr != deviceInfo.end()) {
+        ConfigInfo* config = itr->second->currentConfig();
+        addPlIntfOnly = (config && config->containsXclbin(new_xclbin_uuid));
+      }
+    }
+    if (addPlIntfOnly) {
+      XclbinInfoType xclbinType = getXclbinType(xrtXclbin);
+      createPLDeviceIntf(deviceId, std::move(xdpDevice), xclbinType);
+      return;
+    }
+
     updateDevice(deviceId, xrtXclbin, std::move(xdpDevice), isClient(), readAIEMetadata);
   }
 

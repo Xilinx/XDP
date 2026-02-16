@@ -194,7 +194,8 @@ namespace xdp {
                                          uint8_t row, 
                                          uint16_t startEvent, 
                                          const std::string metricSet,
-                                         const uint8_t channel)
+                                         const uint8_t channel,
+                                         uint8_t logicalPortIndex)
   {
     // 1. Profile API specific values
     if (aie::profile::profileAPIMetricSet(metricSet))
@@ -203,6 +204,10 @@ namespace xdp {
     // 2. Channel/stream IDs for interface tiles
     if (type == module_type::shim) {
       // NOTE: value = ((isMaster) << 8) & (isChannel << 7) & (channel/stream ID)
+      // portnum = physical stream-switch port (0-7) from event; stream_ids/is_master_vec
+      // are indexed by logical port (size = number of configured ports). When portnum is
+      // out of range (e.g. physical ports 4-7 when only 4 logical ports), use
+      // logicalPortIndex.
       auto portnum = xdp::aie::getPortNumberFromEvent(static_cast<XAie_Events>(startEvent));
       uint8_t streamPortId = (portnum >= tile.stream_ids.size()) ?
           0 : static_cast<uint8_t>(tile.stream_ids.at(portnum));
@@ -210,7 +215,9 @@ namespace xdp {
       uint8_t isChannel  = (tile.subtype == io_type::GMIO) ? 1 : 0;
       uint8_t isMaster = aie::isInputSet(type, metricSet)  ? 0 : 1;
       if ((type == module_type::shim) && ((metricSet == "ddr_bandwidth") || (metricSet == "read_bandwidth") || (metricSet == "write_bandwidth"))) {
-        isMaster = tile.is_master_vec.at(portnum);
+        uint8_t idx = (portnum < tile.is_master_vec.size()) ? portnum
+                    : (logicalPortIndex < tile.is_master_vec.size()) ? logicalPortIndex : 0;
+        isMaster = tile.is_master_vec.at(idx);
       }
 
       return ((isMaster << PAYLOAD_IS_MASTER_SHIFT)
@@ -542,7 +549,7 @@ namespace xdp {
 
           // Get payload for reporting purposes
           uint64_t payload = getCounterPayload(aieDevInst, tileMetric.first, type, col, row, 
-                                               startEvent, metricSet, channel);
+                                               startEvent, metricSet, channel, static_cast<uint8_t>(i));
           // Store counter info in database
           std::string counterName = "AIE Counter " + std::to_string(counterId);
           (db->getStaticInfo()).addAIECounter(deviceId, counterId, col, row, i,

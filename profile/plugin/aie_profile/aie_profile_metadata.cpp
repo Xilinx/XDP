@@ -132,15 +132,6 @@ namespace xdp {
     // Check dtrace_debug configuration requirements
     bool dtraceDebug = xrt_core::config::get_aie_profile_settings_dtrace_debug();
     if (dtraceDebug) {
-      std::string dtraceLibPath = xrt_core::config::get_dtrace_lib_path();
-      if (dtraceLibPath.empty()) {
-        std::stringstream msg;
-        msg << "AIE_profile_settings.dtrace_debug is enabled "
-            << "but Debug.dtrace_lib_path is not specified. "
-            << "Please set Debug.dtrace_lib_path=<design_path>/libcert_dtrace_arm.so in xrt.ini";
-        xrt_core::message::send(severity_level::warning, "XRT", msg.str());
-      }
-
       bool aieProfile = xrt_core::config::get_aie_profile();
       if (!aieProfile) {
         std::stringstream msg;

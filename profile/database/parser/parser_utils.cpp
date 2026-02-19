@@ -3,7 +3,7 @@
 
 #define XDP_CORE_SOURCE
 #include "core/common/message.h"
-#include "xdp/profile/plugin/parser/parser_utils.h"
+#include "xdp/profile/database/parser/parser_utils.h"
 
 namespace xdp {
 

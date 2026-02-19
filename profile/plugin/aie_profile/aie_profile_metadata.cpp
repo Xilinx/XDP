@@ -28,11 +28,11 @@
 #include "core/common/message.h"
 #include "xdp/profile/database/database.h"
 #include "xdp/profile/plugin/vp_base/vp_base_plugin.h"
-#include "xdp/profile/plugin/parser/metrics.h"
-#include "xdp/profile/plugin/parser/json_parser.h"
-#include "xdp/profile/plugin/parser/metrics_collection_manager.h"
-#include "xdp/profile/plugin/parser/metrics_factory.h"
-#include "xdp/profile/plugin/parser/parser_utils.h"
+#include "xdp/profile/database/parser/metrics.h"
+#include "xdp/profile/database/parser/json_parser.h"
+#include "xdp/profile/database/parser/metrics_collection_manager.h"
+#include "xdp/profile/database/parser/metrics_factory.h"
+#include "xdp/profile/database/parser/parser_utils.h"
 
 namespace xdp {
   using severity_level = xrt_core::message::severity_level;

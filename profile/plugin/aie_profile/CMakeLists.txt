@@ -28,8 +28,8 @@ file(GLOB AIE_DRIVER_COMMON_UTIL_FILES
   "${PROFILE_DIR}/device/common/*.cpp"
 )
 file(GLOB AIE_JSON_PARSER_FILES
-  "${PROFILE_DIR}/plugin/parser/*.h"
-  "${PROFILE_DIR}/plugin/parser/*.cpp"
+  "${PROFILE_DIR}/database/parser/*.h"
+  "${PROFILE_DIR}/database/parser/*.cpp"
 )
 
 if (XDP_CLIENT_BUILD_CMAKE STREQUAL "yes")

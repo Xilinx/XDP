@@ -29,9 +29,9 @@
 #include "xdp/profile/database/static_info/aie_util.h"
 #include "xdp/profile/database/static_info/filetypes/base_filetype_impl.h"
 #include "xdp/profile/plugin/aie_profile/aie_profile_defs.h"
-#include "xdp/profile/plugin/parser/metrics.h"
-#include "xdp/profile/plugin/parser/json_parser.h"
-#include "xdp/profile/plugin/parser/metrics_collection_manager.h"
+#include "xdp/profile/database/parser/metrics.h"
+#include "xdp/profile/database/parser/json_parser.h"
+#include "xdp/profile/database/parser/metrics_collection_manager.h"
 
 namespace xdp {
 

@@ -31,9 +31,9 @@
 #include "core/common/message.h"
 #include "core/common/system.h"
 #include "core/include/xrt/xrt_hw_context.h"
-#include "xdp/profile/plugin/parser/metrics.h"
-#include "xdp/profile/plugin/parser/metrics_collection_manager.h"
-#include "xdp/profile/plugin/parser/json_parser.h"
+#include "xdp/profile/database/parser/metrics.h"
+#include "xdp/profile/database/parser/metrics_collection_manager.h"
+#include "xdp/profile/database/parser/json_parser.h"
 
 namespace xdp {
 

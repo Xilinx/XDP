@@ -33,11 +33,11 @@
 #include "xdp/profile/plugin/vp_base/utility.h"
 #include "xdp/profile/plugin/vp_base/vp_base_plugin.h"
 #include "xdp/profile/database/static_info/aie_util.h"
-#include "xdp/profile/plugin/parser/metrics.h"
-#include "xdp/profile/plugin/parser/json_parser.h"
-#include "xdp/profile/plugin/parser/metrics_collection_manager.h"
-#include "xdp/profile/plugin/parser/metrics_factory.h"
-#include "xdp/profile/plugin/parser/parser_utils.h"
+#include "xdp/profile/database/parser/metrics.h"
+#include "xdp/profile/database/parser/json_parser.h"
+#include "xdp/profile/database/parser/metrics_collection_manager.h"
+#include "xdp/profile/database/parser/metrics_factory.h"
+#include "xdp/profile/database/parser/parser_utils.h"
 
 namespace {
   static bool tileCompare(xdp::tile_type tile1, xdp::tile_type tile2)

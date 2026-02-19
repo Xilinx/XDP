@@ -14,8 +14,8 @@
 #include <iostream>
 #include "core/common/message.h"
 #include "xdp/profile/database/static_info/aie_constructs.h"
-#include "xdp/profile/plugin/parser/parser_utils.h"
-#include "xdp/profile/plugin/parser/metrics_type.h"
+#include "xdp/profile/database/parser/parser_utils.h"
+#include "xdp/profile/database/parser/metrics_type.h"
 
 namespace xdp {
   namespace pt = boost::property_tree;

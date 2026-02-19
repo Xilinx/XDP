@@ -10,7 +10,7 @@
 #include "core/common/message.h"
 #include "core/common/config_reader.h"
 #include "xdp/config.h"
-#include "xdp/profile/plugin/parser/metrics_type.h"
+#include "xdp/profile/database/parser/metrics_type.h"
 #include "xdp/profile/database/static_info/aie_constructs.h"
 
 namespace xdp {

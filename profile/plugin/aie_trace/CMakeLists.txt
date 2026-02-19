@@ -25,8 +25,8 @@ file(GLOB AIE_TRACE_CONFIG_FILES
   "${PROFILE_DIR}/plugin/aie_trace/util/aie_trace_config.cpp"
 )
 file(GLOB AIE_JSON_PARSER_FILES
-  "${PROFILE_DIR}/plugin/parser/*.h"
-  "${PROFILE_DIR}/plugin/parser/*.cpp"
+  "${PROFILE_DIR}/database/parser/*.h"
+  "${PROFILE_DIR}/database/parser/*.cpp"
 )
 
 if (XDP_CLIENT_BUILD_CMAKE STREQUAL "yes")

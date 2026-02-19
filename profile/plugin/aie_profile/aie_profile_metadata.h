@@ -37,7 +37,11 @@ struct LatencyConfig;
 
 constexpr unsigned int NUM_CORE_COUNTERS = 4;
 constexpr unsigned int NUM_MEMORY_COUNTERS = 2;
-constexpr unsigned int NUM_SHIM_COUNTERS = 6;
+#if defined(XDP_VE2_BUILD) || defined(XDP_VE2_ZOCL_BUILD)
+constexpr unsigned int NUM_SHIM_COUNTERS = 6;  // VE2 interface tiles have 6 performance counters
+#else
+constexpr unsigned int NUM_SHIM_COUNTERS = 2;  // Edge/x86/client: 2 shim counters per tile
+#endif
 constexpr unsigned int NUM_MEM_TILE_COUNTERS = 4;
 constexpr unsigned int NUM_UC_EVENT_COUNTERS = 5;
 constexpr unsigned int NUM_UC_LATENCY_COUNTERS = 1;

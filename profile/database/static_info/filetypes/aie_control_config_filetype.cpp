@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved
+// Copyright (C) 2022-2026 Advanced Micro Devices, Inc. All rights reserved
 
 #define XDP_CORE_SOURCE
 
@@ -332,15 +332,6 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
                                             uint8_t minCol,
                                             uint8_t maxCol) const
 {
-    // std::cout << "!!! getInterfaceTiles: graphName = " << graphName
-    //           << ", portName = " << portName
-    //           << ", metricStr = " << metricStr
-    //           << ", specifiedId = " << specifiedId
-    //           << ", useColumn = " << useColumn
-    //           << ", minCol = " << (int)minCol
-    //           << ", maxCol = " << (int)maxCol
-    //           << std::endl;
-
     std::vector<tile_type> tiles;
 
     // Catch microcontroller sets

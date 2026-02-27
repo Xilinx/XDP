@@ -1,0 +1,119 @@
+name: XDP Build Test
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    branches: [ master ]
+
+jobs:
+  build-xrt-alveo:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+    - name: Checkout XDP PR
+      uses: actions/checkout@v4
+      with:
+        path: xdp-pr
+        fetch-depth: 0
+        
+    - name: Clone XRT Repository
+      run: |
+        git clone https://github.com/Xilinx/XRT.git XRT
+        cd XRT
+        git submodule update --init --recursive
+        
+    - name: Apply XDP PR Changes to XRT
+      run: |
+        rm -rf XRT/src/runtime_src/xdp
+        cp -r xdp-pr XRT/src/runtime_src/xdp
+        
+    - name: Setup Build Environment Using XRT Scripts
+      run: |
+        cd XRT/src/runtime_src/tools/scripts
+        chmod +x xrtdeps.sh
+        sudo ./xrtdeps.sh
+        # Install cross-compilation tools for edge builds
+        sudo apt-get update
+        sudo apt-get install -y \
+          gcc-aarch64-linux-gnu \
+          g++-aarch64-linux-gnu \
+          crossbuild-essential-arm64
+        
+    - name: Build XRT for Alveo
+      run: |
+        cd XRT/build
+        chmod +x build.sh
+        ./build.sh -noinit -noert
+        
+    - name: Validate build
+      run: |
+        if ls XRT/build/Release/opt/xilinx/xrt/lib/libxrt_core.so* 1> /dev/null 2>&1; then
+          echo "✓ XRT Build successful"
+        else
+          echo "✗ XRT Build failed"
+          exit 1
+        fi
+        
+        if ls XRT/build/Release/opt/xilinx/xrt/lib/libxdp_core.so* 1> /dev/null 2>&1; then
+          echo "✓ XDP Build successful"
+        else
+          echo "✗ XDP Build failed"
+          exit 1
+        fi
+        
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: xrt-alveo-build-PR-${{ github.event.pull_request.number }}
+        path: |
+          XRT/build/Release/opt/xilinx/xrt/lib/libxrt*.so*
+          XRT/build/Release/opt/xilinx/xrt/lib/libxdp*.so*
+          XRT/build/Release/opt/xilinx/xrt/lib/xrt/module/*.so*
+        retention-days: 1
+        if-no-files-found: warn
+
+    - name: Generate Build Summary
+      if: always()
+      run: |
+        echo "## XDP Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- Build Date: $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "- XDP Source: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+        if ls XRT/build/Release/opt/xilinx/xrt/lib/libxrt_core.so* 1> /dev/null 2>&1; then
+          echo "- XRT Build: ✅ Success" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- XRT Build: ❌ Failed" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if ls XRT/build/Release/opt/xilinx/xrt/lib/libxdp_core.so* 1> /dev/null 2>&1; then
+          echo "- XDP Build: ✅ Success" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- XDP Build: ❌ Failed" >> $GITHUB_STEP_SUMMARY
+        fi
+            
+  # Future job for edge builds
+  build-xrt-edge:
+    if: contains(github.event.pull_request.labels.*.name, 'build-edge')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder for edge build
+        run: echo "Edge build would go here"
+        
+  # Future job for client builds
+  build-xrt-client:
+    if: contains(github.event.pull_request.labels.*.name, 'build-client')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder for client build
+        run: echo "Client build would go here"
+
+  # Future job for ve2 builds  
+  build-xrt-ve2:
+    if: contains(github.event.pull_request.labels.*.name, 'build-ve2')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder for ve2 build
+        run: echo "VE2 build would go here"
+

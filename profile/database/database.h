@@ -15,6 +15,8 @@
  * under the License.
  */
 
+syntax error;
+
 #ifndef VTF_DATABASE_DOT_H
 #define VTF_DATABASE_DOT_H
 

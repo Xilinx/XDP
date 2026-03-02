@@ -1,10 +1,17 @@
-name: XDP Build Test
+name: XDP Build
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
     branches: [ master ]
-
+  # For testing concurrency
+  push:
+    branches: [ xdp-github-build ] 
+    
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+  
 jobs:
   build-xrt-alveo:
     if: github.event_name == 'pull_request'

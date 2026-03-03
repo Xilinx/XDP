@@ -106,6 +106,13 @@ namespace xdp {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", numSegmentMsg.str());
     }
 
+    /* Skip buffer creation when size is 0 (e.g. AIE trace metadata present but no microcontroller section). */
+    if (mBufSz == 0 || mNumBufSegments == 0) {
+      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+          "ML Timeline skipped: result buffer size is 0 (no microcontroller section). Cannot get ML Timeline info.");
+      return;
+    }
+
     try {
 
       /* Use a container for Debug BO for results to control its lifetime.

@@ -8,6 +8,7 @@
 
 #include "core/common/device.h"
 #include "core/common/message.h"
+#include "core/common/smi.h"
 #include "core/common/query_requests.h"
 #include "core/common/api/bo_int.h"
 #include "core/common/api/hw_context_int.h"
@@ -176,7 +177,7 @@ namespace xdp {
     try {
       auto pcieId = xrt_core::device_query<xrt_core::query::pcie_id>(coreDevice);
       xrt_core::smi::smi_hardware_config smiHw;
-      auto hwType = = smiHw.get_hardware_type(pcieId);
+      auto hwType = smiHw.get_hardware_type(pcieId);
       switch (hwType) {
         case xrt_core::smi::smi_hardware_config::hardware_type::phx:
         case xrt_core::smi::smi_hardware_config::hardware_type::stxA0:

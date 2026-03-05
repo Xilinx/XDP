@@ -97,8 +97,9 @@ namespace xdp {
   
         std::stringstream numSegmentMsg;
         numSegmentMsg << " AIE_TRACE_METADATA and/or Active MicroController information is not available. "
-            << " By default, assuming 1 controller per column in design, and hence, "
-            << nCol << " segments in buffer."
+            << " By default, assuming 1 controller per column in design."
+            << " Found " << nCol << " in the design,"
+            << " hence, splitting buffer to " << nCol << " segments."
             << " Please check the number of columns used by the design." << std::endl;
         xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", numSegmentMsg.str());
   

@@ -111,9 +111,9 @@ namespace xdp {
       uint32_t* dataBuffer = static_cast<uint32_t*>(buf);
       for (uint64_t i = 0; i < bufferSz; i++)
       {
-        fout << "0x" << std::hex << dataBuffer[i] << std::endl;
-        fout << std::flush;
+        fout << "0x" << std::hex << dataBuffer[i] << '\n';
       }
+      fout.flush();
 
 
       // Free the memory immediately if we own it

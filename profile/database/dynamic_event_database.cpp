@@ -328,6 +328,13 @@ namespace xdp {
     return device_db->getAIETimerSamples();
   }
 
+  std::vector<counters::DoubleSample>
+  VPDynamicDatabase::moveAIETimerSamples(uint64_t deviceId)
+  {
+    auto device_db = getDeviceDB(deviceId);
+    return device_db->moveAIETimerSamples();
+  }
+
   void VPDynamicDatabase::setPLTraceBufferFull(uint64_t deviceId, bool val)
   {
     auto device_db = getDeviceDB(deviceId);

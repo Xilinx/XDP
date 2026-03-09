@@ -65,9 +65,9 @@ void AIETraceTimestampsWriter::writeCVSTimestampFile()
       << "row"              << ","
       << "timer(cycles)"    << ",\n";
 
-  // Write all data elements
+  // Move (not copy) all data elements to avoid doubling memory usage
   std::vector<counters::DoubleSample> samples =
-      db->getDynamicInfo().getAIETimerSamples(mDeviceIndex);
+      db->getDynamicInfo().moveAIETimerSamples(mDeviceIndex);
 
   for (auto& sample : samples) {
     fos << sample.timestamp1 << ","
@@ -97,8 +97,8 @@ void AIETraceTimestampsWriter::writeBinaryTimestampFile()
                                               aieClockFreqMhz,  PACKETSIZE );
   AIEBinaryData::AIEEventTimeStamp timeStampEvent;
 
-  // Write all data elements
-  std::vector<counters::DoubleSample> samples = db->getDynamicInfo().getAIETimerSamples(mDeviceIndex);
+  // Move (not copy) all data elements to avoid doubling memory usage
+  std::vector<counters::DoubleSample> samples = db->getDynamicInfo().moveAIETimerSamples(mDeviceIndex);
   for (auto& sample : samples) {
     if (sample.values.size() == 3) {
       auto  column = static_cast<uint32_t>(sample.values[0]);

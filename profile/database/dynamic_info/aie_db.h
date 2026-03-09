@@ -78,6 +78,10 @@ namespace xdp {
     { return timerSamples.getSamples();  }
 
     inline
+    std::vector<counters::DoubleSample> moveAIETimerSamples()
+    { return timerSamples.moveSamples();  }
+
+    inline
     std::vector<xdp::aie::AIEDebugDataType> getAIEDebugSamples()
     { return aieDebugSamples.getAIEDebugData();  }
 

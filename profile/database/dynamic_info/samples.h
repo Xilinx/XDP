@@ -85,6 +85,11 @@ namespace xdp {
       std::lock_guard<std::mutex> lock(containerLock);
       return samples;
     }
+    inline std::vector<counters::DoubleSample> moveSamples()
+    {
+      std::lock_guard<std::mutex> lock(containerLock);
+      return std::move(samples);
+    }
 
   };
 

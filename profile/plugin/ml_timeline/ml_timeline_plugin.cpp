@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (C) 2023-2025 Advanced Micro Devices, Inc. All rights reserved
+// Copyright (C) 2023-2026 Advanced Micro Devices, Inc. All rights reserved
 
 #define XDP_PLUGIN_SOURCE
 
@@ -8,7 +8,9 @@
 
 #include "core/common/device.h"
 #include "core/common/message.h"
+#include "core/common/smi.h"
 #include "core/common/query_requests.h"
+#include "core/common/api/bo_int.h"
 #include "core/common/api/hw_context_int.h"
 
 #include "xdp/profile/plugin/ml_timeline/ml_timeline_plugin.h"
@@ -139,7 +141,8 @@ namespace xdp {
     if (isFullELFFlow) {
       /* For Full ELF flow, debug buffer configuration happens only once
        * for a fully configured HWCtx, even if multiple elfs are loaded.
-       * For now, number of uCs in the first ELF is considered.
+       * Due to unavailability of metadata, number of uC is set to
+       * number of columns in the HWCtx.
        */
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "In Full ELF flow");
 
@@ -168,7 +171,33 @@ namespace xdp {
       (db->getStaticInfo()).setDeviceName(deviceId, deviceName);
     }
 
-    mMultiImpl[hwCtxImpl] = std::make_pair(implId, std::make_unique<MLTimelineClientDevImpl>(db, mBufSz));
+    xrt_core::bo_int::use_type boType = xrt_core::bo_int::use_type::uc_debug;
+
+    xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Identify Device Type");
+    try {
+      auto pcieId = xrt_core::device_query<xrt_core::query::pcie_id>(coreDevice);
+      xrt_core::smi::smi_hardware_config smiHw;
+      auto hwType = smiHw.get_hardware_type(pcieId);
+      switch (hwType) {
+        case xrt_core::smi::smi_hardware_config::hardware_type::phx:
+        case xrt_core::smi::smi_hardware_config::hardware_type::stxA0:
+        case xrt_core::smi::smi_hardware_config::hardware_type::stxB0:
+        case xrt_core::smi::smi_hardware_config::hardware_type::stxH:
+        case xrt_core::smi::smi_hardware_config::hardware_type::krk1:
+          boType = xrt_core::bo_int::use_type::debug;
+          break;
+        default:
+          break;
+      }
+    } catch (const std::exception& e) {
+      std::stringstream msg;
+      msg << e.what() << " ML Timeline cannot be enabled without Device Type and Buffer Type identification." << std::endl;
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
+      return;
+    }
+
+    xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Create Client Implementation");
+    mMultiImpl[hwCtxImpl] = std::make_pair(implId, std::make_unique<MLTimelineClientDevImpl>(db, mBufSz, boType));
     auto mlImpl = mMultiImpl[hwCtxImpl].second.get();
     mlImpl->updateDevice(hwCtxImpl, deviceId);
 

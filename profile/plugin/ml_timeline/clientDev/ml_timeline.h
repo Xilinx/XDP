@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2023-2024 Advanced Micro Devices, Inc. - All rights reserved
+ * Copyright (C) 2023-2026 Advanced Micro Devices, Inc. - All rights reserved
  *
  * Licensed under the Apache License, Version 2.0 (the "License"). You may
  * not use this file except in compliance with the License. A copy of the
@@ -17,8 +17,11 @@
 #ifndef XDP_PLUGIN_ML_TIMELINE_CLIENTDEV_IMPL_H
 #define XDP_PLUGIN_ML_TIMELINE_CLIENTDEV_IMPL_H
 
+#include "core/common/api/bo_int.h"
+
 #include "xdp/config.h"
 #include "xdp/profile/plugin/ml_timeline/ml_timeline_impl.h"
+
 
 namespace xdp {
 
@@ -26,8 +29,11 @@ namespace xdp {
   class MLTimelineClientDevImpl : public MLTimelineImpl
   {
     std::unique_ptr<ResultBOContainer> mResultBOHolder;
+    xrt_core::bo_int::use_type mBOType;
+
     public :
-      MLTimelineClientDevImpl(VPDatabase* dB, uint32_t sz);
+      MLTimelineClientDevImpl(VPDatabase* dB, uint32_t sz,
+          xrt_core::bo_int::use_type bt);
 
       ~MLTimelineClientDevImpl();
 

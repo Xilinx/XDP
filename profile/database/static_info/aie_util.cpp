@@ -241,9 +241,9 @@ namespace xdp::aie {
   {
     if (!std::filesystem::exists(filename)) {
       std::stringstream msg;
-      msg << "The AIE metadata JSON file is required in the same directory"
-          << " as the run directory to run AIE Profile.";
-      xrt_core::message::send(severity_level::warning, "XRT", msg.str());
+      msg << "AIE metadata JSON file is required in the run directory for "
+          << "AIE Profile/AIE Trace on all Client and ML Timeline on NPU3. ";
+      xrt_core::message::send(severity_level::debug, "XRT", msg.str());
       return nullptr;
     }
 

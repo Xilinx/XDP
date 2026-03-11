@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (C) 2023-2025 Advanced Micro Devices, Inc. All rights reserved
+// Copyright (C) 2023-2026 Advanced Micro Devices, Inc. All rights reserved
 
 #define XDP_PLUGIN_SOURCE
 
@@ -10,7 +10,6 @@
 #include <fstream>
 #include <regex>
 
-#include "core/common/api/bo_int.h"
 #include "core/common/api/hw_context_int.h"
 #include "core/common/device.h"
 #include "core/common/message.h"
@@ -29,12 +28,12 @@ namespace xdp {
   {
     public:
       xrt::bo  mBO;
-      ResultBOContainer(void* hwCtxImpl, uint32_t sz, xrt_core::bo_int::use_type bufType)
+      ResultBOContainer(void* hwCtxImpl, uint32_t sz, xrt_core::bo_int::use_type boType)
       {
         mBO = xrt_core::bo_int::create_bo(
                 xrt_core::hw_context_int::create_hw_context_from_implementation(hwCtxImpl),
                 sz,
-                bufType);
+                boType);
       }
       ~ResultBOContainer() {}
 
@@ -50,8 +49,10 @@ namespace xdp {
       }
   };
 
-  MLTimelineClientDevImpl::MLTimelineClientDevImpl(VPDatabase*dB, uint32_t sz)
-    : MLTimelineImpl(dB, sz)
+  MLTimelineClientDevImpl::MLTimelineClientDevImpl(VPDatabase*dB, uint32_t sz,
+          xrt_core::bo_int::use_type bt)
+    : MLTimelineImpl(dB, sz),
+      mBOType(bt)
   {
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", 
               "Created ML Timeline Plugin for Client Device.");
@@ -68,7 +69,7 @@ namespace xdp {
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", 
               "In MLTimelineClientDevImpl::updateDevice");
 
-    xrt_core::bo_int::use_type bufType = xrt_core::bo_int::use_type::debug;
+    std::vector<UCInfo> activeUCs;
     std::map<uint32_t, size_t> activeUCsegmentMap;
 
     auto metadataReader = (db->getStaticInfo()).getAIEmetadataReader(devId);
@@ -76,17 +77,38 @@ namespace xdp {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
         "AIE Metadata is not found.");
     }
-    if (metadataReader && 5 < metadataReader->getHardwareGeneration()) {
-      bufType = xrt_core::bo_int::use_type::uc_debug;
 
-      auto activeUCs = metadataReader->getActiveMicroControllers();
-      if (activeUCs.empty()) {
+    if (metadataReader && 5 < metadataReader->getHardwareGeneration()) {
+      if (xrt_core::bo_int::use_type::uc_debug != mBOType) {
         xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
-          "Active Microcontroller info is missing. Configuring ML Timeline buffer for 1 controller.");
-        activeUCs.emplace_back((uint8_t)0, (uint8_t)0);
+          "Device type does not match with HW Gen in AIE_TRACE_METADATA.");
+        mBOType = xrt_core::bo_int::use_type::uc_debug;
       }
 
+      activeUCs = metadataReader->getActiveMicroControllers();
+    }
+
+    if (xrt_core::bo_int::use_type::uc_debug == mBOType) {
+      if (activeUCs.empty()) {
+        // Active UC info is not available
+        // Split Debug Buffer per column in HW Ctx
+        boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(hwCtxImpl);
+        uint32_t nCol = static_cast<uint32_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols"));
+  
+        std::stringstream numSegmentMsg;
+        numSegmentMsg << " AIE_TRACE_METADATA and/or Active MicroController information is not available. "
+            << " By default, assuming 1 controller per column in HW Context."
+            << " Found " << nCol << " columns in the HW Context,"
+            << " hence, splitting buffer to " << nCol << " segments."
+            << " Please check the number of columns used by the design." << std::endl;
+        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", numSegmentMsg.str());
+  
+        for (uint32_t i = 0; i < nCol; i++) {
+          activeUCs.emplace_back((uint8_t)i /*col*/, (uint8_t)0 /*index*/);
+        }
+      }
       mNumBufSegments = static_cast<uint32_t>(activeUCs.size());
+
       /*
       * For now, each buffer segment is equal sized.
       */
@@ -120,7 +142,7 @@ namespace xdp {
        * finishFlushDevice so that AIE Profile/Debug Plugins, if enabled,
        * can use their own Debug BO to capture their data.
        */
-      mResultBOHolder = std::make_unique<ResultBOContainer>(hwCtxImpl, mBufSz, bufType);
+      mResultBOHolder = std::make_unique<ResultBOContainer>(hwCtxImpl, mBufSz, mBOType);
       memset(mResultBOHolder->map(), 0, mBufSz);
 
     } catch (std::exception& e) {
@@ -135,7 +157,7 @@ namespace xdp {
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", 
               "Allocated buffer In MLTimelineClientDevImpl::updateDevice");
 
-    if (metadataReader && 5 < metadataReader->getHardwareGeneration()) {
+    if (xrt_core::bo_int::use_type::uc_debug == mBOType) {
       try {
         xrt_core::bo_int::config_bo(mResultBOHolder->mBO, activeUCsegmentMap);
       } catch (std::exception& e) {

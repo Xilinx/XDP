@@ -125,6 +125,9 @@ namespace xdp {
     inline std::vector<counters::DoubleSample> getAIETimerSamples()
     { return aie_db.getAIETimerSamples();  }
 
+    inline std::vector<counters::DoubleSample> moveAIETimerSamples()
+    { return aie_db.moveAIETimerSamples(); }
+
     inline void setPLDeadlockInfo(const std::string& info)
     { pl_db.setDeadlockInfo(info); }
 

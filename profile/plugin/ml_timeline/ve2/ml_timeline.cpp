@@ -72,25 +72,52 @@ namespace xdp {
     std::map<uint32_t, size_t> activeUCsegmentMap;
     if (metadataReader) {
       auto activeUCs = metadataReader->getActiveMicroControllers();
-      mNumBufSegments = activeUCs.size();
-      /*
-      * For now, each buffer segment is equal sized.
-      */
-      uint32_t alignment = mNumBufSegments * RECORD_TIMER_ENTRY_SZ_IN_BYTES;
-      uint32_t remBytes  = mBufSz % alignment;
-      if (0 != remBytes) {
-        mBufSz -= remBytes;
-      }
-      uint32_t segmentSzInBytes = mBufSz / mNumBufSegments;
-      for (auto const &e : activeUCs) {
-        // For VE2, index for buffer segment is same as the SHIM Col number
-        activeUCsegmentMap[e.col] = segmentSzInBytes;
-      }
-      std::stringstream numSegmentMsg;
-      numSegmentMsg << "ML Timeline buffer will be configured to have " 
+      if (activeUCs.empty()) {
+        /* AIE trace metadata is available but MicroController section is missing.
+         * Fallback: use number of columns in the current partition.
+         * For now, each buffer segment is equal sized.
+         * For now, assume last entry in aie_partition_info corresponds to current HW Context.
+         */
+        boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(hwCtxImpl);
+        mNumBufSegments = static_cast<uint32_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols"));
+        if (mNumBufSegments == 0) {
+          mNumBufSegments = 1;
+        }
+        uint32_t alignment = mNumBufSegments * RECORD_TIMER_ENTRY_SZ_IN_BYTES;
+        uint32_t remBytes  = mBufSz % alignment;
+        if (0 != remBytes) {
+          mBufSz -= remBytes;
+        }
+        uint32_t segmentSzInBytes = mBufSz / mNumBufSegments;
+        for (uint32_t col = 0; col < mNumBufSegments; ++col) {
+          activeUCsegmentMap[col] = segmentSzInBytes;
+        }
+        std::stringstream numSegmentMsg;
+        numSegmentMsg << "MicroController information is missing in AIE trace metadata. "
+            << "Using partition column count as fallback: " << mNumBufSegments
+            << " segments, each " << segmentSzInBytes << " bytes in size." << std::endl;
+        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", numSegmentMsg.str());
+      } else {
+        mNumBufSegments = activeUCs.size();
+        /*
+        * For now, each buffer segment is equal sized.
+        */
+        uint32_t alignment = mNumBufSegments * RECORD_TIMER_ENTRY_SZ_IN_BYTES;
+        uint32_t remBytes  = mBufSz % alignment;
+        if (0 != remBytes) {
+          mBufSz -= remBytes;
+        }
+        uint32_t segmentSzInBytes = mBufSz / mNumBufSegments;
+        for (auto const &e : activeUCs) {
+          // For VE2, index for buffer segment is same as the SHIM Col number
+          activeUCsegmentMap[e.col] = segmentSzInBytes;
+        }
+        std::stringstream numSegmentMsg;
+        numSegmentMsg << "ML Timeline buffer will be configured to have " 
           << mNumBufSegments << " segments, each " 
           << segmentSzInBytes << " bytes in size." << std::endl;
-      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", numSegmentMsg.str());
+        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", numSegmentMsg.str());
+      }
     } else {
       /* If AIE_TRACE_METADATA and/or MicroController information is not available, 
        * set number of buffer segments as number of columns in the current partition.

@@ -61,7 +61,8 @@ namespace xdp {
     counterScheme = xrt_core::config::get_aie_trace_settings_counter_scheme();
     // Get polling interval (in usec)
     pollingInterval = xrt_core::config::get_aie_trace_settings_poll_timers_interval_us();
-    
+    maxTimerSamples = xrt_core::config::get_aie_trace_settings_max_timer_samples();
+
     // Check whether continuous trace is enabled in xrt.ini
     continuousTrace = xrt_core::config::get_aie_trace_settings_periodic_offload();
     // AIE trace is now supported for HW only
@@ -208,7 +209,7 @@ namespace xdp {
       "start_type", "start_time", "start_iteration", "end_type",
       "periodic_offload", "reuse_buffer", "buffer_size", 
       "buffer_offload_interval_us", "file_dump_interval_s",
-      "enable_system_timeline", "poll_timers_interval_us", "config_one_partition"
+      "enable_system_timeline", "poll_timers_interval_us", "max_timer_samples", "config_one_partition"
     };
     const std::map<std::string, std::string> deprecatedSettings {
       {"aie_trace_metrics", "AIE_trace_settings.graph_based_aie_tile_metrics or tile_based_aie_tile_metrics"},

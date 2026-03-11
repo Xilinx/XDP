@@ -3,6 +3,8 @@
 
 #define XDP_PLUGIN_SOURCE
 
+#include <sstream>
+
 #include "core/common/api/device_int.h"
 #include "core/common/api/hw_context_int.h"
 #include "core/common/message.h"
@@ -321,6 +323,14 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
 
     // Start the AIE trace timestamps thread
     // NOTE: we purposely start polling before configuring trace events
+    uint32_t maxSamples = AIEData.metadata->getMaxTimerSamples();
+    //AIE trace timestamps writer writes 36 bytes per sample
+    uint64_t estimatedBytes = static_cast<uint64_t>(maxSamples) * 36;
+    std::stringstream msg;
+    msg << "AIE system timeline: max_timer_samples=" << maxSamples
+        << " (~" << (estimatedBytes / (1024*1024)) << " MB timestamps.bin).";
+    xrt_core::message::send(severity_level::info, "XRT", msg.str());
+
     AIEData.pollAIETimerThreadCtrlBool = true;
     auto device_thread = std::thread(&AieTracePluginUnified::pollAIETimers,
                                      this, deviceID, handle);
@@ -351,11 +361,21 @@ void AieTracePluginUnified::pollAIETimers(uint64_t index, void *handle) {
     return;
 
   auto &should_continue = it->second.pollAIETimerThreadCtrlBool;
+  uint32_t maxSamples = it->second.metadata->getMaxTimerSamples();
+  uint32_t pollingIntervalUs = it->second.metadata->getPollingIntervalVal();
+  uint32_t sampleCount = 0;
 
   while (should_continue) {
+    if (sampleCount >= maxSamples) {
+      std::stringstream warnMsg;
+      warnMsg << "AIE system timeline reached max_timer_samples=" << maxSamples
+              << ". Stopping timer sampling. To capture more, increase AIE_trace_settings.max_timer_samples in xrt.ini.";
+      xrt_core::message::send(severity_level::warning, "XRT", warnMsg.str());
+      break;
+    }
     handleToAIEData[handle].implementation->pollTimers(index, handle);
-    std::this_thread::sleep_for(std::chrono::microseconds(
-        handleToAIEData[handle].metadata->getPollingIntervalVal()));
+    ++sampleCount;
+    std::this_thread::sleep_for(std::chrono::microseconds(pollingIntervalUs));
   }
 }
 

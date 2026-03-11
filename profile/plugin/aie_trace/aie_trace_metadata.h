@@ -118,6 +118,7 @@ class AieTraceMetadata {
 
     void* getHandle() {return handle;}
     uint32_t getPollingIntervalVal(){return pollingInterval;}
+    uint32_t getMaxTimerSamples(){return maxTimerSamples;}
     unsigned int getFileDumpIntS() {return aie_trace_file_dump_int_s;}
     std::string getMetricStr() {return metricSet;}
     std::map<tile_type, std::string> getConfigMetrics() {return configMetrics;}
@@ -155,6 +156,7 @@ class AieTraceMetadata {
     bool invalidXclbinMetadata;
 
     uint32_t pollingInterval;
+    uint32_t maxTimerSamples;
     uint32_t iterationCount = 0;
     uint64_t delayCycles = 0;
     uint64_t deviceID;

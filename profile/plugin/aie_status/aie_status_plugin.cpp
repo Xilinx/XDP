@@ -476,11 +476,7 @@ namespace xdp {
     getTilesForStatus(handle);
 
     // Open the writer for this device
-    #ifdef XDP_VE2_BUILD
-      std::string devicename = util::getDeviceName(handle,true);
-    #else
-      std::string devicename = util::getDeviceName(handle);
-    #endif
+    std::string devicename = util::getDeviceName(handle, hw_context_flow);
 
     std::string currentTime = "0000_00_00_0000";
     auto time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());

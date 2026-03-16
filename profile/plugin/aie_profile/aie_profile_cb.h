@@ -27,4 +27,8 @@ extern "C"
 XDP_PLUGIN_EXPORT
 void endAIECtrPoll(void* handle);
 
+extern "C"
+XDP_PLUGIN_EXPORT
+void aieProfileRunConstructor(void* run, void* hwctx);
+
 #endif

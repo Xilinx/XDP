@@ -47,6 +47,8 @@ namespace xdp {
 
     virtual void freeResources() = 0;
 
+    virtual void generateCTForRun(void* /*run*/, void* /*hwctx*/) {}
+
     uint64_t getDeviceID() { return deviceID; }
   };
 

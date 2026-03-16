@@ -41,7 +41,11 @@ AieProfileCTWriter::AieProfileCTWriter(VPDatabase* database,
 
 bool AieProfileCTWriter::generate()
 {
-  // Step 1: Read ASM file information from CSV
+  return generate((fs::current_path() / CT_OUTPUT_FILENAME).string());
+}
+
+bool AieProfileCTWriter::generate(const std::string& outputPath)
+{
   std::string csvPath = (fs::current_path() / "aie_profile_timestamps.csv").string();
   auto asmFiles = readASMInfoFromCSV(csvPath);
   if (asmFiles.empty()) {
@@ -50,7 +54,6 @@ bool AieProfileCTWriter::generate()
     return false;
   }
 
-  // Step 2: Get all configured counters
   auto allCounters = getConfiguredCounters();
   if (allCounters.empty()) {
     xrt_core::message::send(severity_level::debug, "XRT",
@@ -58,13 +61,11 @@ bool AieProfileCTWriter::generate()
     return false;
   }
 
-  // Step 3: Filter counters for each ASM file's column range
   bool hasTimestamps = false;
   for (auto& asmFile : asmFiles) {
     if (!asmFile.timestamps.empty())
       hasTimestamps = true;
 
-    // Filter counters for this ASM file's column range
     asmFile.counters = filterCountersByColumn(allCounters, 
                                                asmFile.colStart, 
                                                asmFile.colEnd);
@@ -76,8 +77,7 @@ bool AieProfileCTWriter::generate()
     return false;
   }
 
-  // Step 4: Generate the CT file
-  return writeCTFile(asmFiles, allCounters);
+  return writeCTFile(asmFiles, allCounters, outputPath);
 }
 
 std::vector<ASMFileInfo> AieProfileCTWriter::readASMInfoFromCSV(const std::string& csvPath)
@@ -97,7 +97,7 @@ std::vector<ASMFileInfo> AieProfileCTWriter::readASMInfoFromCSV(const std::strin
   int lineNum = 0;
   
   // Regex pattern to extract ASM ID from filename
-  std::regex filenamePattern(R"(aie_runtime_control(\d+)\.asm)");
+  std::regex filenamePattern(R"(aie_runtime_control(\d+)?\.asm)");
 
   try {
     while (std::getline(csvFile, line)) {
@@ -145,7 +145,7 @@ std::vector<ASMFileInfo> AieProfileCTWriter::readASMInfoFromCSV(const std::strin
       // Extract ASM ID from filename
       std::smatch match;
       if (std::regex_search(info.filename, match, filenamePattern)) {
-        info.asmId = std::stoi(match[1].str());
+        info.asmId = match[1].matched ? std::stoi(match[1].str()) : 0;
         info.ucNumber = 4 * info.asmId;
         info.colStart = info.asmId * 4;
         info.colEnd = info.colStart + 3;
@@ -360,9 +360,9 @@ std::string AieProfileCTWriter::getPortDirection(const std::string& metricSet, u
 }
 
 bool AieProfileCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
-                                      const std::vector<CTCounterInfo>& allCounters)
+                                      const std::vector<CTCounterInfo>& allCounters,
+                                      const std::string& outputPath)
 {
-  std::string outputPath = (fs::current_path() / CT_OUTPUT_FILENAME).string();
   std::ofstream ctFile(outputPath);
 
   if (!ctFile.is_open()) {

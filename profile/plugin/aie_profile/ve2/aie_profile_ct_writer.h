@@ -80,10 +80,17 @@ public:
   ~AieProfileCTWriter() = default;
 
   /**
-   * @brief Generate the CT file
+   * @brief Generate the CT file using the default output path
    * @return true if CT file was generated successfully, false otherwise
    */
   bool generate();
+
+  /**
+   * @brief Generate the CT file at a caller-specified path
+   * @param outputPath Full path for the generated CT file
+   * @return true if CT file was generated successfully, false otherwise
+   */
+  bool generate(const std::string& outputPath);
 
 private:
   /**
@@ -126,10 +133,12 @@ private:
    * @brief Write the CT file content
    * @param asmFiles Vector of ASMFileInfo with all parsed information
    * @param allCounters Vector of all CTCounterInfo for metadata
+   * @param outputPath Full path for the output CT file
    * @return true if file was written successfully
    */
   bool writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
-                   const std::vector<CTCounterInfo>& allCounters);
+                   const std::vector<CTCounterInfo>& allCounters,
+                   const std::string& outputPath);
 
   /**
    * @brief Format an address as a hex string

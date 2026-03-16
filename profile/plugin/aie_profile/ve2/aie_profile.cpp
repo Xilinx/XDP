@@ -111,25 +111,6 @@ namespace xdp {
       if(!checkAieDevice(deviceID, metadata->getHandle()))
               return;
 
-      // Check if dtrace_debug is enabled and set control file path BEFORE submitNopElf
-      // This is critical because xrt_module.cpp calls get_dtrace_control_file_path() 
-      // during module creation, and config reader locks keys after first access
-      bool dtraceDebug = xrt_core::config::get_aie_profile_settings_dtrace_debug();
-      if (dtraceDebug) {
-        std::string ctFilePath = (std::filesystem::current_path() / "aie_profile.ct").string();
-        try {
-          xrt_core::config::detail::set("Debug.dtrace_control_file_path", ctFilePath);
-          std::stringstream msg;
-          msg << "AIE Profile: Set dtrace_control_file_path to '" << ctFilePath << "'";
-          xrt_core::message::send(severity_level::info, "XRT", msg.str());
-        }
-        catch (const std::exception& e) {
-          std::stringstream msg;
-          msg << "AIE Profile: Could not set dtrace_control_file_path: " << e.what();
-          xrt_core::message::send(severity_level::warning, "XRT", msg.str());
-        }
-      }
-
       // Submit nop.elf before configuring profile
       if (!aie::submitNopElf(metadata->getHandle())) {
         xrt_core::message::send(severity_level::warning, "XRT",
@@ -138,12 +119,7 @@ namespace xdp {
       }
 
       bool runtimeCounters = setMetricsSettings(deviceID, metadata->getHandle());
-      // Generate CT file for AIE profile counters after metrics settings are configured
-      if (runtimeCounters && dtraceDebug) {
-        AieProfileCTWriter ctWriter(db, metadata, deviceID);
-        ctWriter.generate();
-      }
-  
+
       if (!runtimeCounters) {
         std::shared_ptr<xrt_core::device> device = xrt_core::get_userpf_device(metadata->getHandle());
         auto counters = xrt_core::edge::aie::get_profile_counters(device.get());
@@ -183,6 +159,40 @@ namespace xdp {
           xrt_core::message::send(severity_level::debug, "XRT", "Finished processing counters");
         }
       }
+  }
+
+  void AieProfile_VE2Impl::generateCTForRun(void* run, void* hwctx)
+  {
+    if (perfCounters.empty())
+      return;
+
+    static std::atomic<uint32_t> runSeq{0};
+    auto runId = runSeq++;
+
+    auto ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(hwctx);
+    auto slotIdx = static_cast<xrt_core::hwctx_handle*>(ctx)->get_slotidx();
+
+    std::string filename = "aie_profile_ctx_" + std::to_string(slotIdx)
+                         + "_run_" + std::to_string(runId) + ".ct";
+    std::string outputPath = (std::filesystem::current_path() / filename).string();
+
+    AieProfileCTWriter ctWriter(db, metadata, deviceID);
+    if (!ctWriter.generate(outputPath))
+      return;
+
+    auto* xrt_run = static_cast<xrt::run*>(run);
+    try {
+      xrt_run->set_dtrace_control_file(outputPath);
+      std::stringstream msg;
+      msg << "AIE Profile: Set per-run CT file '" << outputPath
+          << "' for run id=" << runId << " ctx slot=" << slotIdx;
+      xrt_core::message::send(severity_level::info, "XRT", msg.str());
+    }
+    catch (const std::exception& e) {
+      std::stringstream msg;
+      msg << "AIE Profile: Could not set per-run CT file: " << e.what();
+      xrt_core::message::send(severity_level::debug, "XRT", msg.str());
+    }
   }
 
   // Get reportable payload specific for this tile and/or counter

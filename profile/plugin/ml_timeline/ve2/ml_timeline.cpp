@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (C) 2025 Advanced Micro Devices, Inc. All rights reserved
+// Copyright (C) 2025-2026 Advanced Micro Devices, Inc. All rights reserved
 
 #define XDP_PLUGIN_SOURCE
 
@@ -68,70 +68,61 @@ namespace xdp {
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", 
               "In MLTimelineVE2Impl::updateDevice");
 
-    auto metadataReader = (db->getStaticInfo()).getAIEmetadataReader(devId);
+    std::vector<UCInfo> activeUCs;
     std::map<uint32_t, size_t> activeUCsegmentMap;
+
+    auto metadataReader = (db->getStaticInfo()).getAIEmetadataReader(devId);
     if (metadataReader) {
-      auto activeUCs = metadataReader->getActiveMicroControllers();
-      if (activeUCs.empty()) {
-        /* AIE trace metadata is available but MicroController section is missing.
-         * Fallback: use number of columns in the current partition.
-         * For now, each buffer segment is equal sized.
-         * For now, assume last entry in aie_partition_info corresponds to current HW Context.
-         */
-        boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(hwCtxImpl);
-        mNumBufSegments = static_cast<uint32_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols"));
-        if (mNumBufSegments == 0) {
-          mNumBufSegments = 1;
-        }
-        uint32_t alignment = mNumBufSegments * RECORD_TIMER_ENTRY_SZ_IN_BYTES;
-        uint32_t remBytes  = mBufSz % alignment;
-        if (0 != remBytes) {
-          mBufSz -= remBytes;
-        }
-        uint32_t segmentSzInBytes = mBufSz / mNumBufSegments;
-        for (uint32_t col = 0; col < mNumBufSegments; ++col) {
-          activeUCsegmentMap[col] = segmentSzInBytes;
-        }
-        std::stringstream numSegmentMsg;
-        numSegmentMsg << "MicroController information is missing in AIE trace metadata. "
-            << "Using partition column count as fallback: " << mNumBufSegments
-            << " segments, each " << segmentSzInBytes << " bytes in size." << std::endl;
-        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", numSegmentMsg.str());
-      } else {
-        mNumBufSegments = activeUCs.size();
-        /*
-        * For now, each buffer segment is equal sized.
-        */
-        uint32_t alignment = mNumBufSegments * RECORD_TIMER_ENTRY_SZ_IN_BYTES;
-        uint32_t remBytes  = mBufSz % alignment;
-        if (0 != remBytes) {
-          mBufSz -= remBytes;
-        }
-        uint32_t segmentSzInBytes = mBufSz / mNumBufSegments;
-        for (auto const &e : activeUCs) {
-          // For VE2, index for buffer segment is same as the SHIM Col number
-          activeUCsegmentMap[e.col] = segmentSzInBytes;
-        }
-        std::stringstream numSegmentMsg;
-        numSegmentMsg << "ML Timeline buffer will be configured to have " 
-          << mNumBufSegments << " segments, each " 
-          << segmentSzInBytes << " bytes in size." << std::endl;
-        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", numSegmentMsg.str());
-      }
-    } else {
+      activeUCs = metadataReader->getActiveMicroControllers();
+    }
+
+    if (activeUCs.empty()) {
       /* If AIE_TRACE_METADATA and/or MicroController information is not available, 
        * set number of buffer segments as number of columns in the current partition.
        * For now, each buffer segment is equal sized.
        * For now, assume last entry in aie_partition_info corresponds to current HW Context.
        */
       boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(hwCtxImpl);
-      mNumBufSegments = static_cast<uint32_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols"));
-      std::stringstream numSegmentMsg;
-      numSegmentMsg << "AIE_TRACE_METADATA and/or MicroController information is not available. "
-          << " By default, assuming " << mNumBufSegments << " segments in buffer."
+      uint32_t nCol = static_cast<uint32_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols"));
+      if (!nCol) {
+        std::stringstream nColMsg;
+        nColMsg << "Number of columns in AIE Partition Info is " << nCol << ". This is not valid. "
+                << "Assuming 1 segment in ML Timeline buffer."
+                << std::endl;
+        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", nColMsg.str());
+        nCol = 1;
+      }
+      std::stringstream nSegmentMsg;
+      nSegmentMsg << "AIE_TRACE_METADATA and/or MicroController information is not available. "
+          << " By default, assuming " << nCol << " segments in buffer."
           << " Please check the number of columns used by the design." << std::endl;
-      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", numSegmentMsg.str());
+      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", nSegmentMsg.str());
+
+      for (uint32_t i = 0; i < nCol; i++) {
+        activeUCs.emplace_back((uint8_t)i /*col*/, (uint8_t)0 /*index*/);
+      }
     }
+    mNumBufSegments = activeUCs.size();
+    if (!mNumBufSegments)
+      mNumBufSegments = 1
+    /*
+    * For now, each buffer segment is equal sized.
+    */
+    uint32_t alignment = mNumBufSegments * RECORD_TIMER_ENTRY_SZ_IN_BYTES;
+    uint32_t remBytes  = mBufSz % alignment;
+    if (0 != remBytes) {
+      mBufSz -= remBytes;
+    }
+    uint32_t segmentSzInBytes = mBufSz / mNumBufSegments;
+    for (auto const &e : activeUCs) {
+      // For VE2, index for buffer segment is same as the SHIM Col number
+      activeUCsegmentMap[e.col] = segmentSzInBytes;
+    }
+    std::stringstream nSegmentMsg;
+    nSegmentMsg << "ML Timeline buffer will be configured to have "
+      << mNumBufSegments << " segments, each "
+      << segmentSzInBytes << " bytes in size." << std::endl;
+    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", nSegmentMsg.str());
 
     try {
       mResultBOHolder = std::make_unique<xdp::ResultBOContainer>(hwCtxImpl, mBufSz);
@@ -146,9 +137,11 @@ namespace xdp {
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
       return;
     }
+
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", 
               "Allocated buffer In MLTimelineVE2Impl::updateDevice.");
-    if (metadataReader) {
+
+    if (!activeUCsegmentMap.empty()) {
       xrt_core::bo_int::config_bo(mResultBOHolder->mBO, activeUCsegmentMap);
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", 
               "Configuration of ML Timeline buffer done for active microcontrollers.");

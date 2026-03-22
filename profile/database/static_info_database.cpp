@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2016-2022 Xilinx, Inc
-// Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved
+// Copyright (C) 2022-2026 Advanced Micro Devices, Inc. All rights reserved
 
 #include <iostream>
 #include <sstream>
@@ -452,7 +452,7 @@ namespace xdp {
     {
       if (deviceId) {
         if ((!config->plDeviceIntf) && (getAppStyle() == AppStyle::REGISTER_XCLBIN_STYLE)) {
-          xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", " Create PL Device For AIE Register xclbin ");
+          xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", " Create PL Device For AIE Register xclbin ");
           // If AIE_ONLY xclbin loaded first, dummy PLDeviceIntf is created
           if (deviceInfo.find(DEFAULT_PL_DEVICE_ID) == deviceInfo.end()) {
             deviceInfo[DEFAULT_PL_DEVICE_ID] = std::make_unique<DeviceInfo>();

@@ -34,10 +34,10 @@ namespace xdp {
       aieProfilePluginInstance.endPollforDevice(handle);
   }
 
-  static void aieProfileRunConstructor(void* run, void* hwctx)
+  static void aieProfileRunConstructor(void* run, void* hwctx, uint32_t run_uid)
   {
     if (AieProfilePlugin::alive())
-      aieProfilePluginInstance.runConstructorHook(run, hwctx);
+      aieProfilePluginInstance.runConstructorHook(run, hwctx, run_uid);
   }
 
 } // end namespace xdp
@@ -55,7 +55,7 @@ void endAIECtrPoll(void* handle)
 }
 
 extern "C"
-void aieProfileRunConstructor(void* run, void* hwctx)
+void aieProfileRunConstructor(void* run, void* hwctx, uint32_t run_uid)
 {
-  xdp::aieProfileRunConstructor(run, hwctx);
+  xdp::aieProfileRunConstructor(run, hwctx, run_uid);
 }

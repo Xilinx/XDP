@@ -17,6 +17,7 @@
 #ifndef XDP_PLUGIN_AIE_PROFILE_CB_H
 #define XDP_PLUGIN_AIE_PROFILE_CB_H
 
+#include <cstdint>
 #include "xdp/config.h"
 
 extern "C"
@@ -29,6 +30,6 @@ void endAIECtrPoll(void* handle);
 
 extern "C"
 XDP_PLUGIN_EXPORT
-void aieProfileRunConstructor(void* run, void* hwctx);
+void aieProfileRunConstructor(void* run, void* hwctx, uint32_t run_uid);
 
 #endif

@@ -161,19 +161,16 @@ namespace xdp {
       }
   }
 
-  void AieProfile_VE2Impl::generateCTForRun(void* run, void* hwctx)
+  void AieProfile_VE2Impl::generateCTForRun(void* run, void* hwctx, uint32_t run_uid)
   {
     if (perfCounters.empty())
       return;
-
-    static std::atomic<uint32_t> runSeq{0};
-    auto runId = runSeq++;
 
     auto ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(hwctx);
     auto slotIdx = static_cast<xrt_core::hwctx_handle*>(ctx)->get_slotidx();
 
     std::string filename = "aie_profile_ctx_" + std::to_string(slotIdx)
-                         + "_run_" + std::to_string(runId) + ".ct";
+                         + "_run_" + std::to_string(run_uid) + ".ct";
     std::string outputPath = (std::filesystem::current_path() / filename).string();
 
     AieProfileCTWriter ctWriter(db, metadata, deviceID);
@@ -185,7 +182,7 @@ namespace xdp {
       xrt_run->set_dtrace_control_file(outputPath);
       std::stringstream msg;
       msg << "AIE Profile: Set per-run CT file '" << outputPath
-          << "' for run id=" << runId << " ctx slot=" << slotIdx;
+          << "' for run uid=" << run_uid << " ctx slot=" << slotIdx;
       xrt_core::message::send(severity_level::info, "XRT", msg.str());
     }
     catch (const std::exception& e) {

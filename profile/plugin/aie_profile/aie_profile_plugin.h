@@ -18,7 +18,7 @@ namespace xdp {
     ~AieProfilePlugin();
     void updateAIEDevice(void* handle, bool hw_context_flow);
     void endPollforDevice(void* handle);
-    void runConstructorHook(void* run, void* hwctx);
+    void runConstructorHook(void* run, void* hwctx, uint32_t run_uid);
     static bool alive();
     void broadcast(VPDatabase::MessageType msg, void* blob);
 

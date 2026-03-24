@@ -35,7 +35,7 @@ namespace xdp {
       void endPoll() override;
 
       void freeResources();
-      void generateCTForRun(void* run, void* hwctx) override;
+      void generateCTForRun(void* run, void* hwctx, uint32_t run_uid) override;
       bool checkAieDevice(const uint64_t deviceId, void* handle);
 
       bool setMetricsSettings(const uint64_t deviceId, void* handle);

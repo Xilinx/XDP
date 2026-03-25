@@ -506,7 +506,9 @@ bool AieProfileCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
   ctFile << "profile_data[\"end_timestamp\"] = ts_end\n";
   ctFile << "profile_data[\"total_time\"] = ts_end - profile_data[\"start_timestamp\"]\n";
   ctFile << "\n";
-  ctFile << "output_path = os.path.join(os.getcwd(), \"aie_profile_counters.json\")\n";
+  ctFile << "dump_stem = os.path.splitext(os.path.basename(__file__))[0]\n";
+  ctFile << "unique_dtrace_dump_id = dump_stem.replace(\"dtrace_dump_\", \"\", 1)\n";
+  ctFile << "output_path = os.path.join(os.getcwd(), f\"aie_profile_counters_{unique_dtrace_dump_id}.json\")\n";
   ctFile << "with open(output_path, \"w\") as f:\n";
   ctFile << "    json.dump(profile_data, f, indent=2)\n";
   ctFile << "print(f\"Profile data written to {output_path}\")\n";

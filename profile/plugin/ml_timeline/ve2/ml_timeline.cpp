@@ -104,7 +104,7 @@ namespace xdp {
     }
     mNumBufSegments = activeUCs.size();
     if (!mNumBufSegments)
-      mNumBufSegments = 1
+      mNumBufSegments = 1;
     /*
     * For now, each buffer segment is equal sized.
     */

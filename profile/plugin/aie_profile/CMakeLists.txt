@@ -90,6 +90,7 @@ else()
     target_include_directories(xdp_aie_profile_plugin_xdna PRIVATE
       ${CMAKE_SOURCE_DIR}/src
       ${XRT_SOURCE_DIR}/runtime_src/core/common/aiebu/src/cpp/include
+      ${XRT_SOURCE_DIR}/runtime_src/core/common/elf
     )
     set_target_properties(xdp_aie_profile_plugin_xdna PROPERTIES VERSION ${XRT_VERSION_STRING} SOVERSION ${XRT_SOVERSION})
 

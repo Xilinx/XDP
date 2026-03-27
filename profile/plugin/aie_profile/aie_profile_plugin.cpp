@@ -250,7 +250,9 @@ auto time = std::time(nullptr);
     handleToAIEProfileImpl.erase(handle);
   }
 
-  void AieProfilePlugin::runConstructorHook(void* run, void* hwctx, uint32_t run_uid)
+  void AieProfilePlugin::runConstructorHook(void* run, void* hwctx, uint32_t run_uid,
+                                            const std::string& kernel_name,
+                                            void* elf_handle)
   {
     if (!xrt_core::config::get_aie_profile_settings_dtrace_debug())
       return;
@@ -261,7 +263,7 @@ auto time = std::time(nullptr);
           "AIE Profile: No implementation found for hw context in runConstructorHook");
       return;
     }
-    itr->second->generateCTForRun(run, hwctx, run_uid);
+    itr->second->generateCTForRun(run, hwctx, run_uid, kernel_name, elf_handle);
   }
 
   void AieProfilePlugin::endPoll()

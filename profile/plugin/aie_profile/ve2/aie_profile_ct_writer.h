@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 
+#include "aiebu/aiebu_assembler.h"
+
 namespace xdp {
 
 // Forward declarations
@@ -91,6 +93,15 @@ public:
    * @return true if CT file was generated successfully, false otherwise
    */
   bool generate(const std::string& outputPath);
+
+  /**
+   * @brief Generate the CT file using op_loc data from aiebu_assembler
+   * @param outputPath Full path for the generated CT file
+   * @param opLocations Vector of op_loc from aiebu_assembler::get_op_locations
+   * @return true if CT file was generated successfully, false otherwise
+   */
+  bool generate(const std::string& outputPath,
+                const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations);
 
 private:
   /**

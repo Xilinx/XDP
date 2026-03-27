@@ -44,6 +44,71 @@ bool AieProfileCTWriter::generate()
   return generate((fs::current_path() / CT_OUTPUT_FILENAME).string());
 }
 
+bool AieProfileCTWriter::generate(const std::string& outputPath,
+    const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations)
+{
+  if (opLocations.empty())
+    return false;
+
+  // Convert op_loc data to ASMFileInfo structures
+  std::vector<ASMFileInfo> asmFiles;
+  std::regex filenamePattern(R"(aie_runtime_control(\d+)?\.asm)");
+
+  for (const auto& loc : opLocations) {
+    for (const auto& li : loc.line_info) {
+      if (li.entries.empty())
+        continue;
+
+      // Use the filename from the first entry of this column group
+      const auto& fname = li.entries.front().second;
+      std::smatch match;
+      if (!std::regex_search(fname, match, filenamePattern))
+        continue;
+
+      // Check if we already have an ASMFileInfo for this filename
+      auto it = std::find_if(asmFiles.begin(), asmFiles.end(),
+          [&fname](const ASMFileInfo& a) { return a.filename == fname; });
+
+      if (it == asmFiles.end()) {
+        ASMFileInfo info;
+        info.filename = fname;
+        info.asmId = match[1].matched ? std::stoi(match[1].str()) : 0;
+        info.ucNumber = 4 * info.asmId;
+        info.colStart = info.asmId * 4;
+        info.colEnd = info.colStart + 3;
+        asmFiles.push_back(info);
+        it = asmFiles.end() - 1;
+      }
+
+      for (const auto& entry : li.entries) {
+        SaveTimestampInfo ts;
+        ts.lineNumber = entry.first;
+        ts.optionalIndex = -1;
+        it->timestamps.push_back(ts);
+      }
+    }
+  }
+
+  if (asmFiles.empty())
+    return false;
+
+  auto allCounters = getConfiguredCounters();
+  if (allCounters.empty())
+    return false;
+
+  for (auto& asmFile : asmFiles) {
+    asmFile.counters = filterCountersByColumn(allCounters,
+                                               asmFile.colStart, asmFile.colEnd);
+  }
+
+  std::sort(asmFiles.begin(), asmFiles.end(),
+            [](const ASMFileInfo& a, const ASMFileInfo& b) {
+              return a.asmId < b.asmId;
+            });
+
+  return writeCTFile(asmFiles, allCounters, outputPath);
+}
+
 bool AieProfileCTWriter::generate(const std::string& outputPath)
 {
   std::string csvPath = (fs::current_path() / "aie_profile_timestamps.csv").string();

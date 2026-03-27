@@ -5,7 +5,11 @@
 #define AIE_PROFILE_H
 
 #include <cstdint>
+#include <map>
+#include <string>
+#include <vector>
 
+#include "aiebu/aiebu_assembler.h"
 #include "core/edge/common/aie_parser.h"
 #include "xdp/profile/plugin/aie_profile/aie_profile_impl.h"
 #include "xdp/profile/plugin/aie_profile/util/aie_profile_util.h"
@@ -35,7 +39,9 @@ namespace xdp {
       void endPoll() override;
 
       void freeResources();
-      void generateCTForRun(void* run, void* hwctx, uint32_t run_uid) override;
+      void generateCTForRun(void* run, void* hwctx, uint32_t run_uid,
+                           const std::string& kernel_name,
+                           void* elf_handle) override;
       bool checkAieDevice(const uint64_t deviceId, void* handle);
 
       bool setMetricsSettings(const uint64_t deviceId, void* handle);
@@ -118,6 +124,10 @@ namespace xdp {
 
       std::vector<std::shared_ptr<xaiefal::XAieBroadcast>> bcResourcesBytesTx;
       std::vector<std::shared_ptr<xaiefal::XAieBroadcast>> bcResourcesLatency;
+
+      std::map<std::string, std::vector<aiebu::aiebu_assembler::op_loc>> m_op_locations_cache;
+
+      void computeOpLocations(void* elf_handle, const std::string& kernel_name);
   };
 }   
 

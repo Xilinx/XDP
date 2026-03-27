@@ -4,6 +4,7 @@
 #ifndef AIE_PROFILE_IMPL_H
 #define AIE_PROFILE_IMPL_H
 
+#include <string>
 #include <thread>
 
 #include "aie_profile_metadata.h"
@@ -47,7 +48,9 @@ namespace xdp {
 
     virtual void freeResources() = 0;
 
-    virtual void generateCTForRun(void* /*run*/, void* /*hwctx*/, uint32_t /*run_uid*/) {}
+    virtual void generateCTForRun(void* /*run*/, void* /*hwctx*/, uint32_t /*run_uid*/,
+                                  const std::string& /*kernel_name*/,
+                                  void* /*elf_handle*/) {}
 
     uint64_t getDeviceID() { return deviceID; }
   };

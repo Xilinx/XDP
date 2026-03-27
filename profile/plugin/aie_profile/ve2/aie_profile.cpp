@@ -29,8 +29,11 @@
 #include "core/include/xrt/xrt_kernel.h"
 
 #include <filesystem>
+#include <iterator>
+#include <sstream>
 #include "core/common/shim/hwctx_handle.h"
 #include "core/common/api/hw_context_int.h"
+#include "xdp/profile/plugin/aie_profile/ve2/elf_helper.h"
 #include "shim_ve2/xdna_hwctx.h"
 
 namespace {
@@ -161,7 +164,53 @@ namespace xdp {
       }
   }
 
-  void AieProfile_VE2Impl::generateCTForRun(void* run, void* hwctx, uint32_t run_uid)
+  void AieProfile_VE2Impl::computeOpLocations(void* elf_handle, const std::string& kernel_name)
+  {
+    if (m_op_locations_cache.count(kernel_name))
+      return;
+
+    if (!elf_handle) {
+      xrt_core::message::send(severity_level::debug, "XRT",
+          "AIE Profile: No ELF handle available for kernel '" + kernel_name + "'");
+      return;
+    }
+
+    try {
+      auto buf = xdp::get_elf_buffer(elf_handle);
+      aiebu::aiebu_assembler assembler(buf);
+
+      auto get_op_tbl = [&]() {
+        if (!kernel_name.empty()) {
+          try {
+            return assembler.get_op_locations(0x1c, kernel_name);
+          }
+          catch (...) {
+            xrt_core::message::send(severity_level::debug, "XRT",
+                "AIE Profile: get_op_locations with kernel name '" + kernel_name
+                + "' failed, retrying without kernel name");
+          }
+        }
+        return assembler.get_op_locations(0x1c);
+      };
+
+      m_op_locations_cache[kernel_name] = get_op_tbl().get_line_info();
+
+      std::stringstream msg;
+      msg << "AIE Profile: Extracted " << m_op_locations_cache[kernel_name].size()
+          << " instance op_locations for kernel '" << kernel_name << "' from ELF";
+      xrt_core::message::send(severity_level::debug, "XRT", msg.str());
+    }
+    catch (const std::exception& e) {
+      std::stringstream msg;
+      msg << "AIE Profile: Could not extract op_locations from ELF for kernel '"
+          << kernel_name << "': " << e.what();
+      xrt_core::message::send(severity_level::debug, "XRT", msg.str());
+    }
+  }
+
+  void AieProfile_VE2Impl::generateCTForRun(void* run, void* hwctx, uint32_t run_uid,
+                                             const std::string& kernel_name,
+                                             void* elf_handle)
   {
     if (perfCounters.empty())
       return;
@@ -173,8 +222,29 @@ namespace xdp {
                          + "_run_" + std::to_string(run_uid) + ".ct";
     std::string outputPath = (std::filesystem::current_path() / filename).string();
 
+    computeOpLocations(elf_handle, kernel_name);
+
     AieProfileCTWriter ctWriter(db, metadata, deviceID);
-    if (!ctWriter.generate(outputPath))
+
+    bool generated = false;
+    auto it = m_op_locations_cache.find(kernel_name);
+    if (it != m_op_locations_cache.end() && !it->second.empty()) {
+      generated = ctWriter.generate(outputPath, it->second);
+      if (generated)
+        xrt_core::message::send(severity_level::debug, "XRT",
+            "AIE Profile: CT generated using aiebu API (get_op_locations) for kernel '"
+            + kernel_name + "'");
+    }
+
+    if (!generated) {
+      generated = ctWriter.generate(outputPath);
+      if (generated)
+        xrt_core::message::send(severity_level::debug, "XRT",
+            "AIE Profile: CT generated using CSV file (aie_profile_timestamps.csv) for kernel '"
+            + kernel_name + "'");
+    }
+
+    if (!generated)
       return;
 
     auto* xrt_run = static_cast<xrt::run*>(run);

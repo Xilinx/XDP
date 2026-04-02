@@ -224,7 +224,11 @@ namespace xdp {
 
     computeOpLocations(elf_handle, kernel_name);
 
-    AieProfileCTWriter ctWriter(db, metadata, deviceID);
+    boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(hwctx);
+    uint8_t partitionStartCol = aiePartitionPt.empty() ? 0
+        : static_cast<uint8_t>(aiePartitionPt.back().second.get<uint64_t>("start_col"));
+
+    AieProfileCTWriter ctWriter(db, metadata, deviceID, partitionStartCol);
 
     bool generated = false;
     auto it = m_op_locations_cache.find(kernel_name);

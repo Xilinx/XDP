@@ -26,14 +26,15 @@ namespace fs = std::filesystem;
 
 AieProfileCTWriter::AieProfileCTWriter(VPDatabase* database,
                                        std::shared_ptr<AieProfileMetadata> metadata,
-                                       uint64_t deviceId)
+                                       uint64_t deviceId,
+                                       uint8_t startCol)
     : db(database)
     , metadata(metadata)
     , deviceId(deviceId)
     , columnShift(0)
     , rowShift(0)
+    , partitionStartCol(startCol)
 {
-  // Get column and row shift values from AIE configuration metadata
   auto config = metadata->getAIEConfigMetadata();
   columnShift = config.column_shift;
   rowShift = config.row_shift;
@@ -357,8 +358,13 @@ uint64_t AieProfileCTWriter::calculateCounterAddress(uint8_t column, uint8_t row
                                                       uint8_t counterNumber,
                                                       const std::string& module)
 {
-  // Calculate tile address from column and row
-  uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
+  // Convert the relative column (from the perf counter vector) to an absolute
+  // hardware column by adding the partition's start column.  The CT file is
+  // consumed by the hardware/firmware layer that expects absolute addresses.
+  uint8_t absColumn = column + partitionStartCol;
+
+  // Calculate tile address from absolute column and row
+  uint64_t tileAddress = (static_cast<uint64_t>(absColumn) << columnShift) |
                          (static_cast<uint64_t>(row) << rowShift);
 
   // Get base offset for module type

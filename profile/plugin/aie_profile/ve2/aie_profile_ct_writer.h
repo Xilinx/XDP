@@ -71,10 +71,14 @@ public:
    * @param database Pointer to the VPDatabase for accessing counter configuration
    * @param metadata Pointer to AieProfileMetadata for AIE configuration info
    * @param deviceId The device ID for which to generate the CT file
+   * @param startCol Absolute start column of the hw_context partition; added to
+   *                 relative counter columns so the CT file contains absolute
+   *                 hardware addresses regardless of where XRT placed the partition
    */
   AieProfileCTWriter(VPDatabase* database,
                      std::shared_ptr<AieProfileMetadata> metadata,
-                     uint64_t deviceId);
+                     uint64_t deviceId,
+                     uint8_t startCol);
 
   /**
    * @brief Destructor
@@ -188,6 +192,7 @@ private:
   // AIE configuration values
   uint8_t columnShift;
   uint8_t rowShift;
+  uint8_t partitionStartCol;  // Absolute start column of the hw_context partition
 
   // Base offsets by module type
   static constexpr uint64_t CORE_MODULE_BASE_OFFSET   = 0x00037520;

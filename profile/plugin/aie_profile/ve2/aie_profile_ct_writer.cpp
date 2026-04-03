@@ -358,13 +358,9 @@ uint64_t AieProfileCTWriter::calculateCounterAddress(uint8_t column, uint8_t row
                                                       uint8_t counterNumber,
                                                       const std::string& module)
 {
-  // Convert the relative column (from the perf counter vector) to an absolute
-  // hardware column by adding the partition's start column.  The CT file is
-  // consumed by the hardware/firmware layer that expects absolute addresses.
-  uint8_t absColumn = column + partitionStartCol;
-
-  // Calculate tile address from absolute column and row
-  uint64_t tileAddress = (static_cast<uint64_t>(absColumn) << columnShift) |
+  // Use the partition-relative column directly so that CT addresses remain
+  // relative to the partition's start column.
+  uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
                          (static_cast<uint64_t>(row) << rowShift);
 
   // Get base offset for module type

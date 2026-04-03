@@ -212,6 +212,9 @@ namespace xdp {
                                              const std::string& kernel_name,
                                              void* elf_handle)
   {
+    if (!xrt_core::config::get_aie_profile_settings_dtrace_debug())
+      return;
+
     if (perfCounters.empty())
       return;
 

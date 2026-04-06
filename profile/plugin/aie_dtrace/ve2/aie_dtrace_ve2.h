@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved
 
-#ifndef AIE_PROFILE_H
-#define AIE_PROFILE_H
+#ifndef AIE_DTRACE_VE2_H
+#define AIE_DTRACE_VE2_H
 
 #include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
 
+#include "aiebu/aiebu_assembler.h"
 #include "core/edge/common/aie_parser.h"
 #include "xdp/profile/plugin/aie_profile/aie_profile_impl.h"
 #include "xdp/profile/plugin/aie_profile/util/aie_profile_util.h"
+#include "xdp/profile/plugin/aie_dtrace/util/aie_dtrace_util.h"
 #include "xaiefal/xaiefal.hpp"
 
 extern "C" {
@@ -22,13 +24,13 @@ extern "C" {
 namespace xdp {
   using tile_type = xdp::tile_type;
   
-  class AieProfile_VE2Impl : public AieProfileImpl{
+  class AieDtrace_VE2Impl : public AieProfileImpl{
     public:
-      // AieProfile_VE2Impl(VPDatabase* database, std::shared_ptr<AieProfileMetadata> metadata)
+      // AieDtrace_VE2Impl(VPDatabase* database, std::shared_ptr<AieProfileMetadata> metadata)
       //   : AieProfileImpl(database, metadata){}
-      AieProfile_VE2Impl(VPDatabase* database, std::shared_ptr<AieProfileMetadata> metadata, uint64_t deviceID);
+      AieDtrace_VE2Impl(VPDatabase* database, std::shared_ptr<AieProfileMetadata> metadata, uint64_t deviceID);
 
-      ~AieProfile_VE2Impl() = default;
+      ~AieDtrace_VE2Impl() override;
 
       void updateDevice();
 
@@ -38,6 +40,9 @@ namespace xdp {
       void endPoll() override;
 
       void freeResources();
+      void generateCTForRun(void* run, void* hwctx, uint32_t run_uid,
+                           const std::string& kernel_name,
+                           void* elf_handle) override;
       bool checkAieDevice(const uint64_t deviceId, void* handle);
 
       bool setMetricsSettings(const uint64_t deviceId, void* handle);
@@ -85,10 +90,9 @@ namespace xdp {
       std::pair<int, XAie_Events>
       getShimBroadcastChannel(const tile_type& srcTile);
 
-      void
-      displayAdfAPIResults();
+      // Stop/release configured FAL objects only (no counter read / sample offload).
+      void releaseConfiguredHwResourcesNoRead();
 
-    private:
       XAie_DevInst*     aieDevInst = nullptr;
       xaiefal::XAieDev* aieDevice  = nullptr;    
 
@@ -120,6 +124,10 @@ namespace xdp {
 
       std::vector<std::shared_ptr<xaiefal::XAieBroadcast>> bcResourcesBytesTx;
       std::vector<std::shared_ptr<xaiefal::XAieBroadcast>> bcResourcesLatency;
+
+      std::map<std::string, std::vector<aiebu::aiebu_assembler::op_loc>> m_op_locations_cache;
+
+      void computeOpLocations(void* elf_handle, const std::string& kernel_name);
   };
 }   
 

@@ -38,6 +38,9 @@ namespace xdp {
 // Forwadr declarations of XDP constructs
 struct LatencyConfig;
 
+// Tag type: construct metadata from [AIE_dtrace_settings] only (bandwidth metrics for dtrace / CT).
+struct aie_dtrace_ini_metadata_tag {};
+
 constexpr unsigned int NUM_CORE_COUNTERS = 4;
 constexpr unsigned int NUM_MEMORY_COUNTERS = 2;
 #if defined(XDP_VE2_BUILD) || defined(XDP_VE2_ZOCL_BUILD)
@@ -74,8 +77,7 @@ class AieProfileMetadata {
           "s2mm_throughputs", "mm2s_throughputs",
           "input_stalls", "output_stalls", "s2mm_stalls", 
           "mm2s_stalls", "packets", METRIC_BYTE_COUNT,
-          "uc_dma_activity", "uc_axis_throughputs", "uc_core",
-          "ddr_bandwidth", "read_bandwidth", "write_bandwidth"}
+          "uc_dma_activity", "uc_axis_throughputs", "uc_core"}
       },
       {
         module_type::mem_tile, {
@@ -126,8 +128,15 @@ class AieProfileMetadata {
 
     const aie::BaseFiletypeImpl* metadataReader = nullptr;
 
+    bool m_dtraceBandwidthMode = false;
+
+    void checkDtraceSettings();
+
   public:
     AieProfileMetadata(uint64_t deviceID, void* handle);
+    AieProfileMetadata(uint64_t deviceID, void* handle, aie_dtrace_ini_metadata_tag);
+
+    bool isDtraceBandwidthMode() const { return m_dtraceBandwidthMode; }
 
     uint64_t getDeviceID() {return deviceID;}
     void* getHandle() {return handle;}

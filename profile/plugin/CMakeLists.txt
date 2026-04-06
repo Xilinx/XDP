@@ -4,7 +4,8 @@
 
 if (XDP_VE2_BUILD_CMAKE STREQUAL "yes")
   add_subdirectory(aie_status)
-  add_subdirectory(aie_profile)  
+  add_subdirectory(aie_profile)
+  add_subdirectory(aie_dtrace)
   add_subdirectory(aie_trace)
   add_subdirectory(ml_timeline)
   add_subdirectory(aie_halt)

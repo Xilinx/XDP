@@ -59,7 +59,7 @@ AIETraceOffload::AIETraceOffload
   , numStream(numStrm)
   , traceContinuous(false)
   , offloadIntervalUs(0)
-  , bufferInitialized(false)
+  , bufferRefCount(0)
   , offloadStatus(AIEOffloadThreadStatus::IDLE)
   , mEnCircularBuf(false)
   , mCircularBufOverwrite(false)
@@ -79,6 +79,7 @@ AIETraceOffload::~AIETraceOffload()
   stopOffload();
   if (offloadThread.joinable())
     offloadThread.join();
+  endReadTrace();
 }
 
 bool AIETraceOffload::setupPSKernel() {
@@ -98,8 +99,7 @@ bool AIETraceOffload::setupPSKernel() {
     buffers[i].bufId = deviceIntf->allocTraceBuf(bufAllocSz, 0);
     
     if (!buffers[i].bufId) {
-      bufferInitialized = false;
-      return bufferInitialized;
+      return false;
     }
 
     uint64_t bufAddr = deviceIntf->getTraceBufDeviceAddr(buffers[i].bufId);
@@ -133,12 +133,18 @@ bool AIETraceOffload::setupPSKernel() {
   xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", msg);
 
   free(input_params); 
-  bufferInitialized = true;
-  return bufferInitialized;
+  bufferRefCount = 1;
+  return true;
 }
 
 bool AIETraceOffload::initReadTrace()
 {
+  std::lock_guard<std::mutex> lock(bufferLock);
+  if (bufferRefCount) {
+    ++bufferRefCount;
+    return true;
+  }
+
   buffers.clear();
   buffers.resize(numStream);
 
@@ -168,8 +174,7 @@ bool AIETraceOffload::initReadTrace()
   for(uint64_t i = 0; i < numStream ; ++i) {
     buffers[i].bufId = deviceIntf->allocTraceBuf(bufAllocSz, memIndex);
     if (!buffers[i].bufId) {
-      bufferInitialized = false;
-      return bufferInitialized;
+      return false;
     }
 
     // Data Mover will write input stream to this address
@@ -237,12 +242,17 @@ bool AIETraceOffload::initReadTrace()
 #endif
     }
   }
-  bufferInitialized = true;
-  return bufferInitialized;
+  bufferRefCount = 1;
+  return true;
 }
 
 void AIETraceOffload::endReadTrace()
 {
+  std::lock_guard<std::mutex> lock(bufferLock);
+  if (!bufferRefCount) return;
+  --bufferRefCount;
+  if (bufferRefCount) return;
+
   // reset
   for (uint64_t i = 0; i < numStream ; ++i) {
   if (!buffers[i].bufId)
@@ -272,7 +282,6 @@ void AIETraceOffload::endReadTrace()
   deviceIntf->freeTraceBuf(buffers[i].bufId);
   buffers[i].bufId = 0;
   }
-  bufferInitialized = false;
 }
 
 void AIETraceOffload::readTraceGMIO(bool final)
@@ -487,7 +496,7 @@ void AIETraceOffload::startOffload()
 
 void AIETraceOffload::continuousOffload()
 {
-  if (!bufferInitialized && !initReadTrace()) {
+  if (!initReadTrace()) {
     offloadFinished();
     return;
   }

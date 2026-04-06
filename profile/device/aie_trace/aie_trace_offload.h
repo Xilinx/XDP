@@ -147,7 +147,8 @@ private:
     // Continuous Trace Offload (For PLIO)
     bool traceContinuous;
     uint64_t offloadIntervalUs;
-    bool bufferInitialized;
+    std::mutex bufferLock;
+    size_t bufferRefCount;
     std::mutex statusLock;
     AIEOffloadThreadStatus offloadStatus;
     std::thread offloadThread;

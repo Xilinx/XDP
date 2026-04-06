@@ -189,7 +189,7 @@ namespace xdp {
   void AieDtracePlugin::runConstructorHook(void* run, void* hwctx, uint32_t run_uid,
                                            const std::string& kernel_name, void* elf_handle)
   {
-    if (!xrt_core::config::get_aie_profile_settings_dtrace_debug())
+    if (!xrt_core::config::get_aie_dtrace())
       return;
 
     auto itr = handleToAIEDtraceImpl.find(hwctx);

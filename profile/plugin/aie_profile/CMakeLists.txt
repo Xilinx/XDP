@@ -88,9 +88,9 @@ else()
     )
     add_library(xdp_aie_profile_plugin_xdna SHARED ${AIE_PROFILE_PLUGIN_FILES} ${AIE_PROFILE_IMPL_FILES} ${AIE_PROFILE_UTIL_FILES} ${AIE_PROFILE_CONFIG_FILES} ${AIE_JSON_PARSER_FILES})
     add_dependencies(xdp_aie_profile_plugin_xdna xdp_core xrt_coreutil)
-    target_link_libraries(xdp_aie_profile_plugin_xdna PRIVATE xdp_core xrt_coreutil xaiengine)
-    target_compile_definitions(xdp_aie_profile_plugin_xdna PRIVATE XDP_VE2_BUILD=1 FAL_LINUX="on")
-    target_include_directories(xdp_aie_profile_plugin_xdna PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(xdp_aie_profile_plugin_xdna PRIVATE xdp_core xrt_coreutil aie_codegen)
+    target_compile_definitions(xdp_aie_profile_plugin_xdna PRIVATE XDP_VE2_BUILD=1 XDP_USE_AIE_CODEGEN=1 FAL_LINUX="on")
+    target_include_directories(xdp_aie_profile_plugin_xdna PRIVATE ${CMAKE_SOURCE_DIR}/src ${AIEFAL_DIR})
     set_target_properties(xdp_aie_profile_plugin_xdna PROPERTIES VERSION ${XRT_VERSION_STRING} SOVERSION ${XRT_SOVERSION})
 
     install (TARGETS xdp_aie_profile_plugin_xdna

@@ -22,8 +22,12 @@
 
 extern "C"
 {
+#ifdef XDP_USE_AIE_CODEGEN
+  #include <aie_codegen.h>
+#else
   #include "xaiengine/xaiegbl.h"
   #include <xaiengine.h>
+#endif
 }
 
 namespace xdp {

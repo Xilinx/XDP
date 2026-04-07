@@ -147,12 +147,10 @@ private:
   /**
    * @brief Write the CT file content
    * @param asmFiles Vector of ASMFileInfo with all parsed information
-   * @param allCounters Vector of all CTCounterInfo for metadata
    * @param outputPath Full path for the output CT file
    * @return true if file was written successfully
    */
   bool writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
-                   const std::vector<CTCounterInfo>& allCounters,
                    const std::string& outputPath);
 
   /**

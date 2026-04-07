@@ -17,6 +17,12 @@
 
 #define XDP_PLUGIN_SOURCE
 
+#ifdef XDP_USE_AIE_CODEGEN
+extern "C" {
+#include <aie_codegen.h>
+}
+#endif
+
 #include <iostream>
 
 #include "core/include/xrt.h"

@@ -43,6 +43,21 @@ namespace xdp {
                                                  elf_handle);
   }
 
+  static void aieDtraceRunStart(void* run, void* hwctx, uint32_t run_uid, const char* kernel_name)
+  {
+    if (AieDtracePlugin::alive())
+      aieDtracePluginInstance.runStartHook(run, hwctx, run_uid,
+                                           kernel_name ? kernel_name : "");
+  }
+
+  static void aieDtraceRunWait(void* run, void* hwctx, uint32_t run_uid, const char* kernel_name,
+                               int ert_cmd_state)
+  {
+    if (AieDtracePlugin::alive())
+      aieDtracePluginInstance.runWaitHook(run, hwctx, run_uid,
+                                          kernel_name ? kernel_name : "", ert_cmd_state);
+  }
+
 } // end namespace xdp
 
 extern "C"
@@ -62,4 +77,17 @@ void aieDtraceRunConstructor(void* run, void* hwctx, uint32_t run_uid,
                               const char* kernel_name, void* elf_handle)
 {
   xdp::aieDtraceRunConstructor(run, hwctx, run_uid, kernel_name, elf_handle);
+}
+
+extern "C"
+void aieDtraceRunStart(void* run, void* hwctx, uint32_t run_uid, const char* kernel_name)
+{
+  xdp::aieDtraceRunStart(run, hwctx, run_uid, kernel_name);
+}
+
+extern "C"
+void aieDtraceRunWait(void* run, void* hwctx, uint32_t run_uid, const char* kernel_name,
+                      int ert_cmd_state)
+{
+  xdp::aieDtraceRunWait(run, hwctx, run_uid, kernel_name, ert_cmd_state);
 }

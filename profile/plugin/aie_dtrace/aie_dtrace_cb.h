@@ -33,4 +33,13 @@ XDP_PLUGIN_EXPORT
 void aieDtraceRunConstructor(void* run, void* hwctx, uint32_t run_uid,
                              const char* kernel_name, void* elf_handle);
 
+extern "C"
+XDP_PLUGIN_EXPORT
+void aieDtraceRunStart(void* run, void* hwctx, uint32_t run_uid, const char* kernel_name);
+
+extern "C"
+XDP_PLUGIN_EXPORT
+void aieDtraceRunWait(void* run, void* hwctx, uint32_t run_uid, const char* kernel_name,
+                      int ert_cmd_state);
+
 #endif

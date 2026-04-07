@@ -201,6 +201,31 @@ namespace xdp {
     itr->second->generateCTForRun(run, hwctx, run_uid, kernel_name, elf_handle);
   }
 
+  void AieDtracePlugin::runStartHook(void* run, void* hwctx, uint32_t run_uid,
+                                     const std::string& kernel_name)
+  {
+    if (!xrt_core::config::get_aie_dtrace())
+      return;
+
+    (void)run;
+    (void)hwctx;
+    (void)run_uid;
+    (void)kernel_name;
+  }
+
+  void AieDtracePlugin::runWaitHook(void* run, void* hwctx, uint32_t run_uid,
+                                    const std::string& kernel_name, int ert_cmd_state)
+  {
+    if (!xrt_core::config::get_aie_dtrace())
+      return;
+
+    (void)run;
+    (void)hwctx;
+    (void)run_uid;
+    (void)kernel_name;
+    (void)ert_cmd_state;
+  }
+
   void AieDtracePlugin::endPoll()
   {
     // Destroy implementations directly; no counter read or sample offload in teardown.

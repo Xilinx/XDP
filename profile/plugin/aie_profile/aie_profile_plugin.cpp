@@ -250,13 +250,6 @@ auto time = std::time(nullptr);
     handleToAIEProfileImpl.erase(handle);
   }
 
-  void AieProfilePlugin::runConstructorHook(void* /*run*/, void* /*hwctx*/, uint32_t /*run_uid*/,
-                                            const std::string& /*kernel_name*/,
-                                            void* /*elf_handle*/)
-  {
-    // Per-run CT / dtrace bandwidth is handled by the aie_dtrace plugin when Debug.aie_dtrace=true.
-  }
-
   void AieProfilePlugin::endPoll()
   {
     xrt_core::message::send(severity_level::info, "XRT", "Calling AIE Profile endPoll.");

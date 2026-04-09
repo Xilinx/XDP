@@ -34,15 +34,6 @@ namespace xdp {
       aieProfilePluginInstance.endPollforDevice(handle);
   }
 
-  static void aieProfileRunConstructor(void* run, void* hwctx, uint32_t run_uid,
-                                       const char* kernel_name, void* elf_handle)
-  {
-    if (AieProfilePlugin::alive())
-      aieProfilePluginInstance.runConstructorHook(run, hwctx, run_uid,
-                                                 kernel_name ? kernel_name : "",
-                                                 elf_handle);
-  }
-
 } // end namespace xdp
 
 extern "C"
@@ -55,11 +46,4 @@ extern "C"
 void endAIECtrPoll(void* handle)
 {
   xdp::endAIECtrPoll(handle);
-}
-
-extern "C"
-void aieProfileRunConstructor(void* run, void* hwctx, uint32_t run_uid,
-                              const char* kernel_name, void* elf_handle)
-{
-  xdp::aieProfileRunConstructor(run, hwctx, run_uid, kernel_name, elf_handle);
 }

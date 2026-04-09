@@ -5,7 +5,7 @@
 # xdp_aie_profile_plugin_xdna (see plugin/aie_profile/CMakeLists.txt, XDP_VE2_BUILD),
 # except:
 #   - no aie_profile_plugin*, aie_profile_cb*, writer/aie_profile/*
-#   - no ve2/aie_profile* or ve2/aie_profile_ct_writer* (replaced by aie_dtrace/ve2/*)
+#   - no ve2/aie_profile* (replaced by aie_dtrace/ve2/*)
 #
 # If load fails with "undefined symbol" from AieProfileMetadata / parser / elf,
 # add the missing .cpp here or in AIE_DTRACE_PROFILE_CORE_SOURCES below.

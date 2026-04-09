@@ -28,9 +28,4 @@ extern "C"
 XDP_PLUGIN_EXPORT
 void endAIECtrPoll(void* handle);
 
-extern "C"
-XDP_PLUGIN_EXPORT
-void aieProfileRunConstructor(void* run, void* hwctx, uint32_t run_uid,
-                              const char* kernel_name, void* elf_handle);
-
 #endif

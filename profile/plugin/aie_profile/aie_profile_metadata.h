@@ -38,7 +38,7 @@ namespace xdp {
 // Forwadr declarations of XDP constructs
 struct LatencyConfig;
 
-// Tag type: construct metadata from [AIE_dtrace_settings] only (bandwidth metrics for dtrace / CT).
+// Tag type: construct metadata from [AIE_dtrace_settings] only (bandwidth metrics for dtrace).
 struct aie_dtrace_ini_metadata_tag {};
 
 constexpr unsigned int NUM_CORE_COUNTERS = 4;

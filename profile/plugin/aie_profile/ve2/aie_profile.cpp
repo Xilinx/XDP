@@ -354,17 +354,6 @@ namespace xdp {
             continue;
         }
 
-        // Skip interface tiles with empty stream_ids for throughput metrics
-        if ((type == module_type::shim) && 
-            ((metricSet == "read_bandwidth") || (metricSet == "write_bandwidth") || (metricSet == "ddr_bandwidth")) &&
-            tile.stream_ids.empty()) {
-          std::stringstream msg;
-          msg << "Skipping " << metricSet << " configuration for tile (" << +col << "," << +row 
-              << ") - stream_ids is empty";
-          xrt_core::message::send(severity_level::warning, "XRT", msg.str());
-          continue;
-        }
-
         auto loc         = XAie_TileLoc(col, row);
         auto& xaieTile   = aieDevice->tile(col, row);
         auto xaieModule  = (mod == XAIE_CORE_MOD) ? xaieTile.core()
@@ -383,20 +372,7 @@ namespace xdp {
 
         int numCounters  = 0;
         auto numFreeCtr  = stats.getNumRsc(loc, mod, xaiefal::XAIE_PERFCOUNT);
-        
-        if (aie::isDebugVerbosity() && ((metricSet == "ddr_bandwidth") || (metricSet == "read_bandwidth") || (metricSet == "write_bandwidth"))) {
-          std::stringstream msg;
-          msg << metricSet << " **** counter reservation: tile (" << +col << "," << +row 
-              << ") startEvents.size()=" << startEvents.size()
-              << " hardware_counters=" << numFreeCtr
-              << " tile.stream_ids.size()=" << tile.stream_ids.size();
-          xrt_core::message::send(severity_level::debug, "XRT", msg.str());
-        }
-        
         numFreeCtr = (startEvents.size() < numFreeCtr) ? startEvents.size() : numFreeCtr;
-        if ((type == module_type::shim) && ((metricSet == "ddr_bandwidth") || (metricSet == "read_bandwidth") || (metricSet == "write_bandwidth"))) {
-          numFreeCtr = tile.stream_ids.size();
-        }
 
         int numFreeCtrSS = numFreeCtr;
         if (aie::profile::profileAPIMetricSet(metricSet)) {
@@ -459,7 +435,7 @@ namespace xdp {
           auto endEvent      = endEvents.at(i);
           auto resetEvent    = XAIE_EVENT_NONE_CORE;
           auto portnum       = xdp::aie::getPortNumberFromEvent(startEvent);
-          // For metric sets with 4 ports (like ddr_bandwidth), use modulo for channel mapping
+          // For metric sets with multiple stream-switch ports, use modulo for channel mapping
           uint8_t channelNum = portnum % 2;
           uint8_t channel    = (channelNum == 0) ? channel0 : channel1;
 

@@ -22,6 +22,60 @@
 
 namespace xdp {
 
+namespace {
+
+// Order UCs by aiebu min column; each UC's width is [colStart, nextUcStart - 1] (last UC ends at opLocMaxCol).
+void
+applyUcSpansFromOpLoc(std::vector<ASMFileInfo>& asmFiles)
+{
+  if (asmFiles.empty())
+    return;
+
+  std::sort(asmFiles.begin(), asmFiles.end(),
+            [](const ASMFileInfo& a, const ASMFileInfo& b) {
+              if (a.opLocMinCol != b.opLocMinCol)
+                return a.opLocMinCol < b.opLocMinCol;
+              return a.filename < b.filename;
+            });
+
+  const size_t n = asmFiles.size();
+  for (size_t i = 0; i < n; ++i) {
+    auto& af = asmFiles[i];
+    af.colStart = static_cast<int>(af.opLocMinCol);
+    af.ucNumber = af.colStart;
+    if (i + 1 < n) {
+      const int nextStart = static_cast<int>(asmFiles[i + 1].opLocMinCol);
+      af.colEnd = nextStart - 1;
+      if (af.colEnd < af.colStart)
+        af.colEnd = static_cast<int>(af.opLocMaxCol);
+    } else {
+      af.colEnd = static_cast<int>(af.opLocMaxCol);
+    }
+  }
+}
+
+// Last UC spans through the rightmost column that has a configured counter (op_loc may only
+// list columns where SAVE_TIMESTAMPS appears, so colEnd would otherwise stop at opLocMaxCol).
+void
+extendLastUcToMaxConfiguredColumn(std::vector<ASMFileInfo>& asmFiles,
+                                  const std::vector<CTCounterInfo>& allCounters)
+{
+  if (asmFiles.empty() || allCounters.empty())
+    return;
+
+  int maxCfgCol = -1;
+  for (const auto& c : allCounters)
+    maxCfgCol = std::max(maxCfgCol, static_cast<int>(c.column));
+  if (maxCfgCol < 0)
+    return;
+
+  auto& last = asmFiles.back();
+  if (maxCfgCol >= last.colStart)
+    last.colEnd = std::max(last.colEnd, maxCfgCol);
+}
+
+} // namespace
+
 using severity_level = xrt_core::message::severity_level;
 namespace fs = std::filesystem;
 
@@ -75,11 +129,13 @@ bool AieDtraceCTWriter::generate(const std::string& outputPath,
         ASMFileInfo info;
         info.filename = fname;
         info.asmId = match[1].matched ? std::stoi(match[1].str()) : 0;
-        info.ucNumber = 4 * info.asmId;
-        info.colStart = info.asmId * 4;
-        info.colEnd = info.colStart + 3;
+        info.opLocMinCol = li.col;
+        info.opLocMaxCol = li.col;
         asmFiles.push_back(info);
         it = asmFiles.end() - 1;
+      } else {
+        it->opLocMinCol = std::min(it->opLocMinCol, li.col);
+        it->opLocMaxCol = std::max(it->opLocMaxCol, li.col);
       }
 
       for (const auto& entry : li.entries) {
@@ -94,19 +150,18 @@ bool AieDtraceCTWriter::generate(const std::string& outputPath,
   if (asmFiles.empty())
     return false;
 
+  applyUcSpansFromOpLoc(asmFiles);
+
   auto allCounters = getConfiguredCounters();
   if (allCounters.empty())
     return false;
+
+  extendLastUcToMaxConfiguredColumn(asmFiles, allCounters);
 
   for (auto& asmFile : asmFiles) {
     asmFile.counters = filterCountersByColumn(allCounters,
                                                asmFile.colStart, asmFile.colEnd);
   }
-
-  std::sort(asmFiles.begin(), asmFiles.end(),
-            [](const ASMFileInfo& a, const ASMFileInfo& b) {
-              return a.asmId < b.asmId;
-            });
 
   return writeCTFile(asmFiles, allCounters, outputPath);
 }
@@ -127,6 +182,8 @@ bool AieDtraceCTWriter::generate(const std::string& outputPath)
         "No AIE counters configured. CT file will not be generated.");
     return false;
   }
+
+  extendLastUcToMaxConfiguredColumn(asmFiles, allCounters);
 
   bool hasTimestamps = false;
   for (auto& asmFile : asmFiles) {
@@ -260,10 +317,12 @@ std::vector<ASMFileInfo> AieDtraceCTWriter::readASMInfoFromCSV(const std::string
 
   csvFile.close();
 
-  // Sort by ASM ID for consistent output
+  // Sort by UC start column for consistent output
   std::sort(asmFiles.begin(), asmFiles.end(), 
             [](const ASMFileInfo& a, const ASMFileInfo& b) {
-              return a.asmId < b.asmId;
+              if (a.colStart != b.colStart)
+                return a.colStart < b.colStart;
+              return a.filename < b.filename;
             });
 
   std::stringstream msg;

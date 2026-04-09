@@ -48,9 +48,12 @@ struct CTCounterInfo {
 struct ASMFileInfo {
   std::string filename;
   int asmId;                                    // Extracted from aie_runtime_control<id>.asm
-  int ucNumber;                                 // 4 * asmId
-  int colStart;                                 // asmId * 4
-  int colEnd;                                   // colStart + 3
+  int ucNumber;                                 // UC start column (jprobe :ucN); from aiebu op_loc or asmId*4 (CSV)
+  int colStart;                                 // Counter filter range start; from aiebu or asmId*4 (CSV)
+  int colEnd;                                   // Inclusive end; op_loc: next UC start-1, else max(opLocMaxCol, max counter col); CSV: asmId-based + last UC extended
+  /// Min/max AIE column from aiebu .dump (op_loc lineinfo.col); UINT32_MAX when built from CSV only
+  uint32_t opLocMinCol = UINT32_MAX;
+  uint32_t opLocMaxCol = 0;
   std::vector<SaveTimestampInfo> timestamps;   // SAVE_TIMESTAMPS lines
   std::vector<CTCounterInfo> counters;         // Filtered counters for this ASM
 };

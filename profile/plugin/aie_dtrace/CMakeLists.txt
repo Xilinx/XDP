@@ -9,6 +9,7 @@
 #
 # If load fails with "undefined symbol" from AieProfileMetadata / parser / elf,
 # add the missing .cpp here or in AIE_DTRACE_PROFILE_CORE_SOURCES below.
+# ELF serialization for aiebu CT: ve2/elf_helper.cpp (same role as aie_profile/ve2/elf_helper.cpp).
 #
 
 if (XDP_VE2_BUILD_CMAKE STREQUAL "yes")
@@ -31,7 +32,7 @@ if (XDP_VE2_BUILD_CMAKE STREQUAL "yes")
   set(AIE_DTRACE_PROFILE_CORE_SOURCES
     "${XDP_PROFILE_ROOT}/plugin/aie_profile/aie_profile_metadata.cpp"
     "${XDP_PROFILE_ROOT}/plugin/aie_profile/aie_profile_metadata_json.cpp"
-    "${XDP_PROFILE_ROOT}/plugin/aie_profile/ve2/elf_helper.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ve2/elf_helper.cpp"
   )
 
   file(GLOB AIE_PROFILE_UTIL_FILES

@@ -34,7 +34,7 @@
 #include <sstream>
 #include "core/common/shim/hwctx_handle.h"
 #include "core/common/api/hw_context_int.h"
-#include "xdp/profile/plugin/aie_profile/ve2/elf_helper.h"
+#include "xdp/profile/plugin/aie_dtrace/ve2/elf_helper.h"
 #include "shim_ve2/xdna_hwctx.h"
 
 namespace {
@@ -187,7 +187,7 @@ namespace xdp {
 
     if (!elf_handle) {
       xrt_core::message::send(severity_level::debug, "XRT",
-          "AIE Profile: No ELF handle available for kernel '" + kernel_name + "'");
+          "AIE dtrace: No ELF handle available for kernel '" + kernel_name + "'");
       return;
     }
 
@@ -202,7 +202,7 @@ namespace xdp {
           }
           catch (...) {
             xrt_core::message::send(severity_level::debug, "XRT",
-                "AIE Profile: get_op_locations with kernel name '" + kernel_name
+                "AIE dtrace: get_op_locations with kernel name '" + kernel_name
                 + "' failed, retrying without kernel name");
           }
         }
@@ -212,13 +212,13 @@ namespace xdp {
       m_op_locations_cache[kernel_name] = get_op_tbl().get_line_info();
 
       std::stringstream msg;
-      msg << "AIE Profile: Extracted " << m_op_locations_cache[kernel_name].size()
+      msg << "AIE dtrace: Extracted " << m_op_locations_cache[kernel_name].size()
           << " instance op_locations for kernel '" << kernel_name << "' from ELF";
       xrt_core::message::send(severity_level::debug, "XRT", msg.str());
     }
     catch (const std::exception& e) {
       std::stringstream msg;
-      msg << "AIE Profile: Could not extract op_locations from ELF for kernel '"
+      msg << "AIE dtrace: Could not extract op_locations from ELF for kernel '"
           << kernel_name << "': " << e.what();
       xrt_core::message::send(severity_level::debug, "XRT", msg.str());
     }
@@ -255,7 +255,7 @@ namespace xdp {
       generated = ctWriter.generate(outputPath, it->second);
       if (generated)
         xrt_core::message::send(severity_level::debug, "XRT",
-            "AIE Profile: CT generated using aiebu API (get_op_locations) for kernel '"
+            "AIE dtrace: CT generated using aiebu API (get_op_locations) for kernel '"
             + kernel_name + "'");
     }
 
@@ -263,7 +263,7 @@ namespace xdp {
       generated = ctWriter.generate(outputPath);
       if (generated)
         xrt_core::message::send(severity_level::debug, "XRT",
-            "AIE Profile: CT generated using CSV file (aie_profile_timestamps.csv) for kernel '"
+            "AIE dtrace: CT generated using CSV file (aie_profile_timestamps.csv) for kernel '"
             + kernel_name + "'");
     }
 
@@ -274,13 +274,13 @@ namespace xdp {
     try {
       xrt_run->set_dtrace_control_file(outputPath);
       std::stringstream msg;
-      msg << "AIE Profile: Set per-run CT file '" << outputPath
+      msg << "AIE dtrace: Set per-run CT file '" << outputPath
           << "' for run uid=" << run_uid << " ctx slot=" << slotIdx;
       xrt_core::message::send(severity_level::info, "XRT", msg.str());
     }
     catch (const std::exception& e) {
       std::stringstream msg;
-      msg << "AIE Profile: Could not set per-run CT file: " << e.what();
+      msg << "AIE dtrace: Could not set per-run CT file: " << e.what();
       xrt_core::message::send(severity_level::debug, "XRT", msg.str());
     }
   }

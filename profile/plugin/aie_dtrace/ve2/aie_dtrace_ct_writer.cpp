@@ -10,6 +10,7 @@
 
 #include "core/common/message.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -107,7 +108,7 @@ bool AieDtraceCTWriter::generate(const std::string& outputPath,
               return a.asmId < b.asmId;
             });
 
-  return writeCTFile(asmFiles, outputPath);
+  return writeCTFile(asmFiles, allCounters, outputPath);
 }
 
 bool AieDtraceCTWriter::generate(const std::string& outputPath)
@@ -143,7 +144,7 @@ bool AieDtraceCTWriter::generate(const std::string& outputPath)
     return false;
   }
 
-  return writeCTFile(asmFiles, outputPath);
+  return writeCTFile(asmFiles, allCounters, outputPath);
 }
 
 std::vector<ASMFileInfo> AieDtraceCTWriter::readASMInfoFromCSV(const std::string& csvPath)
@@ -427,6 +428,7 @@ std::string AieDtraceCTWriter::getPortDirection(const std::string& metricSet, ui
 }
 
 bool AieDtraceCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
+                                      const std::vector<CTCounterInfo>& allCounters,
                                       const std::string& outputPath)
 {
   std::ofstream ctFile(outputPath);
@@ -450,6 +452,28 @@ bool AieDtraceCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
   ctFile << "@blockopen\n";
   ctFile << "# COUNTER_METADATA_BEGIN\n";
   ctFile << "# {\n";
+
+  // Device-wide counter list (same fields as AieProfileCTWriter::writeCTFile begin block)
+  ctFile << "#   \"counter_metadata\": [\n";
+  for (size_t i = 0; i < allCounters.size(); i++) {
+    const auto& counter = allCounters[i];
+    ctFile << "#     {\"column\": " << static_cast<int>(counter.column)
+           << ", \"row\": " << static_cast<int>(counter.row)
+           << ", \"counter\": " << static_cast<int>(counter.counterNumber)
+           << ", \"module\": \"" << counter.module
+           << "\", \"address\": \"" << formatAddress(counter.address) << "\"";
+    if (!counter.metricSet.empty()) {
+      ctFile << ", \"metric_set\": \"" << counter.metricSet << "\"";
+    }
+    if (!counter.portDirection.empty()) {
+      ctFile << ", \"port_direction\": \"" << counter.portDirection << "\"";
+    }
+    ctFile << "}";
+    if (i < allCounters.size() - 1)
+      ctFile << ",";
+    ctFile << "\n";
+  }
+  ctFile << "#   ],\n";
 
   // Collect ASM groups that have counters
   std::vector<const ASMFileInfo*> metaGroups;

@@ -42,30 +42,25 @@ namespace {
   const std::string&
   effective_pl_device_trace_mode()
   {
-    static const std::string mode = []() -> std::string {
-      std::string v = xrt_core::config::get_device_trace();
-      while (!v.empty() && v.front() == ' ')
-        v.erase(0, 1);
-      while (!v.empty() && v.back() == ' ')
-        v.pop_back();
-      if (v.empty())
-        return std::string("off");
-
-      std::string lower;
-      lower.reserve(v.size());
-      for (char c : v) {
-        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-      }
-
-      if (lower == "off" || lower == "fine" || lower == "coarse" || lower == "accel")
-        return lower;
-
-      const std::string errmsg = std::string("Debug.device_trace=\"") + v +
-        "\" invalid; use off, fine, coarse, or accel.";
-      xrt_core::message::send(xrt_core::message::severity_level::error, "XRT", errmsg);
-      return std::string("off");
-    }();
-    return mode;
+	static const std::string mode = []() -> std::string {
+    		std::string s = xrt_core::config::get_device_trace();
+    		while (!s.empty() && s.front() == ' ')
+      			s.erase(0, 1);
+    		while (!s.empty() && s.back() == ' ')
+      			s.pop_back();
+    		if (s.empty())
+      			return std::string("off");
+    		for (char& c : s) {
+      			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    		}
+    		if (s == "off" || s == "fine" || s == "coarse" || s == "accel")
+      			return s;
+    		const std::string errmsg = std::string("Debug.device_trace=\"") + s +
+      		   "\" invalid, device trace will be disabled. Valid options are: off, fine, coarse, or accel.";
+    		xrt_core::message::send(xrt_core::message::severity_level::error, "XRT", errmsg);
+    		return std::string("off");
+	}();    
+	return mode;
   }
 
   static bool nonZero(xdp::CounterResults& values)

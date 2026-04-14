@@ -740,6 +740,19 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePerfCounterConfig(uint8_
   uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
                          (static_cast<uint64_t>(SHIM_ROW) << rowShift);
 
+  // Performance counter register addresses (aie2ps_pl_module):
+  // Performance_Counter0-3: 0x00031020, 0x00031024, 0x00031028, 0x0003102C
+  constexpr uint64_t PERF_COUNTER0_OFFSET = 0x00031020;
+
+  // Reset performance counters 0-3 to zero
+  for (uint8_t i = 0; i < 4; ++i) {
+    CTRegisterWrite write;
+    write.address = tileAddress + PERF_COUNTER0_OFFSET + (i * 4);
+    write.value = 0;
+    write.comment = "Reset PerfCounter" + std::to_string(i) + " @ col " + std::to_string(column);
+    writes.push_back(write);
+  }
+
   // Performance control register addresses (aie2ps_pl_module):
   // Performance_Ctrl0: 0x00031000 - Counters 0,1 start/stop events
   // Performance_Ctrl2: 0x0003100C - Counters 2,3 start/stop events

@@ -29,25 +29,25 @@ namespace {
 
 // Order UCs by aiebu min column; each UC's width is [colStart, nextUcStart - 1] (last UC ends at opLocMaxCol).
 void
-applyUcSpansFromOpLoc(std::vector<ASMFileInfo>& asmFiles)
+applyUcSpansFromOpLoc(std::vector<ASMFileInfo>& asmFileInfoList)
 {
-  if (asmFiles.empty())
+  if (asmFileInfoList.empty())
     return;
 
-  std::sort(asmFiles.begin(), asmFiles.end(),
+  std::sort(asmFileInfoList.begin(), asmFileInfoList.end(),
             [](const ASMFileInfo& a, const ASMFileInfo& b) {
               if (a.opLocMinCol != b.opLocMinCol)
                 return a.opLocMinCol < b.opLocMinCol;
               return a.filename < b.filename;
             });
 
-  const size_t n = asmFiles.size();
+  const size_t n = asmFileInfoList.size();
   for (size_t i = 0; i < n; ++i) {
-    auto& af = asmFiles[i];
+    auto& af = asmFileInfoList[i];
     af.colStart = static_cast<int>(af.opLocMinCol);
     af.ucNumber = af.colStart;
     if (i + 1 < n) {
-      const int nextStart = static_cast<int>(asmFiles[i + 1].opLocMinCol);
+      const int nextStart = static_cast<int>(asmFileInfoList[i + 1].opLocMinCol);
       af.colEnd = nextStart - 1;
       if (af.colEnd < af.colStart)
         af.colEnd = static_cast<int>(af.opLocMaxCol);
@@ -60,10 +60,10 @@ applyUcSpansFromOpLoc(std::vector<ASMFileInfo>& asmFiles)
 // Last UC spans through the rightmost column that has a configured counter (op_loc may only
 // list columns where SAVE_TIMESTAMPS appears, so colEnd would otherwise stop at opLocMaxCol).
 void
-extendLastUcToMaxConfiguredColumn(std::vector<ASMFileInfo>& asmFiles,
+extendLastUcToMaxConfiguredColumn(std::vector<ASMFileInfo>& asmFileInfoList,
                                   const std::vector<CTCounterInfo>& allCounters)
 {
-  if (asmFiles.empty() || allCounters.empty())
+  if (asmFileInfoList.empty() || allCounters.empty())
     return;
 
   int maxCfgCol = -1;
@@ -72,7 +72,7 @@ extendLastUcToMaxConfiguredColumn(std::vector<ASMFileInfo>& asmFiles,
   if (maxCfgCol < 0)
     return;
 
-  auto& last = asmFiles.back();
+  auto& last = asmFileInfoList.back();
   if (maxCfgCol >= last.colStart)
     last.colEnd = std::max(last.colEnd, maxCfgCol);
 }
@@ -110,7 +110,7 @@ bool AieDtraceCTWriter::generate(const std::string& outputPath,
     return false;
 
   // Convert op_loc data to ASMFileInfo structures
-  std::vector<ASMFileInfo> asmFiles;
+  std::vector<ASMFileInfo> asmFileInfoList;
   std::regex filenamePattern(R"(aie_runtime_control(\d+)?\.asm)");
 
   for (const auto& loc : opLocations) {
@@ -125,17 +125,17 @@ bool AieDtraceCTWriter::generate(const std::string& outputPath,
         continue;
 
       // Check if we already have an ASMFileInfo for this filename
-      auto it = std::find_if(asmFiles.begin(), asmFiles.end(),
+      auto it = std::find_if(asmFileInfoList.begin(), asmFileInfoList.end(),
           [&fname](const ASMFileInfo& a) { return a.filename == fname; });
 
-      if (it == asmFiles.end()) {
+      if (it == asmFileInfoList.end()) {
         ASMFileInfo info;
         info.filename = fname;
         info.asmId = match[1].matched ? std::stoi(match[1].str()) : 0;
         info.opLocMinCol = li.col;
         info.opLocMaxCol = li.col;
-        asmFiles.push_back(info);
-        it = asmFiles.end() - 1;
+        asmFileInfoList.push_back(info);
+        it = asmFileInfoList.end() - 1;
       } else {
         it->opLocMinCol = std::min(it->opLocMinCol, li.col);
         it->opLocMaxCol = std::max(it->opLocMaxCol, li.col);
@@ -150,30 +150,30 @@ bool AieDtraceCTWriter::generate(const std::string& outputPath,
     }
   }
 
-  if (asmFiles.empty())
+  if (asmFileInfoList.empty())
     return false;
 
-  applyUcSpansFromOpLoc(asmFiles);
+  applyUcSpansFromOpLoc(asmFileInfoList);
 
   auto allCounters = getConfiguredCounters();
   if (allCounters.empty())
     return false;
 
-  extendLastUcToMaxConfiguredColumn(asmFiles, allCounters);
+  extendLastUcToMaxConfiguredColumn(asmFileInfoList, allCounters);
 
-  for (auto& asmFile : asmFiles) {
-    asmFile.counters = filterCountersByColumn(allCounters,
-                                               asmFile.colStart, asmFile.colEnd);
+  for (auto& asmFileInfo : asmFileInfoList) {
+    asmFileInfo.counters = filterCountersByColumn(allCounters,
+                                               asmFileInfo.colStart, asmFileInfo.colEnd);
   }
 
-  return writeCTFile(asmFiles, allCounters, outputPath);
+  return writeCTFile(asmFileInfoList, allCounters, outputPath);
 }
 
 bool AieDtraceCTWriter::generate(const std::string& outputPath)
 {
   std::string csvPath = (fs::current_path() / "aie_profile_timestamps.csv").string();
-  auto asmFiles = readASMInfoFromCSV(csvPath);
-  if (asmFiles.empty()) {
+  auto asmFileInfoList = readASMInfoFromCSV(csvPath);
+  if (asmFileInfoList.empty()) {
     xrt_core::message::send(severity_level::debug, "XRT",
         "No ASM file information found in CSV. CT file will not be generated.");
     return false;
@@ -186,16 +186,16 @@ bool AieDtraceCTWriter::generate(const std::string& outputPath)
     return false;
   }
 
-  extendLastUcToMaxConfiguredColumn(asmFiles, allCounters);
+  extendLastUcToMaxConfiguredColumn(asmFileInfoList, allCounters);
 
   bool hasTimestamps = false;
-  for (auto& asmFile : asmFiles) {
-    if (!asmFile.timestamps.empty())
+  for (auto& asmFileInfo : asmFileInfoList) {
+    if (!asmFileInfo.timestamps.empty())
       hasTimestamps = true;
 
-    asmFile.counters = filterCountersByColumn(allCounters, 
-                                               asmFile.colStart, 
-                                               asmFile.colEnd);
+    asmFileInfo.counters = filterCountersByColumn(allCounters, 
+                                               asmFileInfo.colStart, 
+                                               asmFileInfo.colEnd);
   }
 
   if (!hasTimestamps) {
@@ -204,19 +204,19 @@ bool AieDtraceCTWriter::generate(const std::string& outputPath)
     return false;
   }
 
-  return writeCTFile(asmFiles, allCounters, outputPath);
+  return writeCTFile(asmFileInfoList, allCounters, outputPath);
 }
 
 std::vector<ASMFileInfo> AieDtraceCTWriter::readASMInfoFromCSV(const std::string& csvPath)
 {
-  std::vector<ASMFileInfo> asmFiles;
+  std::vector<ASMFileInfo> asmFileInfoList;
 
   std::ifstream csvFile(csvPath);
   if (!csvFile.is_open()) {
     std::stringstream msg;
     msg << "Unable to open CSV file: " << csvPath << ". Please run parse_aie_runtime_to_csv.py first.";
     xrt_core::message::send(severity_level::warning, "XRT", msg.str());
-    return asmFiles;
+    return asmFileInfoList;
   }
 
   std::string line;
@@ -303,7 +303,7 @@ std::vector<ASMFileInfo> AieDtraceCTWriter::readASMInfoFromCSV(const std::string
         }
       }
 
-      asmFiles.push_back(info);
+      asmFileInfoList.push_back(info);
 
       std::stringstream msg;
       msg << "Loaded " << info.filename << " (id=" << info.asmId 
@@ -321,7 +321,7 @@ std::vector<ASMFileInfo> AieDtraceCTWriter::readASMInfoFromCSV(const std::string
   csvFile.close();
 
   // Sort by UC start column for consistent output
-  std::sort(asmFiles.begin(), asmFiles.end(), 
+  std::sort(asmFileInfoList.begin(), asmFileInfoList.end(), 
             [](const ASMFileInfo& a, const ASMFileInfo& b) {
               if (a.colStart != b.colStart)
                 return a.colStart < b.colStart;
@@ -329,15 +329,15 @@ std::vector<ASMFileInfo> AieDtraceCTWriter::readASMInfoFromCSV(const std::string
             });
 
   std::stringstream msg;
-  msg << "Loaded " << asmFiles.size() << " ASM files from CSV with "
-      << std::accumulate(asmFiles.begin(), asmFiles.end(), 0,
+  msg << "Loaded " << asmFileInfoList.size() << " ASM files from CSV with "
+      << std::accumulate(asmFileInfoList.begin(), asmFileInfoList.end(), 0,
                         [](int sum, const ASMFileInfo& info) { 
                           return sum + info.timestamps.size(); 
                         })
       << " total SAVE_TIMESTAMPS";
   xrt_core::message::send(severity_level::info, "XRT", msg.str());
 
-  return asmFiles;
+  return asmFileInfoList;
 }
 
 std::vector<CTCounterInfo> AieDtraceCTWriter::getConfiguredCounters()
@@ -489,7 +489,7 @@ std::string AieDtraceCTWriter::getPortDirection(const std::string& metricSet, ui
   return "";  // Not a throughput metric with port direction
 }
 
-bool AieDtraceCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
+bool AieDtraceCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFileInfoList,
                                       const std::vector<CTCounterInfo>& allCounters,
                                       const std::string& outputPath)
 {
@@ -539,17 +539,17 @@ bool AieDtraceCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
 
   // Collect ASM groups that have counters
   std::vector<const ASMFileInfo*> metaGroups;
-  for (const auto& asmFile : asmFiles) {
-    if (!asmFile.counters.empty())
-      metaGroups.push_back(&asmFile);
+  for (const auto& asmFileInfo : asmFileInfoList) {
+    if (!asmFileInfo.counters.empty())
+      metaGroups.push_back(&asmFileInfo);
   }
 
   for (size_t g = 0; g < metaGroups.size(); g++) {
-    const auto& asmFile = *metaGroups[g];
-    ctFile << "#   \"" << asmFile.asmId << "\": [\n";
+    const auto& asmFileInfo = *metaGroups[g];
+    ctFile << "#   \"" << asmFileInfo.asmId << "\": [\n";
 
-    for (size_t c = 0; c < asmFile.counters.size(); c++) {
-      const auto& ctr = asmFile.counters[c];
+    for (size_t c = 0; c < asmFileInfo.counters.size(); c++) {
+      const auto& ctr = asmFileInfo.counters[c];
       ctFile << "#     {\"col\": " << static_cast<int>(ctr.column)
              << ", \"row\": " << static_cast<int>(ctr.row)
              << ", \"ctr\": " << static_cast<int>(ctr.counterNumber)
@@ -564,7 +564,7 @@ bool AieDtraceCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
         ctFile << "null";
 
       ctFile << "}";
-      if (c < asmFile.counters.size() - 1)
+      if (c < asmFileInfo.counters.size() - 1)
         ctFile << ",";
       ctFile << "\n";
     }
@@ -581,36 +581,36 @@ bool AieDtraceCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
   ctFile << "}\n\n";
 
   // Write jprobe blocks for each ASM file
-  for (const auto& asmFile : asmFiles) {
-    if (asmFile.timestamps.empty() || asmFile.counters.empty())
+  for (const auto& asmFileInfo : asmFileInfoList) {
+    if (asmFileInfo.timestamps.empty() || asmFileInfo.counters.empty())
       continue;
 
-    std::string basename = fs::path(asmFile.filename).filename().string();
+    std::string basename = fs::path(asmFileInfo.filename).filename().string();
 
     // Write comment
     ctFile << "# Probes for " << basename 
-           << " (columns " << asmFile.colStart << "-" << asmFile.colEnd << ")\n";
+           << " (columns " << asmFileInfo.colStart << "-" << asmFileInfo.colEnd << ")\n";
 
     // Build line number list for jprobe
     std::stringstream lineList;
     lineList << "line";
-    for (size_t i = 0; i < asmFile.timestamps.size(); i++) {
+    for (size_t i = 0; i < asmFileInfo.timestamps.size(); i++) {
       if (i > 0)
         lineList << ",";
-      lineList << asmFile.timestamps[i].lineNumber;
+      lineList << asmFileInfo.timestamps[i].lineNumber;
     }
 
     // Write jprobe declaration
     ctFile << "jprobe:" << basename 
-           << ":uc" << asmFile.ucNumber 
+           << ":uc" << asmFileInfo.ucNumber 
            << ":" << lineList.str() << "\n";
     ctFile << "{\n";
-    ctFile << "    ts_" << asmFile.asmId << " = timestamp32()\n";
+    ctFile << "    ts_" << asmFileInfo.asmId << " = timestamp32()\n";
 
     // Write counter reads using _ as throwaway variable
-    for (size_t i = 0; i < asmFile.counters.size(); i++) {
+    for (size_t i = 0; i < asmFileInfo.counters.size(); i++) {
       ctFile << "    _ = read_reg("
-             << formatAddress(asmFile.counters[i].address) << ")\n";
+             << formatAddress(asmFileInfo.counters[i].address) << ")\n";
     }
 
     ctFile << "}\n\n";
@@ -832,7 +832,7 @@ std::vector<CTCounterInfo> AieDtraceCTWriter::generateBandwidthCounters(
 }
 
 bool AieDtraceCTWriter::writeBandwidthCTFile(
-    const std::vector<ASMFileInfo>& asmFiles,
+    const std::vector<ASMFileInfo>& asmFileInfoList,
     const std::vector<CTCounterInfo>& allCounters,
     const std::vector<CTRegisterWrite>& beginBlockWrites,
     const std::string& outputPath)
@@ -873,17 +873,17 @@ bool AieDtraceCTWriter::writeBandwidthCTFile(
 
   // Per-UC counter metadata groupings only
   std::vector<const ASMFileInfo*> metaGroups;
-  for (const auto& asmFile : asmFiles) {
-    if (!asmFile.counters.empty())
-      metaGroups.push_back(&asmFile);
+  for (const auto& asmFileInfo : asmFileInfoList) {
+    if (!asmFileInfo.counters.empty())
+      metaGroups.push_back(&asmFileInfo);
   }
 
   for (size_t g = 0; g < metaGroups.size(); g++) {
-    const auto& asmFile = *metaGroups[g];
-    ctFile << "#   \"" << asmFile.asmId << "\": [\n";
+    const auto& asmFileInfo = *metaGroups[g];
+    ctFile << "#   \"" << asmFileInfo.asmId << "\": [\n";
 
-    for (size_t c = 0; c < asmFile.counters.size(); c++) {
-      const auto& ctr = asmFile.counters[c];
+    for (size_t c = 0; c < asmFileInfo.counters.size(); c++) {
+      const auto& ctr = asmFileInfo.counters[c];
       uint8_t channel = ctr.counterNumber % 2;
       ctFile << "#     {\"col\": " << static_cast<int>(ctr.column)
              << ", \"row\": " << static_cast<int>(ctr.row)
@@ -899,7 +899,7 @@ bool AieDtraceCTWriter::writeBandwidthCTFile(
         ctFile << "null";
 
       ctFile << "}";
-      if (c < asmFile.counters.size() - 1)
+      if (c < asmFileInfo.counters.size() - 1)
         ctFile << ",";
       ctFile << "\n";
     }
@@ -915,31 +915,31 @@ bool AieDtraceCTWriter::writeBandwidthCTFile(
   ctFile << "@blockclose\n";
   ctFile << "}\n\n";
 
-  for (const auto& asmFile : asmFiles) {
-    if (asmFile.timestamps.empty() || asmFile.counters.empty())
+  for (const auto& asmFileInfo : asmFileInfoList) {
+    if (asmFileInfo.timestamps.empty() || asmFileInfo.counters.empty())
       continue;
 
-    std::string basename = fs::path(asmFile.filename).filename().string();
+    std::string basename = fs::path(asmFileInfo.filename).filename().string();
 
     ctFile << "# Probes for " << basename
-           << " (columns " << asmFile.colStart << "-" << asmFile.colEnd << ")\n";
+           << " (columns " << asmFileInfo.colStart << "-" << asmFileInfo.colEnd << ")\n";
 
     std::stringstream lineList;
     lineList << "line";
-    for (size_t i = 0; i < asmFile.timestamps.size(); i++) {
+    for (size_t i = 0; i < asmFileInfo.timestamps.size(); i++) {
       if (i > 0)
         lineList << ",";
-      lineList << asmFile.timestamps[i].lineNumber;
+      lineList << asmFileInfo.timestamps[i].lineNumber;
     }
 
     ctFile << "jprobe:" << basename
-           << ":uc" << asmFile.ucNumber
+           << ":uc" << asmFileInfo.ucNumber
            << ":" << lineList.str() << "\n";
     ctFile << "{\n";
-    ctFile << "    ts_" << asmFile.asmId << " = timestamp32()\n";
+    ctFile << "    ts_" << asmFileInfo.asmId << " = timestamp32()\n";
 
-    for (size_t i = 0; i < asmFile.counters.size(); i++) {
-      const auto& ctr = asmFile.counters[i];
+    for (size_t i = 0; i < asmFileInfo.counters.size(); i++) {
+      const auto& ctr = asmFileInfo.counters[i];
       ctFile << "    _ = read_reg(" << formatAddress(ctr.address) << ")\n";
     }
 
@@ -979,7 +979,7 @@ bool AieDtraceCTWriter::generateBandwidthCT(
     return false;
   }
 
-  std::vector<ASMFileInfo> asmFiles;
+  std::vector<ASMFileInfo> asmFileInfoList;
   std::regex filenamePattern(R"(aie_runtime_control(\d+)?\.asm)");
 
   for (const auto& loc : opLocations) {
@@ -992,17 +992,17 @@ bool AieDtraceCTWriter::generateBandwidthCT(
       if (!std::regex_search(fname, match, filenamePattern))
         continue;
 
-      auto it = std::find_if(asmFiles.begin(), asmFiles.end(),
+      auto it = std::find_if(asmFileInfoList.begin(), asmFileInfoList.end(),
           [&fname](const ASMFileInfo& a) { return a.filename == fname; });
 
-      if (it == asmFiles.end()) {
+      if (it == asmFileInfoList.end()) {
         ASMFileInfo info;
         info.filename = fname;
         info.asmId = match[1].matched ? std::stoi(match[1].str()) : 0;
         info.opLocMinCol = li.col;
         info.opLocMaxCol = li.col;
-        asmFiles.push_back(info);
-        it = asmFiles.end() - 1;
+        asmFileInfoList.push_back(info);
+        it = asmFileInfoList.end() - 1;
       } else {
         it->opLocMinCol = std::min(it->opLocMinCol, li.col);
         it->opLocMaxCol = std::max(it->opLocMaxCol, li.col);
@@ -1017,13 +1017,13 @@ bool AieDtraceCTWriter::generateBandwidthCT(
     }
   }
 
-  if (asmFiles.empty()) {
+  if (asmFileInfoList.empty()) {
     xrt_core::message::send(severity_level::debug, "XRT",
         "AIE dtrace: No ASM files found in op_locations for bandwidth CT generation");
     return false;
   }
 
-  applyUcSpansFromOpLoc(asmFiles);
+  applyUcSpansFromOpLoc(asmFileInfoList);
 
   auto allCounters = generateBandwidthCounters(shimColumns);
   if (allCounters.empty()) {
@@ -1032,10 +1032,10 @@ bool AieDtraceCTWriter::generateBandwidthCT(
     return false;
   }
 
-  extendLastUcToMaxConfiguredColumn(asmFiles, allCounters);
+  extendLastUcToMaxConfiguredColumn(asmFileInfoList, allCounters);
 
-  for (auto& asmFile : asmFiles) {
-    asmFile.counters = filterCountersByColumn(allCounters, asmFile.colStart, asmFile.colEnd);
+  for (auto& asmFileInfo : asmFileInfoList) {
+    asmFileInfo.counters = filterCountersByColumn(allCounters, asmFileInfo.colStart, asmFileInfo.colEnd);
   }
 
   std::vector<CTRegisterWrite> beginBlockWrites;
@@ -1047,7 +1047,7 @@ bool AieDtraceCTWriter::generateBandwidthCT(
     beginBlockWrites.insert(beginBlockWrites.end(), pcWrites.begin(), pcWrites.end());
   }
 
-  return writeBandwidthCTFile(asmFiles, allCounters, beginBlockWrites, outputPath);
+  return writeBandwidthCTFile(asmFileInfoList, allCounters, beginBlockWrites, outputPath);
 }
 
 } // namespace xdp

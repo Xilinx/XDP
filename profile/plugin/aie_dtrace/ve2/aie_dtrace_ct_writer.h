@@ -193,12 +193,12 @@ private:
 
   /**
    * @brief Write the CT file content
-   * @param asmFiles Vector of ASMFileInfo with all parsed information
+   * @param asmFileInfoList Vector of ASMFileInfo with all parsed information
    * @param allCounters Vector of all CTCounterInfo for metadata
    * @param outputPath Full path for the output CT file
    * @return true if file was written successfully
    */
-  bool writeCTFile(const std::vector<ASMFileInfo>& asmFiles,
+  bool writeCTFile(const std::vector<ASMFileInfo>& asmFileInfoList,
                    const std::vector<CTCounterInfo>& allCounters,
                    const std::string& outputPath);
 
@@ -267,13 +267,13 @@ private:
 
   /**
    * @brief Write the bandwidth CT file content with register configuration
-   * @param asmFiles Vector of ASMFileInfo with timestamps
+   * @param asmFileInfoList Vector of ASMFileInfo with timestamps
    * @param allCounters Vector of all CTCounterInfo for metadata
    * @param beginBlockWrites Vector of register writes for begin block
    * @param outputPath Full path for the output CT file
    * @return true if file was written successfully
    */
-  bool writeBandwidthCTFile(const std::vector<ASMFileInfo>& asmFiles,
+  bool writeBandwidthCTFile(const std::vector<ASMFileInfo>& asmFileInfoList,
                             const std::vector<CTCounterInfo>& allCounters,
                             const std::vector<CTRegisterWrite>& beginBlockWrites,
                             const std::string& outputPath);

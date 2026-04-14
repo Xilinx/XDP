@@ -126,6 +126,10 @@ namespace xdp {
         return;
       }
 
+      // CT file handles hardware configuration via write_reg commands in begin block.
+      // Skip setMetricsSettings for now; can be re-enabled for fallback flow later.
+      return;
+
       bool runtimeCounters = setMetricsSettings(deviceID, metadata->getHandle());
 
       if (!runtimeCounters) {
@@ -231,9 +235,6 @@ namespace xdp {
     if (!xrt_core::config::get_aie_dtrace())
       return;
 
-    if (db->getStaticInfo().getNumAIECounter(deviceID) == 0)
-      return;
-
     auto ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(hwctx);
     auto slotIdx = static_cast<xrt_core::hwctx_handle*>(ctx)->get_slotidx();
 
@@ -251,15 +252,27 @@ namespace xdp {
 
     bool generated = false;
     auto it = m_op_locations_cache.find(kernel_name);
+
     if (it != m_op_locations_cache.end() && !it->second.empty()) {
-      generated = ctWriter.generate(outputPath, it->second);
-      if (generated)
+      generated = ctWriter.generateBandwidthCT(outputPath, hwctx, it->second);
+      if (generated) {
         xrt_core::message::send(severity_level::debug, "XRT",
-            "AIE dtrace: CT generated using aiebu API (get_op_locations) for kernel '"
+            "AIE dtrace: Bandwidth CT generated (self-contained) for kernel '"
             + kernel_name + "'");
+      }
     }
 
-    if (!generated) {
+    if (!generated && it != m_op_locations_cache.end() && !it->second.empty()) {
+      if (db->getStaticInfo().getNumAIECounter(deviceID) > 0) {
+        generated = ctWriter.generate(outputPath, it->second);
+        if (generated)
+          xrt_core::message::send(severity_level::debug, "XRT",
+              "AIE dtrace: CT generated using aiebu API (get_op_locations) for kernel '"
+              + kernel_name + "'");
+      }
+    }
+
+    if (!generated && db->getStaticInfo().getNumAIECounter(deviceID) > 0) {
       generated = ctWriter.generate(outputPath);
       if (generated)
         xrt_core::message::send(severity_level::debug, "XRT",

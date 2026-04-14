@@ -59,6 +59,33 @@ struct ASMFileInfo {
 };
 
 /**
+ * @brief Register write operation for CT file begin block
+ */
+struct CTRegisterWrite {
+  uint64_t address;
+  uint32_t value;
+  std::string comment;
+};
+
+/**
+ * @brief Configuration for a single bandwidth counter in a shim tile
+ * 
+ * For VE2 shim tiles, DMA channels are accessed via stream switch ports:
+ * - S2MM (master): Stream switch master port feeds data to DMA (input to AIE)
+ * - MM2S (slave): Stream switch slave port receives data from DMA (output from AIE)
+ * 
+ * The dmaPortIndex is the physical stream switch port index that connects
+ * to the DMA channel. This is architecture-specific.
+ */
+struct BandwidthCounterConfig {
+  uint8_t counterNumber;   // Counter number (0-3)
+  uint8_t channel;         // DMA channel number (0 or 1)
+  uint8_t dmaPortIndex;    // Physical port index for stream switch (VE2-specific)
+  bool isMaster;           // true=S2MM/input (master), false=MM2S/output (slave)
+  std::string direction;   // "input" or "output"
+};
+
+/**
  * @class AieDtraceCTWriter
  * @brief Generates CT (CERT Tracing) files for VE2 AIE profiling
  *
@@ -109,6 +136,23 @@ public:
    */
   bool generate(const std::string& outputPath,
                 const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations);
+
+  /**
+   * @brief Generate a self-contained CT file for bandwidth metrics
+   * 
+   * This method generates a CT file that configures a fixed set of 4 performance
+   * counters and 4 stream switch event ports per shim tile for bandwidth monitoring.
+   * It does not depend on setMetricsSettings() - only needs partition info and
+   * SAVE_TIMESTAMPS locations.
+   * 
+   * @param outputPath Full path for the generated CT file
+   * @param hwctx Hardware context handle for partition info access
+   * @param opLocations Vector of op_loc from aiebu_assembler::get_op_locations
+   * @return true if CT file was generated successfully, false otherwise
+   */
+  bool generateBandwidthCT(const std::string& outputPath,
+                           void* hwctx,
+                           const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations);
 
 private:
   /**
@@ -187,6 +231,53 @@ private:
    */
   std::string getPortDirection(const std::string& metricSet, uint64_t payload);
 
+  /**
+   * @brief Get shim tile columns from partition info
+   * @param hwctx Hardware context handle
+   * @return Vector of shim tile column numbers in the partition
+   */
+  std::vector<uint8_t> getShimTileColumns(void* hwctx);
+
+  /**
+   * @brief Generate stream switch port configuration for 4 DMA channels per shim tile
+   * @param column Shim tile column
+   * @return Vector of register writes to configure stream switch ports
+   */
+  std::vector<CTRegisterWrite> generateStreamSwitchPortConfig(uint8_t column);
+
+  /**
+   * @brief Generate performance counter configuration for 4 counters per shim tile
+   * @param column Shim tile column
+   * @return Vector of register writes to configure performance counters
+   */
+  std::vector<CTRegisterWrite> generatePerfCounterConfig(uint8_t column);
+
+  /**
+   * @brief Get fixed bandwidth counter configurations for a shim tile
+   * @return Vector of BandwidthCounterConfig for the 4 fixed counters
+   */
+  std::vector<BandwidthCounterConfig> getBandwidthCounterConfigs();
+
+  /**
+   * @brief Generate bandwidth counters for all shim tiles in the partition
+   * @param shimColumns Vector of shim tile columns
+   * @return Vector of CTCounterInfo for all bandwidth counters
+   */
+  std::vector<CTCounterInfo> generateBandwidthCounters(const std::vector<uint8_t>& shimColumns);
+
+  /**
+   * @brief Write the bandwidth CT file content with register configuration
+   * @param asmFiles Vector of ASMFileInfo with timestamps
+   * @param allCounters Vector of all CTCounterInfo for metadata
+   * @param beginBlockWrites Vector of register writes for begin block
+   * @param outputPath Full path for the output CT file
+   * @return true if file was written successfully
+   */
+  bool writeBandwidthCTFile(const std::vector<ASMFileInfo>& asmFiles,
+                            const std::vector<CTCounterInfo>& allCounters,
+                            const std::vector<CTRegisterWrite>& beginBlockWrites,
+                            const std::string& outputPath);
+
 private:
   VPDatabase* db;
   std::shared_ptr<AieProfileMetadata> metadata;
@@ -202,6 +293,15 @@ private:
   static constexpr uint64_t MEMORY_MODULE_BASE_OFFSET = 0x00011020;
   static constexpr uint64_t MEM_TILE_BASE_OFFSET      = 0x00091020;
   static constexpr uint64_t SHIM_TILE_BASE_OFFSET     = 0x00031020;
+
+  // Stream switch and performance counter configuration offsets
+  static constexpr uint64_t STREAM_SWITCH_EVENT_PORT_SEL_OFFSET = 0x0003FF00;
+  static constexpr uint64_t PERF_CTRL_OFFSET = 0x00031000;
+
+  // Bandwidth monitoring constants
+  static constexpr uint8_t NUM_BANDWIDTH_COUNTERS = 4;
+  static constexpr uint8_t SHIM_ROW = 0;
+  static constexpr uint8_t PORTS_PER_REGISTER = 4;
 
   // Output filename
   static constexpr const char* CT_OUTPUT_FILENAME = "aie_profile.ct";

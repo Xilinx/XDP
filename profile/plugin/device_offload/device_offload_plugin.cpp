@@ -20,6 +20,7 @@
 #include <string>
 #include <sstream>
 #include <cstring>
+#include <cctype>
 
 #include "xdp/profile/database/database.h"
 #include "xdp/profile/database/static_info/device_info.h"
@@ -36,6 +37,36 @@
 
 // Anonymous namespace for helper functions
 namespace {
+
+  // Validated Debug.device_trace for PL offload only (once; error at most once).
+  const std::string&
+  effective_pl_device_trace_mode()
+  {
+    static const std::string mode = []() -> std::string {
+      std::string v = xrt_core::config::get_device_trace();
+      while (!v.empty() && v.front() == ' ')
+        v.erase(0, 1);
+      while (!v.empty() && v.back() == ' ')
+        v.pop_back();
+      if (v.empty())
+        return std::string("off");
+
+      std::string lower;
+      lower.reserve(v.size());
+      for (char c : v) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+      }
+
+      if (lower == "off" || lower == "fine" || lower == "coarse" || lower == "accel")
+        return lower;
+
+      const std::string errmsg = std::string("Debug.device_trace=\"") + v +
+        "\" invalid; use off, fine, coarse, or accel.";
+      xrt_core::message::send(xrt_core::message::severity_level::error, "XRT", errmsg);
+      return std::string("off");
+    }();
+    return mode;
+  }
 
   static bool nonZero(xdp::CounterResults& values)
   {
@@ -96,7 +127,7 @@ namespace xdp {
     //  setting the available information has to be pushed down to both
     //  the HAL or HWEmu plugin
 
-    if (xrt_core::config::get_device_trace() != "off") {
+    if (effective_pl_device_trace_mode() != "off") {
       device_trace = true;
     }
 
@@ -323,7 +354,8 @@ namespace xdp {
   void PLDeviceOffloadPlugin::configureTraceIP(PLDeviceIntf* devInterface)
   {
     // Collect all the profiling options from xrt.ini
-    std::string data_transfer_trace = xrt_core::config::get_device_trace() ;
+    // std::string data_transfer_trace = xrt_core::config::get_device_trace();
+    std::string data_transfer_trace = effective_pl_device_trace_mode();
     std::string stall_trace = xrt_core::config::get_stall_trace() ;
 
     // Set up the hardware trace option

@@ -122,7 +122,7 @@ namespace xdp {
     //  setting the available information has to be pushed down to both
     //  the HAL or HWEmu plugin
 
-    if (effective_pl_device_trace_mode() != "off") { 
+    if (effective_pl_device_trace_mode() != "off") {
 	device_trace = true;
     }
 

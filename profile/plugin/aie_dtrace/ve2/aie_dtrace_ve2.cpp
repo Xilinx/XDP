@@ -119,15 +119,9 @@ namespace xdp {
       if(!checkAieDevice(deviceID, metadata->getHandle()))
               return;
 
-      // Same sequence as AieProfile_VE2Impl::updateDevice: nop.elf then setMetricsSettings.
-      if (!aie::submitNopElf(metadata->getHandle())) {
-        xrt_core::message::send(severity_level::warning, "XRT",
-            "Failed to submit nop.elf. AIE dtrace configuration will not proceed.");
-        return;
-      }
-
-      // CT file handles hardware configuration via write_reg commands in begin block.
-      // Skip setMetricsSettings for now; can be re-enabled for fallback flow later.
+      // CT file handles all hardware configuration via write_reg commands in begin block.
+      // No need to submit nop.elf or call setMetricsSettings here.
+      // The code below is preserved for potential fallback flow in the future.
       return;
 
       bool runtimeCounters = setMetricsSettings(deviceID, metadata->getHandle());

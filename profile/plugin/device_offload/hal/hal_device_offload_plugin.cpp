@@ -86,7 +86,6 @@ namespace xdp {
 
         if ("" != path) {
           uint64_t deviceId = (db->getStaticInfo()).getDeviceContextUniqueId(ownedHandle);
-          createWriters(deviceId); // Base class functionality to add writer
 
           // Now, map device ID of this device with device handle owned by XDP
           deviceIdToHandle[deviceId] = ownedHandle;
@@ -160,10 +159,7 @@ namespace xdp {
 
     void* ownedHandle = nullptr;
     uint64_t deviceId = (db->getStaticInfo()).getDeviceContextUniqueId(userHandle);
-    if (hw_context_flow) {
-      createWriters(deviceId);
-    }
-    else {
+    if (!hw_context_flow) {
       // For HAL devices, the pointer passed in is an xrtDeviceHandle.
       //  We will query information on that passed in handle, but we
       //  should use our own locally opened handle to access the physical

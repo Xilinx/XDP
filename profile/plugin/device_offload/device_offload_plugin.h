@@ -19,6 +19,7 @@
 #define DEVICE_OFFLOAD_PLUGIN_DOT_H
 
 #include <map>
+#include <set>
 #include <string>
 #include <tuple>
 
@@ -51,6 +52,9 @@ namespace xdp {
     unsigned int trace_buffer_offload_interval_ms ;
     bool m_enable_circular_buffer = false;
 
+    // device_trace_*.csv is created only after read_trace_init() succeeds (see ensureDeviceTraceWriter).
+    std::set<uint64_t> m_device_trace_writer_devices;
+
   protected:
     // Each device offload plugin is responsible for offloading
     //  information from all devices.  This holds all the objects
@@ -62,6 +66,8 @@ namespace xdp {
     std::map<uint64_t, DeviceData> offloaders;
 
     void createWriters(uint64_t deviceId) ;
+    // Add device_trace CSV writer once per device after successful read_trace_init (see .cpp).
+    void ensureDeviceTraceWriter(uint64_t deviceId) ;
     void configureDataflow(uint64_t deviceId, PLDeviceIntf* devInterface) ;
     void configureFa(uint64_t deviceId, PLDeviceIntf* devInterface) ;
     void configureCtx(uint64_t deviceId, PLDeviceIntf* devInterface) ;

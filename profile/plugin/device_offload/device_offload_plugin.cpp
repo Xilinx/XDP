@@ -20,6 +20,7 @@
 #include <string>
 #include <sstream>
 #include <cstring>
+#include <cctype>
 
 #include "xdp/profile/database/database.h"
 #include "xdp/profile/database/static_info/device_info.h"
@@ -36,6 +37,36 @@
 
 // Anonymous namespace for helper functions
 namespace {
+
+  // Parse and validate Debug.device_trace (off|fine|coarse|accel); invalid values log once and map to off.
+  const std::string&
+  effective_pl_device_trace_mode()
+  {
+    static const std::string mode = []() -> std::string {
+      std::string v = xrt_core::config::get_device_trace();
+      while (!v.empty() && v.front() == ' ')
+        v.erase(0, 1);
+      while (!v.empty() && v.back() == ' ')
+        v.pop_back();
+      if (v.empty())
+        return std::string("off");
+
+      std::string lower;
+      lower.reserve(v.size());
+      for (char c : v) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+      }
+
+      if (lower == "off" || lower == "fine" || lower == "coarse" || lower == "accel")
+        return lower;
+
+      const std::string errmsg = std::string("Debug.device_trace=\"") + v +
+        "\" invalid; use off, fine, coarse, or accel.";
+      xrt_core::message::send(xrt_core::message::severity_level::error, "XRT", errmsg);
+      return std::string("off");
+    }();
+    return mode;
+  }
 
   static bool nonZero(xdp::CounterResults& values)
   {
@@ -96,7 +127,7 @@ namespace xdp {
     //  setting the available information has to be pushed down to both
     //  the HAL or HWEmu plugin
 
-    if (xrt_core::config::get_device_trace() != "off") {
+    if (effective_pl_device_trace_mode() != "off") {
       device_trace = true;
     }
 
@@ -145,6 +176,15 @@ namespace xdp {
 
     if (continuous_trace)
       XDPPlugin::startWriteThread(XDPPlugin::get_trace_file_dump_int_s(), "VP_TRACE");
+  }
+
+  // Add device_trace_<deviceId>.csv at most once per device, only after PL trace offload initialized successfully.
+  void PLDeviceOffloadPlugin::ensureDeviceTraceWriter(uint64_t deviceId)
+  {
+    if (m_device_trace_writer_devices.count(deviceId))
+      return;
+    createWriters(deviceId);
+    m_device_trace_writer_devices.insert(deviceId);
   }
 
   void PLDeviceOffloadPlugin::configureDataflow(uint64_t deviceId,
@@ -244,9 +284,12 @@ namespace xdp {
 
     // If trace is enabled, set up trace.  Otherwise just keep the offloader
     //  for reading the counters.
+    bool trace_read_initialized = false;
     if (device_trace) {
       bool init_successful =
         offloader->read_trace_init(m_enable_circular_buffer, buf_sizes) ;
+
+      trace_read_initialized = init_successful;
 
       if (!init_successful) {
         if (devInterface->hasTs2mm()) {
@@ -267,6 +310,10 @@ namespace xdp {
     }
 
     offloaders[deviceId] = std::make_tuple(offloader, logger, devInterface) ;
+
+    // Avoid empty device_trace_*.csv: only create the file after PL trace offload inits (HW emu often fails here).
+    if (trace_read_initialized)
+      ensureDeviceTraceWriter(deviceId);
   }
 
   void PLDeviceOffloadPlugin::startContinuousThreads(uint64_t deviceId)
@@ -323,7 +370,8 @@ namespace xdp {
   void PLDeviceOffloadPlugin::configureTraceIP(PLDeviceIntf* devInterface)
   {
     // Collect all the profiling options from xrt.ini
-    std::string data_transfer_trace = xrt_core::config::get_device_trace() ;
+    // std::string data_transfer_trace = xrt_core::config::get_device_trace();
+    std::string data_transfer_trace = effective_pl_device_trace_mode();
     std::string stall_trace = xrt_core::config::get_stall_trace() ;
 
     // Set up the hardware trace option
@@ -467,6 +515,7 @@ namespace xdp {
     delete logger;
 
     offloaders.erase(deviceId);
+    m_device_trace_writer_devices.erase(deviceId);
   }
 
   void PLDeviceOffloadPlugin::clearOffloaders()
@@ -479,6 +528,7 @@ namespace xdp {
       delete logger;
     }
     offloaders.clear();
+    m_device_trace_writer_devices.clear();
   }
 
 } // end namespace xdp

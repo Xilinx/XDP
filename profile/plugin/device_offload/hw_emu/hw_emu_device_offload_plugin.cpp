@@ -119,7 +119,6 @@ namespace xdp {
     uint64_t deviceId = db->addDevice(path) ;
     if (devicesSeen.find(deviceId) == devicesSeen.end()) {
       devicesSeen.emplace(deviceId) ;
-      createWriters(deviceId) ; // Base class functionality to add writer
     }
 
     // Clear out any previous interface we might have had for talking to this

@@ -186,7 +186,7 @@ namespace xdp {
     handleToAIEDtraceImpl.erase(itr);
   }
 
-  void AieDtracePlugin::runConstructorHook(void* run, void* hwctx, uint32_t run_uid,
+  void AieDtracePlugin::runConstructorHook(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                                            const std::string& kernel_name, void* elf_handle)
   {
     if (!xrt_core::config::get_aie_dtrace())
@@ -198,28 +198,28 @@ namespace xdp {
                               "AIE dtrace: no implementation for hwctx in runConstructorHook");
       return;
     }
-    itr->second->generateCTForRun(run, hwctx, run_uid, kernel_name, elf_handle);
+    itr->second->generateCTForRun(run_impl_ptr, hwctx, run_uid, kernel_name, elf_handle);
   }
 
-  void AieDtracePlugin::runStartHook(void* run, void* hwctx, uint32_t run_uid,
+  void AieDtracePlugin::runStartHook(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                                      const std::string& kernel_name)
   {
     if (!xrt_core::config::get_aie_dtrace())
       return;
 
-    (void)run;
+    (void)run_impl_ptr;
     (void)hwctx;
     (void)run_uid;
     (void)kernel_name;
   }
 
-  void AieDtracePlugin::runWaitHook(void* run, void* hwctx, uint32_t run_uid,
+  void AieDtracePlugin::runWaitHook(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                                     const std::string& kernel_name, int ert_cmd_state)
   {
     if (!xrt_core::config::get_aie_dtrace())
       return;
 
-    (void)run;
+    (void)run_impl_ptr;
     (void)hwctx;
     (void)run_uid;
     (void)kernel_name;

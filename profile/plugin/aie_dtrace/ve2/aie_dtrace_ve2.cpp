@@ -27,7 +27,7 @@
 #include "core/common/message.h"
 #include "core/common/time.h"
 #include "core/common/config_reader.h"
-#include "core/include/xrt/xrt_kernel.h"
+#include "core/common/api/kernel_int.h"
 
 #include <filesystem>
 #include <iterator>
@@ -222,7 +222,7 @@ namespace xdp {
     }
   }
 
-  void AieDtrace_VE2Impl::generateCTForRun(void* run, void* hwctx, uint32_t run_uid,
+  void AieDtrace_VE2Impl::generateCTForRun(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                                              const std::string& kernel_name,
                                              void* elf_handle)
   {
@@ -277,9 +277,9 @@ namespace xdp {
     if (!generated)
       return;
 
-    auto* xrt_run = static_cast<xrt::run*>(run);
+    auto* run_impl = static_cast<xrt::run_impl*>(run_impl_ptr);
     try {
-      xrt_run->set_dtrace_control_file(outputPath);
+      xrt_core::kernel_int::set_dtrace_control_file(run_impl, outputPath);
       std::stringstream msg;
       msg << "AIE dtrace: Set per-run CT file '" << outputPath
           << "' for run uid=" << run_uid << " ctx slot=" << slotIdx;

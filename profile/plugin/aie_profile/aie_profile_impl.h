@@ -48,7 +48,7 @@ namespace xdp {
 
     virtual void freeResources() = 0;
 
-    virtual void generateCTForRun(void* /*run*/, void* /*hwctx*/, uint32_t /*run_uid*/,
+    virtual void generateCTForRun(void* /*run_impl_ptr*/, void* /*hwctx*/, uint32_t /*run_uid*/,
                                   const std::string& /*kernel_name*/,
                                   void* /*elf_handle*/) {}
 

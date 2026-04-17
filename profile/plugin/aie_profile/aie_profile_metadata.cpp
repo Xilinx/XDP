@@ -1074,20 +1074,19 @@ namespace xdp {
     for (size_t i = 0; i < metricsSettings.size(); ++i) {
       if ((metrics[i][0].compare("all") == 0) || (metrics[i].size() < 3))
         continue;
-      if (!isSupported(metrics[i][1], true))
-        continue;
 
       uint8_t maxCol = 0;
       try {
         maxCol = aie::convertStringToUint8(metrics[i][1]);
       }
       catch (std::invalid_argument const&) {
-        // maxColumn is not an integer i.e either 1st style or wrong format, skip for now
-        xrt_core::message::send(severity_level::warning, "XRT",
-                                "tile_based_interface_tile_metrics: invalid range line. Ignored: "
-                                + metricsSettings[i]);
+        // Not a range specification (e.g. single-tile format such as
+        // <col>:<metric>:<channel>); let later passes handle it.
         continue;
       }
+
+      if (!isSupported(metrics[i][2], true))
+        continue;
 
       uint8_t minCol = 0;
       try {

@@ -619,6 +619,9 @@ namespace xdp {
 
     // Pass 2 : process only range of tiles metric setting
     for (size_t i = 0; i < metricsSettings.size(); ++i) {
+      //Do not re-parse Pass 1 "all:..."
+      if (isAll[i])
+        continue;
       if ((metrics[i].size() != 3) && (metrics[i].size() != 4))
         continue;
 

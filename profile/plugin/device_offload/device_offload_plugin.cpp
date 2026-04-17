@@ -349,8 +349,7 @@ namespace xdp {
   void PLDeviceOffloadPlugin::configureTraceIP(PLDeviceIntf* devInterface)
   {
     // Collect all the profiling options from xrt.ini
-    //std::string data_transfer_trace = xrt_core::config::get_device_trace() ;
-    std::string data_transfer_trace = effective_pl_device_trace_mode();  
+    std::string data_transfer_trace = effective_pl_device_trace_mode();
     std::string stall_trace = xrt_core::config::get_stall_trace() ;
 
     // Set up the hardware trace option

@@ -17,10 +17,10 @@ namespace xdp {
     ~AieDtracePlugin();
     void updateAIEDtraceDevice(void* handle, bool hw_context_flow);
     void endPollforDevice(void* handle);
-    void runConstructorHook(void* run, void* hwctx, uint32_t run_uid,
+    void runConstructorHook(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                             const std::string& kernel_name, void* elf_handle);
-    void runStartHook(void* run, void* hwctx, uint32_t run_uid, const std::string& kernel_name);
-    void runWaitHook(void* run, void* hwctx, uint32_t run_uid, const std::string& kernel_name,
+    void runStartHook(void* run_impl_ptr, void* hwctx, uint32_t run_uid, const std::string& kernel_name);
+    void runWaitHook(void* run_impl_ptr, void* hwctx, uint32_t run_uid, const std::string& kernel_name,
                      int ert_cmd_state);
     static bool alive();
     void broadcast(VPDatabase::MessageType msg, void* blob);

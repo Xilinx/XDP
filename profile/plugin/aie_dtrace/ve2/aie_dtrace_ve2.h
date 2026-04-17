@@ -40,7 +40,7 @@ namespace xdp {
       void endPoll() override;
 
       void freeResources();
-      void generateCTForRun(void* run, void* hwctx, uint32_t run_uid,
+      void generateCTForRun(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                            const std::string& kernel_name,
                            void* elf_handle) override;
       bool checkAieDevice(const uint64_t deviceId, void* handle);

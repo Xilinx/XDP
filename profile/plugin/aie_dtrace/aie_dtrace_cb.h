@@ -30,16 +30,16 @@ void endAIEDtracePoll(void* handle);
 
 extern "C"
 XDP_PLUGIN_EXPORT
-void aieDtraceRunConstructor(void* run, void* hwctx, uint32_t run_uid,
+void aieDtraceRunConstructor(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                              const char* kernel_name, void* elf_handle);
 
 extern "C"
 XDP_PLUGIN_EXPORT
-void aieDtraceRunStart(void* run, void* hwctx, uint32_t run_uid, const char* kernel_name);
+void aieDtraceRunStart(void* run_impl_ptr, void* hwctx, uint32_t run_uid, const char* kernel_name);
 
 extern "C"
 XDP_PLUGIN_EXPORT
-void aieDtraceRunWait(void* run, void* hwctx, uint32_t run_uid, const char* kernel_name,
+void aieDtraceRunWait(void* run_impl_ptr, void* hwctx, uint32_t run_uid, const char* kernel_name,
                       int ert_cmd_state);
 
 #endif

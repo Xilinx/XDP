@@ -222,7 +222,7 @@ namespace xdp {
     }
   }
 
-  void AieDtrace_VE2Impl::generateCTForRun(void* run, void* hwctx, uint32_t run_uid,
+  void AieDtrace_VE2Impl::generateCTForRun(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                                              const std::string& kernel_name,
                                              void* elf_handle)
   {
@@ -277,7 +277,7 @@ namespace xdp {
     if (!generated)
       return;
 
-    auto* run_impl = static_cast<xrt::run_impl*>(run);
+    auto* run_impl = static_cast<xrt::run_impl*>(run_impl_ptr);
     try {
       xrt_core::kernel_int::set_dtrace_control_file(run_impl, outputPath);
       std::stringstream msg;

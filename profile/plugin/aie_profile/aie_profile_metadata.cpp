@@ -1141,8 +1141,21 @@ namespace xdp {
     // Pass 3 : process only single tile metric setting
     // <singleColumn>:<metric>[:<channel0>[:<channel1>]]
     for (size_t i = 0; i < metricsSettings.size(); ++i) {
+      bool isRangeSpecification = false;
+      if (metrics[i].size() >= 3) {
+        try {
+          (void)aie::convertStringToUint8(metrics[i][0]);
+          (void)aie::convertStringToUint8(metrics[i][1]);
+          isRangeSpecification = true;
+        }
+        catch (std::invalid_argument const&) {
+          isRangeSpecification = false;
+        }
+      }
+
       // Skip range specification, invalid format, or already processed
-      if ((metrics[i].size() == 4) || (metrics[i].size() < 2) || (metrics[i][0].compare("all") == 0))
+      if (isRangeSpecification || (metrics[i].size() == 4) || (metrics[i].size() < 2)
+          || (metrics[i][0].compare("all") == 0))
         continue;
       if (!isSupported(metrics[i][1], true))
         continue;

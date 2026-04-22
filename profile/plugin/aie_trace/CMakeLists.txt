@@ -52,8 +52,8 @@ if (XDP_CLIENT_BUILD_CMAKE STREQUAL "yes")
   add_library(xdp_aie_trace_plugin SHARED xdp_aie_trace_plugin-version.rc
     ${AIE_TRACE_PLUGIN_FILES} ${AIE_TRACE_COMPONENT_FILES} ${AIE_TRACE_UTIL_FILES} ${AIE_DRIVER_COMMON_UTIL_FILES} ${AIE_JSON_PARSER_FILES})
   add_dependencies(xdp_aie_trace_plugin xdp_core xrt_coreutil)
-  target_link_libraries(xdp_aie_trace_plugin PRIVATE xdp_core xrt_coreutil xaiengine)
-  target_compile_definitions(xdp_aie_trace_plugin PRIVATE XDP_CLIENT_BUILD=1 -DXAIE_FEATURE_MSVC)
+  target_link_libraries(xdp_aie_trace_plugin PRIVATE xdp_core xrt_coreutil aie_codegen)
+  target_compile_definitions(xdp_aie_trace_plugin PRIVATE XDP_CLIENT_BUILD=1 XDP_USE_AIE_CODEGEN=1 -DXAIE_FEATURE_MSVC)
   target_include_directories(xdp_aie_trace_plugin PRIVATE ${AIERT_DIR}/include)
   set_target_properties(xdp_aie_trace_plugin PROPERTIES VERSION ${XRT_VERSION_STRING} SOVERSION ${XRT_SOVERSION})
 
@@ -106,6 +106,17 @@ else()
 
     add_library(xdp_aie_trace_plugin_xdna SHARED ${AIE_TRACE_PLUGIN_FILES} ${AIE_TRACE_COMPONENT_FILES} ${AIE_TRACE_UTIL_FILES} ${AIE_TRACE_CONFIG_FILES} ${AIE_JSON_PARSER_FILES})
     add_dependencies(xdp_aie_trace_plugin_xdna xdp_core xrt_coreutil)
+    # TODO: add aie_codegen to aie_trace once ASM->ELF support is there
+    # target_link_libraries(xdp_aie_trace_plugin_xdna PRIVATE xdp_core xrt_coreutil aie_codegen)
+    # target_link_options(xdp_aie_trace_plugin_xdna PRIVATE -Wl,-Bsymbolic)
+    # target_compile_definitions(xdp_aie_trace_plugin_xdna PRIVATE XDP_VE2_BUILD=1 XDP_USE_AIE_CODEGEN=1 FAL_LINUX="on")
+    # target_include_directories(xdp_aie_profile_plugin_xdna PRIVATE
+    #   ${CMAKE_SOURCE_DIR}/src
+    #   ${AIEFAL_DIR} 
+    #   ${AIEBU_SOURCE_DIR}/src/cpp/include
+    #   ${AIERT_DIR}/include
+    #   ${XRT_SOURCE_DIR}/runtime_src/core/common/elf
+    # )
     target_link_libraries(xdp_aie_trace_plugin_xdna PRIVATE xdp_core xrt_coreutil xaiengine)
     target_compile_definitions(xdp_aie_trace_plugin_xdna PRIVATE XDP_VE2_BUILD=1 FAL_LINUX="on")
     target_include_directories(xdp_aie_trace_plugin_xdna PRIVATE ${CMAKE_SOURCE_DIR}/src)

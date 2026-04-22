@@ -887,18 +887,6 @@ namespace xdp {
       }
 
       bool runtimeCounters = setMetricsSettings(deviceID, metadata->getHandle());
-      // Generate CT file for AIE profile counters after metrics settings are configured
-      if (runtimeCounters && dtraceDebug) {
-        AieProfileCTWriter ctWriter(db, metadata, deviceID);
-        ctWriter.generate();
-      }
-  
-      if (!runtimeCounters) {
-        std::shared_ptr<xrt_core::device> device = xrt_core::get_userpf_device(metadata->getHandle());
-        auto counters = xrt_core::edge::aie::get_profile_counters(device.get());
-      }
-
-      bool runtimeCounters = setMetricsSettings(deviceID, metadata->getHandle());
       if (!runtimeCounters) 
         return;
 
@@ -1027,7 +1015,7 @@ namespace xdp {
         
         if (aie::isDebugVerbosity() && ((metricSet == "ddr_bandwidth") || (metricSet == "read_bandwidth") || (metricSet == "write_bandwidth"))) {
           std::stringstream msg;
-          msg << metricSet << " **** counter reservation: tile (" << +col << "," << +row 
+          msg << metricSet << " **** counter reservation: tile (" << +col << "," << +row << ")";
           xrt_core::message::send(severity_level::debug, "XRT", msg.str());
         }
         

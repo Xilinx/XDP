@@ -619,6 +619,9 @@ namespace xdp {
 
     // Pass 2 : process only range of tiles metric setting
     for (size_t i = 0; i < metricsSettings.size(); ++i) {
+      //Do not re-parse Pass 1 "all:..."
+      if (isAll[i])
+        continue;
       if ((metrics[i].size() != 3) && (metrics[i].size() != 4))
         continue;
 
@@ -921,7 +924,7 @@ namespace xdp {
         }
         catch (...) {
           std::stringstream msg;
-          msg << "Channel specifications in graph_based_interface_metrics "
+          msg << "Channel specifications in graph_based_interface_tile_metrics "
               << "are not valid and hence ignored.";
           xrt_core::message::send(severity_level::warning, "XRT", msg.str());
         }
@@ -1074,17 +1077,19 @@ namespace xdp {
     for (size_t i = 0; i < metricsSettings.size(); ++i) {
       if ((metrics[i][0].compare("all") == 0) || (metrics[i].size() < 3))
         continue;
-      if (!isSupported(metrics[i][1], true))
-        continue;
 
       uint8_t maxCol = 0;
       try {
         maxCol = aie::convertStringToUint8(metrics[i][1]);
       }
       catch (std::invalid_argument const&) {
-        // maxColumn is not an integer i.e either 1st style or wrong format, skip for now
+        // Not a range specification (e.g. single-tile format such as
+        // <col>:<metric>:<channel>); let later passes handle it.
         continue;
       }
+
+      if (!isSupported(metrics[i][2], true))
+        continue;
 
       uint8_t minCol = 0;
       try {
@@ -1139,8 +1144,21 @@ namespace xdp {
     // Pass 3 : process only single tile metric setting
     // <singleColumn>:<metric>[:<channel0>[:<channel1>]]
     for (size_t i = 0; i < metricsSettings.size(); ++i) {
+      bool isRangeSpecification = false;
+      if (metrics[i].size() >= 3) {
+        try {
+          (void)aie::convertStringToUint8(metrics[i][0]);
+          (void)aie::convertStringToUint8(metrics[i][1]);
+          isRangeSpecification = true;
+        }
+        catch (std::invalid_argument const&) {
+          isRangeSpecification = false;
+        }
+      }
+
       // Skip range specification, invalid format, or already processed
-      if ((metrics[i].size() == 4) || (metrics[i].size() < 2) || (metrics[i][0].compare("all") == 0))
+      if (isRangeSpecification || (metrics[i].size() == 4) || (metrics[i].size() < 2)
+          || (metrics[i][0].compare("all") == 0))
         continue;
       if (!isSupported(metrics[i][1], true))
         continue;
@@ -1149,6 +1167,10 @@ namespace xdp {
 
       try {
         col = aie::convertStringToUint8(metrics[i][1]);
+        xrt_core::message::send(severity_level::warning, "XRT",
+                                "tile_based_interface_tile_metrics: invalid format. Ignored: "
+                                + metricsSettings[i]);
+        continue;
       }
       catch (std::invalid_argument const&) {
         // max column is not a number, so the expected single column specification. Handle this here

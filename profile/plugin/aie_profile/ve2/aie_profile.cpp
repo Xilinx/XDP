@@ -150,7 +150,10 @@ namespace xdp {
 
         if (counters.empty()) {
           xrt_core::message::send(severity_level::warning, "XRT", 
-            "AIE Profile Counters were not found for this design. Please specify tile_based_[aie|aie_memory|interface_tile]_metrics under \"AIE_profile_settings\" section in your xrt.ini.");
+            "AIE Profile Counters were not found for this design. Please specify "
+            "graph_based_[aie|aie_memory|memory_tile|interface_tile]_metrics and/or "
+            "tile_based_[aie|aie_memory|memory_tile|interface_tile|microcontroller]_metrics "
+            "under \"AIE_profile_settings\" section in your xrt.ini.");
           (db->getStaticInfo()).setIsAIECounterRead(deviceID,true);
           return;
         }

@@ -121,7 +121,10 @@ namespace xdp {
     if (!runtimeCounters) {
       // No runtime counters means there were no valid metrics configured for profiling this design. There is nothing to profile, so return early.
       xrt_core::message::send(severity_level::warning, "XRT", 
-        "No valid metric setting found for this design. Please specify valid tile_based_[aie|aie_memory|interface_tile]_metrics under \"AIE_profile_settings\" section in your xrt.ini if you want to configure this design.");
+        "No valid metric setting found for this design. Please specify valid "
+        "graph_based_[aie|aie_memory|memory_tile|interface_tile]_metrics and/or "
+        "tile_based_[aie|aie_memory|memory_tile|interface_tile|microcontroller]_metrics "
+        "under \"AIE_profile_settings\" section in your xrt.ini if you want to configure this design.");
       return;
     }
   }

@@ -417,7 +417,7 @@ namespace xdp {
           && (std::find(allValidEntries.begin(), allValidEntries.end(), graphMetrics[i][1]) == allValidEntries.end())) {
         std::stringstream msg;
         msg << "Could not find " << entryType << " " << graphMetrics[i][1] 
-            << " as specified in graph_based_" << tileName << "_metrics setting."
+            << " as specified in graph_based_" << tileName << "_tile_metrics setting."
             << " The following " << entryType << "s are valid : ";
         if (!allValidEntries.empty()) {
           msg << allValidEntries[0];
@@ -460,7 +460,7 @@ namespace xdp {
           && (std::find(allValidEntries.begin(), allValidEntries.end(), graphMetrics[i][1]) == allValidEntries.end())) {
         std::stringstream msg;
         msg << "Could not find " << entryType << " " << graphMetrics[i][1] 
-            << " as specified in graph_based_" << tileName << "_metrics setting."
+            << " as specified in graph_based_" << tileName << "_tile_metrics setting."
             << " The following " << entryType << "s are valid : ";
         if (!allValidEntries.empty()) {
           msg << allValidEntries[0];
@@ -788,7 +788,7 @@ namespace xdp {
           }
         } catch (...) {
           std::stringstream msg;
-          msg << "Channel specifications in graph_based_interface_metrics " 
+          msg << "Channel specifications in graph_based_interface_tile_metrics "
               << "are not valid and hence ignored.";
           xrt_core::message::send(severity_level::warning, "XRT", msg.str());
         }
@@ -888,12 +888,20 @@ namespace xdp {
       if ((processed.find(i) != processed.end()) || (metrics[i].size() < 3))
         continue;
 
+      // Only entries with a numeric second token are range specifications.
+      // Valid single-tile settings with channels (for example,
+      // <col>:<metric>:<channel>) also have 3+ tokens and are handled in Pass 3.
+      if (!aie::isDigitString(metrics[i][1]))
+        continue;
+
       uint8_t maxCol = 0;
       try {
         maxCol = aie::convertStringToUint8(metrics[i][1]);
       }
       catch (std::invalid_argument const&) {
-        // Max column is not an integer, so either first style or wrong format. Skip for now.
+        xrt_core::message::send(severity_level::warning, "XRT",
+                                "tile_based_interface_tile_metrics: invalid range line. Ignored: "
+                                + metricsSettings[i]);
         continue;
       }
 
@@ -952,6 +960,10 @@ namespace xdp {
       uint8_t col = 0;
       try {
         col = aie::convertStringToUint8(metrics[i][1]);
+        xrt_core::message::send(severity_level::warning, "XRT",
+                                "tile_based_interface_tile_metrics: invalid format. Ignored: "
+                                + metricsSettings[i]);
+        continue;
       }
       catch (std::invalid_argument const&) {
         // Max column is not an integer, so expected single column specification. Handle this here.

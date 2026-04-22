@@ -40,6 +40,7 @@ struct CTCounterInfo {
   uint64_t address;
   std::string metricSet;      // Metric set name for this counter
   std::string portDirection;  // "input"/"output" for throughput metrics (empty otherwise)
+  std::string eventType;      // "running"/"stalled" for peak bandwidth metrics (empty otherwise)
 };
 
 /**
@@ -83,6 +84,7 @@ struct BandwidthCounterConfig {
   uint8_t dmaPortIndex;    // Physical port index for stream switch (VE2-specific)
   bool isMaster;           // true=S2MM/input (master), false=MM2S/output (slave)
   std::string direction;   // "input" or "output"
+  std::string eventType;   // "running" or "stalled"
 };
 
 /**
@@ -148,11 +150,13 @@ public:
    * @param outputPath Full path for the generated CT file
    * @param hwctx Hardware context handle for partition info access
    * @param opLocations Vector of op_loc from aiebu_assembler::get_op_locations
+   * @param metricSet The metric set name (ddr_bandwidth, peak_read_bandwidth, etc.)
    * @return true if CT file was generated successfully, false otherwise
    */
   bool generateBandwidthCT(const std::string& outputPath,
                            void* hwctx,
-                           const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations);
+                           const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
+                           const std::string& metricSet = "ddr_bandwidth");
 
 private:
   /**
@@ -239,31 +243,39 @@ private:
   std::vector<uint8_t> getShimTileColumns(void* hwctx);
 
   /**
-   * @brief Generate stream switch port configuration for 4 DMA channels per shim tile
+   * @brief Generate stream switch port configuration for DMA channels per shim tile
    * @param column Shim tile column
+   * @param metricSet The metric set name (ddr_bandwidth, peak_read_bandwidth, etc.)
    * @return Vector of register writes to configure stream switch ports
    */
-  std::vector<CTRegisterWrite> generateStreamSwitchPortConfig(uint8_t column);
+  std::vector<CTRegisterWrite> generateStreamSwitchPortConfig(uint8_t column,
+      const std::string& metricSet = "ddr_bandwidth");
 
   /**
    * @brief Generate performance counter configuration for 4 counters per shim tile
    * @param column Shim tile column
+   * @param metricSet The metric set name (ddr_bandwidth, peak_read_bandwidth, etc.)
    * @return Vector of register writes to configure performance counters
    */
-  std::vector<CTRegisterWrite> generatePerfCounterConfig(uint8_t column);
+  std::vector<CTRegisterWrite> generatePerfCounterConfig(uint8_t column,
+      const std::string& metricSet = "ddr_bandwidth");
 
   /**
-   * @brief Get fixed bandwidth counter configurations for a shim tile
-   * @return Vector of BandwidthCounterConfig for the 4 fixed counters
+   * @brief Get bandwidth counter configurations for a shim tile based on metric set
+   * @param metricSet The metric set name (ddr_bandwidth, peak_read_bandwidth, etc.)
+   * @return Vector of BandwidthCounterConfig for the 4 counters
    */
-  std::vector<BandwidthCounterConfig> getBandwidthCounterConfigs();
+  std::vector<BandwidthCounterConfig> getBandwidthCounterConfigs(
+      const std::string& metricSet = "ddr_bandwidth");
 
   /**
    * @brief Generate bandwidth counters for all shim tiles in the partition
    * @param shimColumns Vector of shim tile columns
+   * @param metricSet The metric set name (ddr_bandwidth, peak_read_bandwidth, etc.)
    * @return Vector of CTCounterInfo for all bandwidth counters
    */
-  std::vector<CTCounterInfo> generateBandwidthCounters(const std::vector<uint8_t>& shimColumns);
+  std::vector<CTCounterInfo> generateBandwidthCounters(const std::vector<uint8_t>& shimColumns,
+      const std::string& metricSet = "ddr_bandwidth");
 
   /**
    * @brief Write the bandwidth CT file content with register configuration

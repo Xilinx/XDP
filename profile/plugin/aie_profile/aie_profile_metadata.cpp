@@ -1286,7 +1286,8 @@ namespace xdp {
     auto metricVec = metricStrings.at(module_type::shim);
     if (m_dtraceBandwidthMode) {
       static const char* dtraceMetrics[] =
-          {"ddr_bandwidth", "read_bandwidth", "write_bandwidth"};
+          {"ddr_bandwidth", "read_bandwidth", "write_bandwidth",
+           "peak_read_bandwidth", "peak_write_bandwidth"};
       for (const char* m : dtraceMetrics) {
         if (std::find(metricVec.begin(), metricVec.end(), m) == metricVec.end())
           metricVec.push_back(m);

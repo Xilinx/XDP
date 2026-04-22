@@ -123,7 +123,7 @@ namespace xdp {
     //  the HAL or HWEmu plugin
 
     if (effective_pl_device_trace_mode() != "off") {
-	device_trace = true;
+      device_trace = true;
     }
 
     // Get the profiling continuous offload options from xrt.ini

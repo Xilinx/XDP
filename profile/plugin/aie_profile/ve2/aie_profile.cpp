@@ -1218,7 +1218,8 @@
         xrt_core::message::send(severity_level::debug, "XRT", "Done reading recorded timestamps.");
       }
 
-      if (!tranxHandler->submitTransaction(&aieDevInst, context))
+      auto context = metadata->getHwContext();
+      if (!tranxHandler->submitELF(context))
         return;
 
       resultBO.sync(XCL_BO_SYNC_BO_FROM_DEVICE);

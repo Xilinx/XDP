@@ -246,6 +246,8 @@ auto time = std::time(nullptr);
       
     #ifdef XDP_CLIENT_BUILD
       implementation->poll(0);
+    #elif defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD)
+      implementation->poll(implementation->getDeviceID());
     #endif
 
     implementation->endPoll();
@@ -259,9 +261,13 @@ auto time = std::time(nullptr);
     #ifdef XDP_CLIENT_BUILD
       auto& implementation = handleToAIEProfileImpl.begin()->second;
       implementation->poll(0);
-    #elif XDP_VE2_BUILD
-      auto& implementation = handleToAIEProfileImpl.begin()->second;
-      implementation->poll(implementation->getDeviceID());
+    #elif defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD)
+      for (auto& p : handleToAIEProfileImpl) {
+        if (!p.second)
+          continue;
+        p.second->endPoll();
+        p.second->poll(p.second->getDeviceID());
+      }
     #endif
     // Ask all threads to end
     for (auto& p : handleToAIEProfileImpl) {

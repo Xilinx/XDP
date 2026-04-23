@@ -12,13 +12,8 @@
 #include "xdp/profile/device/common/client_transaction.h"
 
 extern "C" {
-#ifdef XDP_USE_AIE_CODEGEN
 #include <aie_codegen.h>
 #include <aie_codegen_inc/xaiegbl_params.h>
-#else
-  #include <xaiengine.h>
-  #include <xaiengine/xaiegbl_params.h>
-#endif
 }
 
 namespace xdp {

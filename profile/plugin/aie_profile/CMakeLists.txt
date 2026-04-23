@@ -83,7 +83,7 @@ else()
       "${IMPL_DIR}/*.h"
       "${IMPL_DIR}/*.cpp"
     )
-    add_library(xdp_aie_profile_plugin_xdna SHARED ${AIE_PROFILE_PLUGIN_FILES} ${AIE_PROFILE_IMPL_FILES} ${AIE_PROFILE_UTIL_FILES} ${AIE_PROFILE_CONFIG_FILES} ${AIE_JSON_PARSER_FILES})
+    add_library(xdp_aie_profile_plugin_xdna SHARED ${AIE_PROFILE_PLUGIN_FILES} ${AIE_PROFILE_IMPL_FILES} ${AIE_PROFILE_UTIL_FILES} ${AIE_PROFILE_CONFIG_FILES} ${AIE_JSON_PARSER_FILES} "${PROFILE_DIR}/device/common/ve2/ve2_transaction.cpp")
     add_dependencies(xdp_aie_profile_plugin_xdna xdp_core xrt_coreutil)
     target_link_libraries(xdp_aie_profile_plugin_xdna PRIVATE xdp_core xrt_coreutil aie_codegen aiebu_library_objects)
     target_link_options(xdp_aie_profile_plugin_xdna PRIVATE -Wl,-Bsymbolic)

@@ -1175,7 +1175,7 @@
       }
     }
 
-    void AieProfile_NPU3Impl::generatePollElf()
+    void AieProfile_VE2Impl::generatePollElf()
     {
       auto context = metadata->getHwContext();
 

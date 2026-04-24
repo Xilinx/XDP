@@ -17,12 +17,17 @@ file(GLOB AIE_STATUS_PLUGIN_FILES
 if (XDP_VE2_BUILD_CMAKE STREQUAL "yes")
   add_library(xdp_aie_status_plugin SHARED ${AIE_STATUS_PLUGIN_FILES})
   add_dependencies(xdp_aie_status_plugin xdp_core)
-  target_link_libraries(xdp_aie_status_plugin PRIVATE xdp_core aie_codegen)
-  target_compile_definitions(xdp_aie_status_plugin PRIVATE XDP_VE2_BUILD=1 XDP_USE_AIE_CODEGEN=1 FAL_LINUX="on")
-  target_include_directories(xdp_aie_status_plugin PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-    ${AIEFAL_DIR}
-  )
+  # TODO: add aie_codegen to aie_status once XAie_Read32 support is there
+  #target_link_libraries(xdp_aie_status_plugin PRIVATE xdp_core aie_codegen)
+  #target_link_options(xdp_aie_status_plugin PRIVATE -Wl,-Bsymbolic)
+  #target_compile_definitions(xdp_aie_status_plugin PRIVATE XDP_VE2_BUILD=1 XDP_USE_AIE_CODEGEN=1 FAL_LINUX="on")
+  #target_include_directories(xdp_aie_status_plugin PRIVATE
+  #  ${CMAKE_SOURCE_DIR}/src
+  #  ${AIEFAL_DIR}
+  #)
+  target_link_libraries(xdp_aie_status_plugin PRIVATE xdp_core xaiengine)
+  target_compile_definitions(xdp_aie_status_plugin PRIVATE XDP_VE2_BUILD=1 FAL_LINUX="on")
+  target_include_directories(xdp_aie_status_plugin PRIVATE ${CMAKE_SOURCE_DIR}/src)
   set_target_properties(xdp_aie_status_plugin PROPERTIES VERSION ${XRT_VERSION_STRING} SOVERSION ${XRT_SOVERSION})
 
   install (TARGETS xdp_aie_status_plugin

@@ -208,7 +208,9 @@ size_t HalDevice::alloc(size_t size, uint64_t memoryIndex)
 
 void HalDevice::free(size_t)
 {
-  return;
+  if(!id) return;
+  size_t boIndex = id - 1;
+  xrt_bos[boIndex] = xrt::bo();
 }
 
 void* HalDevice::map(size_t id)

@@ -17,6 +17,7 @@
 #include "xdp/profile/database/static_info/aie_util.h"
 #include "xdp/profile/database/static_info/aie_constructs.h"
 #include "xdp/profile/database/static_info/pl_constructs.h"
+#include "xdp/profile/plugin/vp_base/profiling_runtime_config.h"
 
 #include <boost/algorithm/string.hpp>
 #include <cmath>
@@ -226,7 +227,7 @@ namespace xdp {
                                              const std::string& kernel_name,
                                              void* elf_handle)
   {
-    if (!xrt_core::config::get_aie_dtrace())
+    if (!profiling_runtime_config::aie_dtrace_enabled())
       return;
 
     auto ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(hwctx);

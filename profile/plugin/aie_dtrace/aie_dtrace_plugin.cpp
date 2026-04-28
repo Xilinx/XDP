@@ -15,6 +15,7 @@
 #include "xdp/profile/device/utility.h"
 #include "xdp/profile/device/xdp_base_device.h"
 #include "xdp/profile/plugin/vp_base/info.h"
+#include "xdp/profile/plugin/vp_base/profiling_runtime_config.h"
 
 #if defined(XDP_VE2_BUILD)
 #include "xdp/profile/plugin/aie_dtrace/ve2/aie_dtrace_ve2.h"
@@ -65,7 +66,7 @@ namespace xdp {
   {
     xrt_core::message::send(severity_level::info, "XRT", "AIE dtrace: update device.");
 
-    if (!xrt_core::config::get_aie_dtrace())
+    if (!profiling_runtime_config::aie_dtrace_enabled())
       return;
 
     if (!handle)
@@ -189,7 +190,7 @@ namespace xdp {
   void AieDtracePlugin::runConstructorHook(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                                            const std::string& kernel_name, void* elf_handle)
   {
-    if (!xrt_core::config::get_aie_dtrace())
+    if (!profiling_runtime_config::aie_dtrace_enabled())
       return;
 
     auto itr = handleToAIEDtraceImpl.find(hwctx);
@@ -204,7 +205,7 @@ namespace xdp {
   void AieDtracePlugin::runStartHook(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                                      const std::string& kernel_name)
   {
-    if (!xrt_core::config::get_aie_dtrace())
+    if (!profiling_runtime_config::aie_dtrace_enabled())
       return;
 
     (void)run_impl_ptr;
@@ -216,7 +217,7 @@ namespace xdp {
   void AieDtracePlugin::runWaitHook(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                                     const std::string& kernel_name, int ert_cmd_state)
   {
-    if (!xrt_core::config::get_aie_dtrace())
+    if (!profiling_runtime_config::aie_dtrace_enabled())
       return;
 
     (void)run_impl_ptr;

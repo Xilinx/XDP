@@ -174,7 +174,11 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
   AIEData.implementation = std::make_unique<AieTrace_WinImpl>(db, AIEData.metadata);
 #elif defined(XRT_X86_BUILD)
   AIEData.implementation = std::make_unique<AieTrace_x86Impl>(db, AIEData.metadata);
-#elif XDP_VE2_BUILD
+#elif defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD)
+  xrt::hw_context context = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+  AIEData.metadata->setHwContext(context);
+  AIEData.implementation = std::make_unique<AieTrace_VE2Impl>(db, AIEData.metadata);
+#elif defined(XDP_VE2_BUILD)
   AIEData.implementation = std::make_unique<AieTrace_VE2Impl>(db, AIEData.metadata);
 #else
   AIEData.implementation = std::make_unique<AieTrace_EdgeImpl>(db, AIEData.metadata);
@@ -260,7 +264,9 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
   // uint64_t aieTraceBufSizePLIO = aieTraceBufSize;
   // uint64_t aieTraceBufSizeGMIO = aieTraceBufSize;
   if (isPLIO && !configuredOnePlioPartition) {
-
+#if defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD)
+    // TODO: if VE2 XDNA flow then we do not have devInst so we do something else
+#else
     XAie_DevInst* devInst = static_cast<XAie_DevInst*>(AIEData.implementation->setAieDeviceInst(handle, deviceID));
     if(!devInst) {
       xrt_core::message::send(severity_level::warning, "XRT",
@@ -269,11 +275,12 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
     }
     AIEData.offloadManager->configureAndInitPLIO(handle, deviceIntf, aieTraceBufSize,
                                       AIEData.metadata->getNumStreamsPLIO(), devInst);
-    // Mark that we've successfully configured the first PLIO partition
+#endif
     configuredOnePlioPartition = true;
   }
+
   if (isGMIO) {
-#ifdef XDP_CLIENT_BUILD
+#if defined(XDP_CLIENT_BUILD) || (defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD))
   if (!AIEData.offloadManager->configureAndInitGMIO(
         handle, deviceIntf, aieTraceBufSize,
         AIEData.metadata->getNumStreamsGMIO(),

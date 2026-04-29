@@ -3,8 +3,13 @@
 #ifndef __OPINIT_HPP__
 #define __OPINIT_HPP__
 
+extern "C" {
+#ifdef XDP_USE_AIE_CODEGEN
+#include <aie_codegen.h>
+#else
 #include <xaiengine.h>
-
+#endif
+}
 #include "op_types.h"
 #include <cstring>
 

@@ -25,8 +25,13 @@
 #endif
 
 extern "C" {
+#ifdef XDP_USE_AIE_CODEGEN
+#include <aie_codegen.h>
+#include <aie_codegen_inc/xaiegbl_params.h>
+#else
 #include <xaiengine.h>
 #include <xaiengine/xaiegbl_params.h>
+#endif
 }
 
 
@@ -57,7 +62,7 @@ class AIETraceOffloadManager {
     void initPLIO(void* handle, PLDeviceIntf* deviceIntf, uint64_t bufSize, uint64_t numStreams, XAie_DevInst* devInst);
 
     // TODO: Use const references for parameters where applicable
-  #ifdef XDP_CLIENT_BUILD
+  #if defined(XDP_CLIENT_BUILD) || (defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD))
     void initGMIO(void* handle, PLDeviceIntf* deviceIntf,
                   uint64_t bufSize, uint64_t numStreams, xrt::hw_context context,
                   std::shared_ptr<AieTraceMetadata> metadata);
@@ -73,14 +78,16 @@ class AIETraceOffloadManager {
                             std::vector<VPWriter*>& writers);
     bool configureAndInitPLIO(void* handle, PLDeviceIntf* deviceIntf,
                               uint64_t desiredBufSize, uint64_t numStreamsPLIO, XAie_DevInst* devInst);
+
+#if defined(XDP_CLIENT_BUILD) || (defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD))
     bool configureAndInitGMIO(void* handle, PLDeviceIntf* deviceIntf,
-                              uint64_t desiredBufSize, uint64_t numStreamsGMIO
-  #ifdef XDP_CLIENT_BUILD
-                              , const xrt::hw_context& hwctx, const std::shared_ptr<AieTraceMetadata>& md
-  #else
-                              , XAie_DevInst* devInst
-  #endif
-                              );
+                              uint64_t desiredBufSize, uint64_t numStreamsGMIO, 
+                              const xrt::hw_context& hwctx, const std::shared_ptr<AieTraceMetadata>& md);
+#else
+    bool configureAndInitGMIO(void* handle, PLDeviceIntf* deviceIntf,
+                              uint64_t desiredBufSize, uint64_t numStreamsGMIO, 
+                              XAie_DevInst* devInst);
+#endif
 
 }; // class AIETraceOffloadManager
 

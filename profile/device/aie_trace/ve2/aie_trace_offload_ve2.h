@@ -18,12 +18,22 @@
 #ifndef XDP_PROFILE_AIE_TRACE_OFFLOAD_VE2_H_
 #define XDP_PROFILE_AIE_TRACE_OFFLOAD_VE2_H_
 
-#include "xdp/profile/device/tracedefs.h"
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
 
-extern "C"
-{
-  #include "xaiengine/xaiegbl.h"
-  #include <xaiengine.h>
+#include "core/include/xrt/xrt_bo.h"
+#include "core/include/xrt/xrt_hw_context.h"
+
+#include "xdp/profile/device/tracedefs.h"
+#include "xdp/profile/device/common/ve2/ve2_transaction.h"
+#include "xdp/profile/plugin/aie_trace/aie_trace_metadata.h"
+
+extern "C" {
+#include <aie_codegen.h>
+#include <aie_codegen_inc/xaiegbl_params.h>
 }
 
 namespace xdp {
@@ -71,14 +81,23 @@ enum class AIEOffloadThreadStatus {
 class AIETraceOffload 
 {
   public:
+    // ZOCL edge: live devInst pointer. VE2 XDNA (client-style): hw_context + metadata.
+#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD)
     AIETraceOffload(void* handle, uint64_t id,
                     PLDeviceIntf*, AIETraceLogger*,
                     bool     isPlio,
                     uint64_t totalSize,
                     uint64_t numStrm,
-                    XAie_DevInst* devInstance
-                   );
-
+                    XAie_DevInst* devInstance);
+#elif defined(XDP_VE2_BUILD)
+    AIETraceOffload(void* handle, uint64_t id,
+                    PLDeviceIntf*, AIETraceLogger*,
+                    bool     isPlio,
+                    uint64_t totalSize,
+                    uint64_t numStrm,
+                    xrt::hw_context context,
+                    std::shared_ptr<AieTraceMetadata> metadata);
+#endif
     virtual ~AIETraceOffload();
 
 public:
@@ -106,7 +125,15 @@ private:
     uint64_t        deviceId;
     PLDeviceIntf*   deviceIntf;
     AIETraceLogger* traceLogger;
+#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD)
     XAie_DevInst*   devInst;
+#elif defined(XDP_VE2_BUILD)
+    XAie_DevInst    aieDevInst = {0};
+    std::unique_ptr<aie::VE2Transaction> tranxHandler;
+    xrt::hw_context context;
+    std::shared_ptr<AieTraceMetadata> metadata;
+    std::vector<xrt::bo> xrt_bos;
+#endif
 
     bool isPLIO;
     uint64_t totalSz;

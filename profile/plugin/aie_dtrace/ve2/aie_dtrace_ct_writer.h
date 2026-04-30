@@ -36,6 +36,7 @@ struct CTCounterInfo {
   uint8_t column;
   uint8_t row;
   uint8_t counterNumber;
+  uint8_t channel;            // DMA channel number (0 or 1) for bandwidth metrics
   std::string module;
   uint64_t address;
   std::string metricSet;      // Metric set name for this counter
@@ -71,9 +72,13 @@ struct CTRegisterWrite {
 /**
  * @brief Configuration for a single bandwidth counter in a shim tile
  * 
+ * Direction is from AIE/application perspective:
+ * - "input" = data read FROM DDR into AIE = MM2S channels (Memory-Mapped to Stream)
+ * - "output" = data written TO DDR from AIE = S2MM channels (Stream to Memory-Mapped)
+ * 
  * For VE2 shim tiles, DMA channels are accessed via stream switch ports:
- * - S2MM (master): Stream switch master port feeds data to DMA (input to AIE)
- * - MM2S (slave): Stream switch slave port receives data from DMA (output from AIE)
+ * - S2MM (master): Stream switch master port feeds data to DMA (output from AIE)
+ * - MM2S (slave): Stream switch slave port receives data from DMA (input to AIE)
  * 
  * The dmaPortIndex is the physical stream switch port index that connects
  * to the DMA channel. This is architecture-specific.
@@ -82,8 +87,8 @@ struct BandwidthCounterConfig {
   uint8_t counterNumber;   // Counter number (0-3)
   uint8_t channel;         // DMA channel number (0 or 1)
   uint8_t dmaPortIndex;    // Physical port index for stream switch (VE2-specific)
-  bool isMaster;           // true=S2MM/input (master), false=MM2S/output (slave)
-  std::string direction;   // "input" or "output"
+  bool isMaster;           // true=S2MM/output (master), false=MM2S/input (slave)
+  std::string direction;   // "input" (MM2S) or "output" (S2MM)
   std::string eventType;   // "running" or "stalled"
 };
 

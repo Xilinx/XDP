@@ -191,7 +191,15 @@ namespace xdp::aie::trace {
   void reset2ChannelBroadcastNetwork(XAie_DevInst* aieDevInst, std::shared_ptr<AieTraceMetadata> metadata,
                                     uint8_t broadcastId1, uint8_t broadcastId2, uint8_t startCol,
                                     uint8_t numCols, uint8_t numRows);
-  
+
+/**
+   * @brief If interface-tile AIE trace and AIE profile \c start_to_bytes_transferred
+   *        (graph/tile interface-tile strings) are both in use, log a one-time warning.
+   *        Call only after \c getIsValidMetrics() is true.
+   */
+  void warnIfAieInterfaceTraceContendsWithStartToBytes(
+      const std::shared_ptr<AieTraceMetadata>& metadata); 
+ 
 }  // namespace xdp::aie::trace
 
 #endif

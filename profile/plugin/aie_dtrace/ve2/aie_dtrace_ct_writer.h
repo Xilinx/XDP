@@ -36,6 +36,7 @@ struct CTCounterInfo {
   uint8_t column;
   uint8_t row;
   uint8_t counterNumber;
+  uint8_t channel;            // DMA channel number (0 or 1) for bandwidth metrics
   std::string module;
   uint64_t address;
   std::string metricSet;      // Metric set name for this counter

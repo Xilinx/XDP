@@ -360,6 +360,7 @@ std::vector<CTCounterInfo> AieDtraceCTWriter::getConfiguredCounters()
     info.column = aieCounter->column;
     info.row = aieCounter->row;
     info.counterNumber = aieCounter->counterNumber;
+    info.channel = 0;  // Default; overwritten for bandwidth metrics
     info.module = aieCounter->module;
     info.address = calculateCounterAddress(info.column, info.row, 
                                             info.counterNumber, info.module);
@@ -875,6 +876,7 @@ std::vector<CTCounterInfo> AieDtraceCTWriter::generateBandwidthCounters(
       info.column = column;
       info.row = SHIM_ROW;
       info.counterNumber = cfg.counterNumber;
+      info.channel = cfg.channel;
       info.module = "interface_tile";
       info.address = calculateCounterAddress(column, SHIM_ROW, cfg.counterNumber, "interface_tile");
       info.metricSet = metricSet;
@@ -940,11 +942,10 @@ bool AieDtraceCTWriter::writeBandwidthCTFile(
 
     for (size_t c = 0; c < asmFileInfo.counters.size(); c++) {
       const auto& ctr = asmFileInfo.counters[c];
-      uint8_t channel = ctr.counterNumber % 2;
       ctFile << "#     {\"col\": " << static_cast<int>(ctr.column)
              << ", \"row\": " << static_cast<int>(ctr.row)
              << ", \"ctr\": " << static_cast<int>(ctr.counterNumber)
-             << ", \"ch\": " << static_cast<int>(channel)
+             << ", \"ch\": " << static_cast<int>(ctr.channel)
              << ", \"dir\": ";
 
       if (ctr.portDirection == "input")

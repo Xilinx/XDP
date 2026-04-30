@@ -465,6 +465,14 @@ bool AieDtraceCTWriter::isThroughputMetric(const std::string& metricSet)
 
 std::string AieDtraceCTWriter::getPortDirection(const std::string& metricSet, uint64_t payload)
 {
+  // Direction is from AIE/application perspective:
+  // - "input" = data read FROM DDR into AIE = MM2S channels (Memory-Mapped to Stream)
+  // - "output" = data written TO DDR from AIE = S2MM channels (Stream to Memory-Mapped)
+  //
+  // Stream switch port types:
+  // - S2MM channels use master ports (isMaster=true) = output (AIE writing to DDR)
+  // - MM2S channels use slave ports (isMaster=false) = input (AIE reading from DDR)
+  
   // For interface tile ddr_bandwidth, read_bandwidth, write_bandwidth - use payload
   // These metrics can have mixed input/output ports per tile
   if (metricSet == "ddr_bandwidth" || 
@@ -475,25 +483,25 @@ std::string AieDtraceCTWriter::getPortDirection(const std::string& metricSet, ui
     return isMaster ? "output" : "input";
   }
   
-  // peak_read_bandwidth: S2MM channels (input/read from DDR)
+  // peak_read_bandwidth: MM2S channels (read from DDR = input to AIE)
   if (metricSet == "peak_read_bandwidth") {
     return "input";
   }
   
-  // peak_write_bandwidth: MM2S channels (output/write to DDR)
+  // peak_write_bandwidth: S2MM channels (write to DDR = output from AIE)
   if (metricSet == "peak_write_bandwidth") {
     return "output";
   }
   
-  // For input/s2mm metrics - always input direction
+  // For input/mm2s metrics - always input direction (data into AIE)
   if (metricSet.find("input") != std::string::npos || 
-      metricSet.find("s2mm") != std::string::npos) {
+      metricSet.find("mm2s") != std::string::npos) {
     return "input";
   }
   
-  // For output/mm2s metrics - always output direction
+  // For output/s2mm metrics - always output direction (data from AIE)
   if (metricSet.find("output") != std::string::npos || 
-      metricSet.find("mm2s") != std::string::npos) {
+      metricSet.find("s2mm") != std::string::npos) {
     return "output";
   }
   
@@ -688,49 +696,53 @@ std::vector<BandwidthCounterConfig> AieDtraceCTWriter::getBandwidthCounterConfig
   // These port indices are architecture-specific and map to the physical
   // stream switch ports that connect to the DMA channels.
   //
+  // Direction is from AIE/application perspective:
+  // - "input" = data read FROM DDR into AIE = MM2S channels (Memory-Mapped to Stream)
+  // - "output" = data written TO DDR from AIE = S2MM channels (Stream to Memory-Mapped)
+  //
   // For VE2 shim tiles:
-  // - S2MM (master) ports: Stream switch master port feeds data to DMA S2MM
-  // - MM2S (slave) ports: Stream switch slave port receives data from DMA MM2S
+  // - S2MM (master) ports: Stream switch master port feeds data to DMA S2MM = output
+  // - MM2S (slave) ports: Stream switch slave port receives data from DMA MM2S = input
   //
   // Port encoding in Stream_Switch_Event_Port_Selection register:
   // - Bits [4:0]: Port index
   // - Bit [5]: 0 = slave, 1 = master
   //
   // VE2 shim tile port mapping:
-  // - S2MM ch0: master South1 => port index 3
-  // - S2MM ch1: master South3 => port index 5
-  // - MM2S ch0: slave South3  => port index 5
-  // - MM2S ch1: slave South7  => port index 9
+  // - S2MM ch0: master South1 => port index 3 (output)
+  // - S2MM ch1: master South3 => port index 5 (output)
+  // - MM2S ch0: slave South3  => port index 5 (input)
+  // - MM2S ch1: slave South7  => port index 9 (input)
   //
-  // For peak_read_bandwidth: 2 S2MM channels with RUNNING + STALL events
-  // For peak_write_bandwidth: 2 MM2S channels with RUNNING + STALL events
+  // For peak_read_bandwidth: 2 MM2S channels with RUNNING + STALL events (read from DDR = input)
+  // For peak_write_bandwidth: 2 S2MM channels with RUNNING + STALL events (write to DDR = output)
   // For ddr_bandwidth/read_bandwidth/write_bandwidth: 4 ports with RUNNING events only
   //
   // counterNumber, channel, dmaPortIndex, isMaster, direction, eventType
   if (metricSet == "peak_read_bandwidth") {
-    // S2MM ch0/ch1 with RUNNING + STALL events for peak read bandwidth
+    // MM2S ch0/ch1 with RUNNING + STALL events for peak read bandwidth (read from DDR = input)
     return {
-      {0, 0, 3, true, "input", "running"},   // Counter 0: S2MM Ch0 RUNNING
-      {1, 0, 3, true, "input", "stalled"},   // Counter 1: S2MM Ch0 STALL
-      {2, 1, 5, true, "input", "running"},   // Counter 2: S2MM Ch1 RUNNING
-      {3, 1, 5, true, "input", "stalled"}    // Counter 3: S2MM Ch1 STALL
+      {0, 0, 5, false, "input", "running"},   // Counter 0: MM2S Ch0 RUNNING
+      {1, 0, 5, false, "input", "stalled"},   // Counter 1: MM2S Ch0 STALL
+      {2, 1, 9, false, "input", "running"},   // Counter 2: MM2S Ch1 RUNNING
+      {3, 1, 9, false, "input", "stalled"}    // Counter 3: MM2S Ch1 STALL
     };
   }
   else if (metricSet == "peak_write_bandwidth") {
-    // MM2S ch0/ch1 with RUNNING + STALL events for peak write bandwidth
+    // S2MM ch0/ch1 with RUNNING + STALL events for peak write bandwidth (write to DDR = output)
     return {
-      {0, 0, 5, false, "output", "running"},  // Counter 0: MM2S Ch0 RUNNING
-      {1, 0, 5, false, "output", "stalled"},  // Counter 1: MM2S Ch0 STALL
-      {2, 1, 9, false, "output", "running"},  // Counter 2: MM2S Ch1 RUNNING
-      {3, 1, 9, false, "output", "stalled"}   // Counter 3: MM2S Ch1 STALL
+      {0, 0, 3, true, "output", "running"},   // Counter 0: S2MM Ch0 RUNNING
+      {1, 0, 3, true, "output", "stalled"},   // Counter 1: S2MM Ch0 STALL
+      {2, 1, 5, true, "output", "running"},   // Counter 2: S2MM Ch1 RUNNING
+      {3, 1, 5, true, "output", "stalled"}    // Counter 3: S2MM Ch1 STALL
     };
   }
   // Default: ddr_bandwidth, read_bandwidth, write_bandwidth
   return {
-    {0, 0, 3, true,  "input",  "running"},  // Counter 0: S2MM Ch0 (master South1) - read_bandwidth
-    {1, 1, 5, true,  "input",  "running"},  // Counter 1: S2MM Ch1 (master South3) - read_bandwidth
-    {2, 0, 5, false, "output", "running"},  // Counter 2: MM2S Ch0 (slave South3) - write_bandwidth
-    {3, 1, 9, false, "output", "running"}   // Counter 3: MM2S Ch1 (slave South7) - write_bandwidth
+    {0, 0, 5, false, "input",  "running"},  // Counter 0: MM2S Ch0 (slave South3) - input from DDR
+    {1, 1, 9, false, "input",  "running"},  // Counter 1: MM2S Ch1 (slave South7) - input from DDR
+    {2, 0, 3, true,  "output", "running"},  // Counter 2: S2MM Ch0 (master South1) - output to DDR
+    {3, 1, 5, true,  "output", "running"}   // Counter 3: S2MM Ch1 (master South3) - output to DDR
   };
 }
 
@@ -759,11 +771,11 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateStreamSwitchPortConfig(
   std::stringstream comment;
   comment << "SS port sel @ col " << static_cast<int>(column);
   if (metricSet == "peak_read_bandwidth")
-    comment << " (S2MM ch0,ch1 x2 for running+stall)";
-  else if (metricSet == "peak_write_bandwidth")
     comment << " (MM2S ch0,ch1 x2 for running+stall)";
+  else if (metricSet == "peak_write_bandwidth")
+    comment << " (S2MM ch0,ch1 x2 for running+stall)";
   else
-    comment << " (S2MM ch0,ch1; MM2S ch0,ch1)";
+    comment << " (MM2S ch0,ch1; S2MM ch0,ch1)";
 
   CTRegisterWrite write;
   write.address = regAddr;

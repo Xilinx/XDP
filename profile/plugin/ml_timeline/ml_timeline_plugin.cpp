@@ -8,7 +8,7 @@
 
 #include "core/common/device.h"
 #include "core/common/message.h"
-#include "core/common/smi.h"
+#include "core/common/smi/smi.h"
 #include "core/common/query_requests.h"
 #include "core/common/api/bo_int.h"
 #include "core/common/api/hw_context_int.h"

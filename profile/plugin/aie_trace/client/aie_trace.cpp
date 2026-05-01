@@ -607,7 +607,7 @@ namespace xdp {
     }
 
     aie::trace::warnIfAieInterfaceTraceContendsWithStartToBytes(metadata);
-    
+
     // Get channel configurations (memory and interface tiles)
     auto configChannel0 = metadata->getConfigChannel0();
     auto configChannel1 = metadata->getConfigChannel1();

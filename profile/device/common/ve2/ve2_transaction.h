@@ -12,7 +12,9 @@
 #include "xrt/xrt_kernel.h"
 
 // XDNA-only: pulled from device offload via aie_trace_offload_ve2.h (ZOCL does not use this file).
+// xaiegbl_dynlink.h must come before aie_codegen.h so XAIE_AIG_EXPORT is defined for xaie_noc.h et al.
 extern "C" {
+#include <xaiegbl_dynlink.h>
 #include <aie_codegen.h>
 #include <aie_codegen_inc/xaiegbl_params.h>
 }

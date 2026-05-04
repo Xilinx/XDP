@@ -86,14 +86,7 @@ class AIETraceOffload
 {
   public:
     // ZOCL edge: live devInst pointer. VE2 XDNA (client-style): hw_context + metadata.
-#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD)
-    AIETraceOffload(void* handle, uint64_t id,
-                    PLDeviceIntf*, AIETraceLogger*,
-                    bool     isPlio,
-                    uint64_t totalSize,
-                    uint64_t numStrm,
-                    XAie_DevInst* devInstance);
-#elif defined(XDP_VE2_BUILD)
+#if defined(XDP_VE2_BUILD) && ! defined(XDP_VE2_ZOCL_BUILD)
     AIETraceOffload(void* handle, uint64_t id,
                     PLDeviceIntf*, AIETraceLogger*,
                     bool     isPlio,
@@ -101,6 +94,13 @@ class AIETraceOffload
                     uint64_t numStrm,
                     xrt::hw_context context,
                     std::shared_ptr<AieTraceMetadata> metadata);
+#else
+    AIETraceOffload(void* handle, uint64_t id,
+                    PLDeviceIntf*, AIETraceLogger*,
+                    bool     isPlio,
+                    uint64_t totalSize,
+                    uint64_t numStrm,
+                    XAie_DevInst* devInstance);
 #endif
     virtual ~AIETraceOffload();
 
@@ -129,14 +129,15 @@ private:
     uint64_t        deviceId;
     PLDeviceIntf*   deviceIntf;
     AIETraceLogger* traceLogger;
-#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD)
-    XAie_DevInst*   devInst;
-#elif defined(XDP_VE2_BUILD)
-    XAie_DevInst    aieDevInst = {0};
-    std::unique_ptr<aie::VE2Transaction> tranxHandler;
+#if defined(XDP_VE2_BUILD) && ! defined(XDP_VE2_ZOCL_BUILD)
+    std::unique_ptr<xdp::aie::VE2Transaction> tranxHandler;
     xrt::hw_context context;
     std::shared_ptr<AieTraceMetadata> metadata;
     std::vector<xrt::bo> xrt_bos;
+    XAie_DevInst    aieDevInst = {0};
+#else
+    XAie_DevInst*   devInst;
+    std::vector<AIETraceGmioDMAInst> gmioDMAInsts;
 #endif
 
     bool isPLIO;
@@ -148,8 +149,6 @@ private:
     //Internal use only
     // Set this for verbose trace offload
     bool m_debug = false;
-    std::vector<AIETraceGmioDMAInst> gmioDMAInsts;
-
 
     // Continuous Trace Offload (For PLIO)
     bool traceContinuous;

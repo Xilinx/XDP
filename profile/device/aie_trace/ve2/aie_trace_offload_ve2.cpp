@@ -189,14 +189,6 @@ bool AIETraceOffload::initReadTrace()
 #else // XDNA flow 
 bool AIETraceOffload::initReadTrace()
 {
-  // TODO: is this only zocl specific or do we need it for XDNA as well?
-  // Submit nop.elf to initialize AIE array before BD configuration
-  if (!aie::submitNopElf(deviceHandle)) {
-    xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
-        "Failed to submit nop.elf. AIE trace configuration will not proceed.");
-    return false;
-  }
-
   xrt_core::message::send(severity_level::info, "XRT", "Starting configuration for VE2.");
 
   buffers.clear();
@@ -228,15 +220,61 @@ bool AIETraceOffload::initReadTrace()
   if (!tranxHandler->initializeTransaction(&aieDevInst, "AieTraceOffload"))
     return false;
 
-  gmioDMAInsts.clear();
-  gmioDMAInsts.resize(numStream);
+  // gmioDMAInsts.clear();
+  // gmioDMAInsts.resize(numStream);
 
-  for (uint64_t i = 0; i < numStream ; ++i) {
+  // for (uint64_t i = 0; i < numStream ; ++i) {
+  //   xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+  //     "Allocating trace buffer of size " + std::to_string(bufAllocSz) + " for AIE Stream " 
+  //     + std::to_string(i));
+  //   xrt_bos.emplace_back(xrt::bo(context.get_device(), bufAllocSz,
+  //                         XRT_BO_FLAGS_HOST_ONLY, tranxHandler->getGroupID(0, context)));
+    
+  //   buffers[i].bufId = xrt_bos.size();
+  //   if (!buffers[i].bufId) {
+  //     bufferInitialized = false;
+  //     return bufferInitialized;
+  //   }
+
+  //   if (!xrt_bos.empty()) {
+  //     auto bo_map = xrt_bos.back().map<uint8_t*>();
+  //     memset(bo_map, 0, bufAllocSz);
+  //   }
+
+  //   VPDatabase* db = VPDatabase::Instance();
+  //   TraceGMIO* traceGMIO = (db->getStaticInfo()).getTraceGMIO(deviceId, i);
+
+  //   // channelNumber: (0-S2MM0,1-S2MM1,2-MM2S0,3-MM2S1)
+  //   // Enable shim DMA channel, need to start first so the status is correct
+  //   uint16_t channelNumber = (traceGMIO->channelNumber > 1) ? (traceGMIO->channelNumber - 2) : traceGMIO->channelNumber;
+  //   XAie_DmaDirection dir = (traceGMIO->channelNumber > 1) ? DMA_MM2S : DMA_S2MM;
+
+  //   gmioDMAInsts[i].gmioTileLoc = XAie_TileLoc(traceGMIO->shimColumn, 0);
+
+  //   uint16_t bdNum = (traceGMIO->bufferDescriptorId != UINT16_MAX) ? traceGMIO->bufferDescriptorId : channelNumber * 4;
+  //   std::stringstream bdMsg;
+  //   bdMsg << "AIE Trace: Using BD " << bdNum << " for channel " << (int)channelNumber << " on shim column " << (int)traceGMIO->shimColumn;
+  //   xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", bdMsg.str());
+
+  //   RC = XAie_DmaDescInit(&aieDevInst, &(gmioDMAInsts[i].shimDmaInst), gmioDMAInsts[i].gmioTileLoc);
+  //   RC = XAie_DmaChannelEnable(&aieDevInst, gmioDMAInsts[i].gmioTileLoc, channelNumber, dir);
+  //   RC = XAie_DmaSetAxi(&(gmioDMAInsts[i].shimDmaInst), 0, traceGMIO->burstLength, 0, 0, 0);
+  //   // cannot do XAie_MemAttach(devInst,  &memInst, 0, 0, 0, prop, boExportHandle); since no boExportHandle
+  //   RC = XAie_DmaSetAddrLen(&(gmioDMAInsts[i].shimDmaInst), xrt_bos[i].address(), static_cast<uint32_t>(bufAllocSz));
+  //   RC = XAie_DmaEnableBd(&(gmioDMAInsts[i].shimDmaInst)); // TODO: NOT IN NPU3
+  //   RC = XAie_DmaWriteBd(&aieDevInst, &(gmioDMAInsts[i].shimDmaInst), gmioDMAInsts[i].gmioTileLoc, bdNum); // Write to shim DMA BD AxiMM registers
+  //   RC = XAie_DmaChannelPushBdToQueue(&aieDevInst, gmioDMAInsts[i].gmioTileLoc, channelNumber, dir, bdNum);
+  // }
+
+  for (uint64_t i = 0; i < numStream; ++i) {
+    VPDatabase* db = VPDatabase::Instance();
+    TraceGMIO* traceGMIO = (db->getStaticInfo()).getTraceGMIO(deviceId, i);
+
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
       "Allocating trace buffer of size " + std::to_string(bufAllocSz) + " for AIE Stream " 
       + std::to_string(i));
     xrt_bos.emplace_back(xrt::bo(context.get_device(), bufAllocSz,
-                          XRT_BO_FLAGS_HOST_ONLY, tranxHandler->getGroupID(0, context)));
+                         XRT_BO_FLAGS_HOST_ONLY, tranxHandler->getGroupID(0, context)));
     
     buffers[i].bufId = xrt_bos.size();
     if (!buffers[i].bufId) {
@@ -249,44 +287,32 @@ bool AIETraceOffload::initReadTrace()
       memset(bo_map, 0, bufAllocSz);
     }
 
-    VPDatabase* db = VPDatabase::Instance();
-    TraceGMIO* traceGMIO = (db->getStaticInfo()).getTraceGMIO(deviceId, i);
+    XAie_LocType loc;
+    XAie_DmaDesc dmaDesc;
+    loc = XAie_TileLoc(traceGMIO->shimColumn, 0);
 
-    // channelNumber: (0-S2MM0,1-S2MM1,2-MM2S0,3-MM2S1)
-    // Enable shim DMA channel, need to start first so the status is correct
     uint16_t channelNumber = (traceGMIO->channelNumber > 1) ? (traceGMIO->channelNumber - 2) : traceGMIO->channelNumber;
-    XAie_DmaDirection dir = (traceGMIO->channelNumber > 1) ? DMA_MM2S : DMA_S2MM;
+    XAie_DmaDirection dmaDir = (traceGMIO->channelNumber > 1) ? DMA_MM2S : DMA_S2MM;
 
-    gmioDMAInsts[i].gmioTileLoc = XAie_TileLoc(traceGMIO->shimColumn, 0);
-
-    RC = XAie_DmaDescInit(&aieDevInst, &(gmioDMAInsts[i].shimDmaInst), gmioDMAInsts[i].gmioTileLoc);
-    RC = XAie_DmaChannelEnable(&aieDevInst, gmioDMAInsts[i].gmioTileLoc, channelNumber, dir);
-    RC = XAie_DmaSetAxi(&(gmioDMAInsts[i].shimDmaInst), 0, traceGMIO->burstLength, 0, 0, 0);
-
-    // TODO: get board-specific values
-    // // TODO: XAie_DmaSetAddrLen like this?
-    RC = XAie_DmaSetAddrLen(&(gmioDMAInsts[i].shimDmaInst), xrt_bos[i].address(), static_cast<uint32_t>(bufAllocSz));
-    // // TODO: or this?
-    // char* vaddr = reinterpret_cast<char *>(mmap(NULL, bufAllocSz, PROT_READ | PROT_WRITE, MAP_SHARED, boExportHandle, 0));
-    // RC = XAie_DmaSetAddrLen(&(gmioDMAInsts[i].shimDmaInst), (uint64_t)vaddr, bufAllocSz);
-    
-    XAie_DmaEnableBd(&(gmioDMAInsts[i].shimDmaInst));
-    
+    // Compute BD: use metadata value if set, otherwise channelNumber * 4
     uint16_t bdNum = (traceGMIO->bufferDescriptorId != UINT16_MAX) ? traceGMIO->bufferDescriptorId : channelNumber * 4;
     std::stringstream bdMsg;
     bdMsg << "AIE Trace: Using BD " << bdNum << " for channel " << (int)channelNumber << " on shim column " << (int)traceGMIO->shimColumn;
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", bdMsg.str());
+    
+    RC = XAie_DmaDescInit(&aieDevInst, &dmaDesc, loc);
+    RC = XAie_DmaChannelEnable(&aieDevInst, loc, channelNumber, dmaDir);
+    RC = XAie_DmaSetAxi(&dmaDesc, 0, traceGMIO->burstLength, 0, 0, 0);
+    RC = XAie_DmaSetAddrLen(&dmaDesc, xrt_bos[i].address(), static_cast<uint32_t>(bufAllocSz));
+    RC = XAie_DmaEnableBd(&dmaDesc);
+    RC = XAie_DmaWriteBd(&aieDevInst, &dmaDesc, loc, bdNum);
+    RC = XAie_DmaChannelPushBdToQueue(&aieDevInst, loc, channelNumber, dmaDir, bdNum);
+  }
 
-    // Write to shim DMA BD AxiMM registers
-    XAie_DmaWriteBd(&aieDevInst, &(gmioDMAInsts[i].shimDmaInst), gmioDMAInsts[i].gmioTileLoc, bdNum);
-
-    XAie_DmaChannelPushBdToQueue(&aieDevInst, gmioDMAInsts[i].gmioTileLoc, channelNumber, dir, bdNum);
-
-    if (!tranxHandler->submitTransaction(&aieDevInst, context))
+  if (!tranxHandler->submitTransaction(&aieDevInst, context))
       return false;
       
-    xrt_core::message::send(severity_level::info, "XRT", "Successfully scheduled AIE Trace Offloading VE2.");
-  }
+  xrt_core::message::send(severity_level::info, "XRT", "Successfully scheduled AIE Trace Offloading VE2.");
 
   bufferInitialized = true;
   return bufferInitialized;
@@ -325,20 +351,28 @@ void AIETraceOffload::endReadTrace()
 #else // XDNA
 void AIETraceOffload::endReadTrace()
 {
-  // reset
+  // // reset
+  // for (uint64_t i = 0; i < numStream ; ++i) {
+  //   if (!buffers[i].bufId)
+  //       continue;
+    
+  //   VPDatabase* db = VPDatabase::Instance();
+  //   TraceGMIO*  traceGMIO = (db->getStaticInfo()).getTraceGMIO(deviceId, i);
+
+  //   // channelNumber: (0-S2MM0,1-S2MM1,2-MM2S0,3-MM2S1)
+  //   // Enable shim DMA channel, need to start first so the status is correct
+  //   uint16_t channelNumber = (traceGMIO->channelNumber > 1) ? (traceGMIO->channelNumber - 2) : traceGMIO->channelNumber;
+  //   XAie_DmaDirection dir = (traceGMIO->channelNumber > 1) ? DMA_MM2S : DMA_S2MM;
+
+  //   XAie_DmaChannelDisable(&aieDevInst, gmioDMAInsts[i].gmioTileLoc, channelNumber, dir);
+
+  //   buffers[i].bufId = 0;
+  // }
+  // bufferInitialized = false;
+
   for (uint64_t i = 0; i < numStream ; ++i) {
     if (!buffers[i].bufId)
-        continue;
-    
-    VPDatabase* db = VPDatabase::Instance();
-    TraceGMIO*  traceGMIO = (db->getStaticInfo()).getTraceGMIO(deviceId, i);
-
-    // channelNumber: (0-S2MM0,1-S2MM1,2-MM2S0,3-MM2S1)
-    // Enable shim DMA channel, need to start first so the status is correct
-    uint16_t channelNumber = (traceGMIO->channelNumber > 1) ? (traceGMIO->channelNumber - 2) : traceGMIO->channelNumber;
-    XAie_DmaDirection dir = (traceGMIO->channelNumber > 1) ? DMA_MM2S : DMA_S2MM;
-
-    XAie_DmaChannelDisable(&aieDevInst, gmioDMAInsts[i].gmioTileLoc, channelNumber, dir);
+      continue;
 
     buffers[i].bufId = 0;
   }

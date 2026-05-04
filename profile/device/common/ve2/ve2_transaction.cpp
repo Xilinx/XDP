@@ -19,6 +19,8 @@
 #include <fstream>
 #include <iomanip>
 
+#include <cstring>
+
 extern "C" {
     #include <aie_codegen.h>
     #include <aie_codegen_inc/xaiegbl_params.h>
@@ -135,6 +137,12 @@ namespace xdp::aie {
             "Failed to load " + getElfFileName() + ". Cannot configure AIE to profile.");
             return false;
         }
+
+        const char* mode = std::getenv("ELF_TO_SUBMIT");
+        if (mode && std::strcmp(mode, "offload") == 0 && m_transactionName == "AieTraceMetrics")
+            return true;
+        if (mode && std::strcmp(mode, "metrics") == 0 && m_transactionName == "AieTraceOffload")
+            return true;
 
         xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "Elf Object Created");
         xrt::module mod{profileElf};

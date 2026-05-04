@@ -1323,23 +1323,12 @@ namespace xdp {
     if(!metadata->getRuntimeMetrics())
       return;
 
-      boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(metadata->getHandle());
-      if (aiePartitionPt.empty()) {
-        xrt_core::message::send(severity_level::warning, "XRT",
-                                "AIE trace: no partition info for trace-start broadcast; skipping broadcast network.");
-        return;
-      }
-      uint8_t startCol = static_cast<uint8_t>(aiePartitionPt.back().second.get<uint64_t>("start_col"));
-      uint8_t numCols = static_cast<uint8_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols")); // !!! should be 36
-
-      std::cout << "!!! updateDevice startCol (back): " << static_cast<int>(startCol) << std::endl;
-      std::cout << "!!! updateDevice numCols (back): " << static_cast<int>(numCols) << std::endl;
-
-      startCol = static_cast<uint8_t>(aiePartitionPt.front().second.get<uint64_t>("start_col"));
-      numCols = static_cast<uint8_t>(aiePartitionPt.front().second.get<uint64_t>("num_cols")); // !!! should be 36
-
-      std::cout << "!!! updateDevice startCol (front): " << static_cast<int>(startCol) << std::endl;
-      std::cout << "!!! updateDevice numCols (front): " << static_cast<int>(numCols) << std::endl; 
+    boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(metadata->getHandle());
+    if (aiePartitionPt.empty()) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+                              "AIE trace: no partition info for trace-start broadcast; skipping broadcast network.");
+      return;
+    }
 
     // Set metrics for counters and trace events
     if (!setMetricsSettings(metadata->getDeviceID(), metadata->getHandle())) {
@@ -1467,8 +1456,6 @@ namespace xdp {
 
     std::string startType = xrt_core::config::get_aie_trace_settings_start_type();
     unsigned int startLayer = xrt_core::config::get_aie_trace_settings_start_layer();
-
-    tranxHandler->clearExternalAsmOverride();
 
     std::string tranxName = "AieTraceMetrics";
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",

@@ -46,6 +46,18 @@ namespace xdp::profiling_runtime_config {
   // section. Intended as the single gate for the aie_dtrace plugin guards.
   XDP_CORE_EXPORT bool aie_dtrace_enabled();
 
+  // Effective Debug.xdp_mode value, with the following precedence:
+  //   1. Explicit [Debug] xdp_mode in xrt.ini (or set programmatically via
+  //      xrt::ini::set before the first read) wins, whatever its value.
+  //   2. Otherwise, when has_control_instrumentation() is true, the value
+  //      is auto-promoted to "xdna" so the XDNA loader/device gates pick
+  //      the right variant without the user also having to set xdp_mode.
+  //   3. Otherwise, the built-in default from xrt_core::config::get_xdp_mode().
+  // Use this in place of xrt_core::config::get_xdp_mode() at any plugin call
+  // site that should follow the runtime config's auto-promotion. Result is
+  // cached on first call.
+  XDP_CORE_EXPORT const std::string& xdp_mode_effective();
+
 } // namespace xdp::profiling_runtime_config
 
 #endif

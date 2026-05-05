@@ -95,12 +95,12 @@ namespace xdp {
 
     auto device = util::convertToCoreDevice(handle, hw_context_flow);
 #if !defined(XRT_X86_BUILD) && !defined(XDP_CLIENT_BUILD)
-    if (1 == device->get_device_id() && xrt_core::config::get_xdp_mode() == "xdna") {
+    if (1 == device->get_device_id() && profiling_runtime_config::xdp_mode_effective() == "xdna") {
       xrt_core::message::send(severity_level::warning, "XRT",
                             "AIE dtrace: unexpected ZOCL device with xdp_mode=xdna; skipping.");
       return;
     }
-    else if (0 == device->get_device_id() && xrt_core::config::get_xdp_mode() == "zocl") {
+    else if (0 == device->get_device_id() && profiling_runtime_config::xdp_mode_effective() == "zocl") {
 #ifdef XDP_VE2_ZOCL_BUILD
       xrt_core::message::send(severity_level::warning, "XRT",
                             "AIE dtrace: XDNA device with xdp_mode=zocl; skipping.");

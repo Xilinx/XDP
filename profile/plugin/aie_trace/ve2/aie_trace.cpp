@@ -414,6 +414,7 @@ namespace xdp {
       return false;
     }
 
+    aie::trace::warnIfAieInterfaceTraceContendsWithStartToBytes(metadata);
     boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(handle);
     // Currently, assuming only one Hw Context is alive at a time
     // Column should be relative to the partition, hence startCol is 0.

@@ -487,7 +487,8 @@ void AIETraceOffload::startOffload()
 
 void AIETraceOffload::continuousOffload()
 {
-  if (!bufferInitialized && !initReadTrace()) {
+  if (!bufferInitialized) {
+    // initReadTrace failed to allocate the buffer, cannot offload
     offloadFinished();
     return;
   }

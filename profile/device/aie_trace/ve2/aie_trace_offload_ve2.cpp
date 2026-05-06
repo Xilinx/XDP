@@ -194,6 +194,8 @@ bool AIETraceOffload::initReadTrace()
   buffers.clear();
   buffers.resize(numStream);
 
+  xrt_bos.clear();
+
   xdp::aie::driver_config meta_config = metadata->getAIEConfigMetadata();
   XAie_Config cfg{
     meta_config.hw_gen,
@@ -220,52 +222,6 @@ bool AIETraceOffload::initReadTrace()
   if (!tranxHandler->initializeTransaction(&aieDevInst, "AieTraceOffload"))
     return false;
 
-  // gmioDMAInsts.clear();
-  // gmioDMAInsts.resize(numStream);
-
-  // for (uint64_t i = 0; i < numStream ; ++i) {
-  //   xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-  //     "Allocating trace buffer of size " + std::to_string(bufAllocSz) + " for AIE Stream " 
-  //     + std::to_string(i));
-  //   xrt_bos.emplace_back(xrt::bo(context.get_device(), bufAllocSz,
-  //                         XRT_BO_FLAGS_HOST_ONLY, tranxHandler->getGroupID(0, context)));
-    
-  //   buffers[i].bufId = xrt_bos.size();
-  //   if (!buffers[i].bufId) {
-  //     bufferInitialized = false;
-  //     return bufferInitialized;
-  //   }
-
-  //   if (!xrt_bos.empty()) {
-  //     auto bo_map = xrt_bos.back().map<uint8_t*>();
-  //     memset(bo_map, 0, bufAllocSz);
-  //   }
-
-  //   VPDatabase* db = VPDatabase::Instance();
-  //   TraceGMIO* traceGMIO = (db->getStaticInfo()).getTraceGMIO(deviceId, i);
-
-  //   // channelNumber: (0-S2MM0,1-S2MM1,2-MM2S0,3-MM2S1)
-  //   // Enable shim DMA channel, need to start first so the status is correct
-  //   uint16_t channelNumber = (traceGMIO->channelNumber > 1) ? (traceGMIO->channelNumber - 2) : traceGMIO->channelNumber;
-  //   XAie_DmaDirection dir = (traceGMIO->channelNumber > 1) ? DMA_MM2S : DMA_S2MM;
-
-  //   gmioDMAInsts[i].gmioTileLoc = XAie_TileLoc(traceGMIO->shimColumn, 0);
-
-  //   uint16_t bdNum = (traceGMIO->bufferDescriptorId != UINT16_MAX) ? traceGMIO->bufferDescriptorId : channelNumber * 4;
-  //   std::stringstream bdMsg;
-  //   bdMsg << "AIE Trace: Using BD " << bdNum << " for channel " << (int)channelNumber << " on shim column " << (int)traceGMIO->shimColumn;
-  //   xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", bdMsg.str());
-
-  //   RC = XAie_DmaDescInit(&aieDevInst, &(gmioDMAInsts[i].shimDmaInst), gmioDMAInsts[i].gmioTileLoc);
-  //   RC = XAie_DmaChannelEnable(&aieDevInst, gmioDMAInsts[i].gmioTileLoc, channelNumber, dir);
-  //   RC = XAie_DmaSetAxi(&(gmioDMAInsts[i].shimDmaInst), 0, traceGMIO->burstLength, 0, 0, 0);
-  //   // cannot do XAie_MemAttach(devInst,  &memInst, 0, 0, 0, prop, boExportHandle); since no boExportHandle
-  //   RC = XAie_DmaSetAddrLen(&(gmioDMAInsts[i].shimDmaInst), xrt_bos[i].address(), static_cast<uint32_t>(bufAllocSz));
-  //   RC = XAie_DmaEnableBd(&(gmioDMAInsts[i].shimDmaInst)); // TODO: NOT IN NPU3
-  //   RC = XAie_DmaWriteBd(&aieDevInst, &(gmioDMAInsts[i].shimDmaInst), gmioDMAInsts[i].gmioTileLoc, bdNum); // Write to shim DMA BD AxiMM registers
-  //   RC = XAie_DmaChannelPushBdToQueue(&aieDevInst, gmioDMAInsts[i].gmioTileLoc, channelNumber, dir, bdNum);
-  // }
-
   for (uint64_t i = 0; i < numStream; ++i) {
     VPDatabase* db = VPDatabase::Instance();
     TraceGMIO* traceGMIO = (db->getStaticInfo()).getTraceGMIO(deviceId, i);
@@ -273,8 +229,21 @@ bool AIETraceOffload::initReadTrace()
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
       "Allocating trace buffer of size " + std::to_string(bufAllocSz) + " for AIE Stream " 
       + std::to_string(i));
-    xrt_bos.emplace_back(xrt::bo(context.get_device(), bufAllocSz,
-                         XRT_BO_FLAGS_HOST_ONLY, tranxHandler->getGroupID(0, context)));
+
+    try {
+      xrt_bos.emplace_back(xrt::bo(context.get_device(), bufAllocSz,
+                           XRT_BO_FLAGS_HOST_ONLY,
+                           tranxHandler->getGroupID(0, context)));
+    } catch (const std::exception& ex) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+          std::string("AIE trace BO allocation failed: ") + ex.what());
+      xrt_bos.clear();
+      bufferInitialized = false;
+      return false;
+    }
+
+    // xrt_bos.emplace_back(xrt::bo(context.get_device(), bufAllocSz,
+    //                      XRT_BO_FLAGS_HOST_ONLY, tranxHandler->getGroupID(0, context)));
     
     buffers[i].bufId = xrt_bos.size();
     if (!buffers[i].bufId) {
@@ -300,10 +269,26 @@ bool AIETraceOffload::initReadTrace()
     bdMsg << "AIE Trace: Using BD " << bdNum << " for channel " << (int)channelNumber << " on shim column " << (int)traceGMIO->shimColumn;
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", bdMsg.str());
     
-    RC = XAie_DmaDescInit(&aieDevInst, &dmaDesc, loc);
+    int driverStatus = XAIE_OK;
+    driverStatus = XAie_DmaDescInit(&aieDevInst, &dmaDesc, loc);
+    if(XAIE_OK != driverStatus) {
+      throw std::runtime_error("Initialization of DMA Descriptor failed while setting up SHIM DMA channel for GMIO Trace offload");
+    }
     RC = XAie_DmaChannelEnable(&aieDevInst, loc, channelNumber, dmaDir);
     RC = XAie_DmaSetAxi(&dmaDesc, 0, traceGMIO->burstLength, 0, 0, 0);
+
+    // XAie_MemInst memInst;
+    // XAie_MemCacheProp prop = XAIE_MEM_CACHEABLE;
+    // xclBufferExportHandle boExportHandle = deviceIntf->exportTraceBuf(buffers[i].bufId);
+    // if(XRT_NULL_BO_EXPORT == boExportHandle) {
+    //   throw std::runtime_error("Unable to export BO while attaching to AIE Driver");
+    // }
+    // XAie_MemAttach(&aieDevInst,  &memInst, 0, 0, 0, prop, boExportHandle);
+
+    // char* vaddr = reinterpret_cast<char *>(mmap(NULL, bufAllocSz, PROT_READ | PROT_WRITE, MAP_SHARED, boExportHandle, 0));
+    // XAie_DmaSetAddrLen(&dmaDesc, (uint64_t)vaddr, bufAllocSz);
     RC = XAie_DmaSetAddrLen(&dmaDesc, xrt_bos[i].address(), static_cast<uint32_t>(bufAllocSz));
+    
     RC = XAie_DmaEnableBd(&dmaDesc);
     RC = XAie_DmaWriteBd(&aieDevInst, &dmaDesc, loc, bdNum);
     RC = XAie_DmaChannelPushBdToQueue(&aieDevInst, loc, channelNumber, dmaDir, bdNum);
@@ -543,14 +528,14 @@ uint64_t AIETraceOffload::syncAndLog(uint64_t index)
 
   // Sync to host
   xrt_bos[index].sync(XCL_BO_SYNC_BO_FROM_DEVICE, nBytes, bd.offset);
-  auto in_bo_map = xrt_bos[index].map<uint32_t*>() + bd.offset;
+  auto in_bo_map = xrt_bos[index].map<uint8_t*>() + bd.offset;
 
   if (!in_bo_map) 
     return 0;
 
   // Find amount of non-zero data in buffer
   if (!isPLIO)
-    nBytes = searchWrittenBytes((void*)in_bo_map, bufAllocSz);
+    nBytes = searchWrittenBytes((void*)in_bo_map, nBytes);
 
   // check for full buffer
   if ((bd.offset + nBytes >= bufAllocSz) && !mEnCircularBuf) {

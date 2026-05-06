@@ -124,22 +124,6 @@ public:
     void readTrace(bool final) {mReadTrace(final);};
 
 private:
-
-    void*           deviceHandle;
-    uint64_t        deviceId;
-    PLDeviceIntf*   deviceIntf;
-    AIETraceLogger* traceLogger;
-#if defined(XDP_VE2_BUILD) && ! defined(XDP_VE2_ZOCL_BUILD)
-    std::unique_ptr<xdp::aie::VE2Transaction> tranxHandler;
-    xrt::hw_context context;
-    std::shared_ptr<AieTraceMetadata> metadata;
-    std::vector<xrt::bo> xrt_bos;
-    XAie_DevInst    aieDevInst = {0};
-#else
-    XAie_DevInst*   devInst;
-    std::vector<AIETraceGmioDMAInst> gmioDMAInsts;
-#endif
-
     bool isPLIO;
     uint64_t totalSz;
     uint64_t numStream;
@@ -172,6 +156,21 @@ private:
     uint64_t syncAndLog(uint64_t index);
     std::function<void(bool)> mReadTrace;
     uint64_t searchWrittenBytes(void * buf, uint64_t bytes);
+    
+    void*           deviceHandle;
+    uint64_t        deviceId;
+    PLDeviceIntf*   deviceIntf;
+    AIETraceLogger* traceLogger;
+#if defined(XDP_VE2_BUILD) && ! defined(XDP_VE2_ZOCL_BUILD)
+    std::unique_ptr<xdp::aie::VE2Transaction> tranxHandler;
+    xrt::hw_context context;
+    std::shared_ptr<AieTraceMetadata> metadata;
+    std::vector<xrt::bo> xrt_bos;
+    XAie_DevInst    aieDevInst = {0};
+#else
+    XAie_DevInst*   devInst;
+    std::vector<AIETraceGmioDMAInst> gmioDMAInsts;
+#endif
 };
 
 }

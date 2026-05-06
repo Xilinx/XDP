@@ -15,9 +15,13 @@
 // keys (event_trace, etc.) are accepted but ignored and may be wired up in a
 // follow-up.
 //
-// The parser lives on the XDP side (xdp_core) so this code can evolve quickly
-// without churning the stable xrt_coreutil interface. core/common/xdp/profile.cpp
-// keeps a minimal independent probe for the load-time gate.
+// The parser lives on the XDP side (xdp_core) so it can evolve without
+// churning the stable xrt_coreutil interface. Plugin enablement and xdp_mode
+// selection are not derived from this blob: FlexmlRT (or the user) is
+// expected to set Debug.aie_dtrace / Debug.aie_trace and Debug.xdp_mode in
+// xrt.ini directly. The blob's role is to override the per-metric settings
+// that the corresponding plugin would otherwise read from
+// AIE_dtrace_settings.* / AIE_trace_settings.* in xrt.ini.
 //
 // Example blob:
 //   {"control_instrumentation":{"aie_tile":"func_stalls","mem_tile":"","interface_tile":"ddr_bandwidth"},"event_trace":{}}
@@ -40,23 +44,6 @@ namespace xdp::profiling_runtime_config {
   // Returns the cached control_instrumentation view. Safe to call even when
   // has_control_instrumentation() is false (all members will be empty).
   XDP_CORE_EXPORT const control_instrumentation_t& control_instrumentation();
-
-  // True if aie_dtrace should be active: either Debug.aie_dtrace is set in
-  // xrt.ini, or the runtime config blob carries a control_instrumentation
-  // section. Intended as the single gate for the aie_dtrace plugin guards.
-  XDP_CORE_EXPORT bool aie_dtrace_enabled();
-
-  // Effective Debug.xdp_mode value, with the following precedence:
-  //   1. Explicit [Debug] xdp_mode in xrt.ini (or set programmatically via
-  //      xrt::ini::set before the first read) wins, whatever its value.
-  //   2. Otherwise, when has_control_instrumentation() is true, the value
-  //      is auto-promoted to "xdna" so the XDNA loader/device gates pick
-  //      the right variant without the user also having to set xdp_mode.
-  //   3. Otherwise, the built-in default from xrt_core::config::get_xdp_mode().
-  // Use this in place of xrt_core::config::get_xdp_mode() at any plugin call
-  // site that should follow the runtime config's auto-promotion. Result is
-  // cached on first call.
-  XDP_CORE_EXPORT const std::string& xdp_mode_effective();
 
 } // namespace xdp::profiling_runtime_config
 

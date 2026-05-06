@@ -146,36 +146,4 @@ namespace xdp::profiling_runtime_config {
     return get_parsed().ci;
   }
 
-  bool
-  aie_dtrace_enabled()
-  {
-    static bool value = xrt_core::config::get_aie_dtrace() || has_control_instrumentation();
-    return value;
-  }
-
-  const std::string&
-  xdp_mode_effective()
-  {
-    static const std::string value = [] {
-      // 1. An explicit [Debug] xdp_mode in xrt.ini (or set via
-      //    xrt::ini::set before the first read) always wins. We probe the
-      //    [Debug] section directly so we can distinguish "user did not set
-      //    it" from "user set it to the same string as the default".
-      const auto& debug_section =
-        xrt_core::config::detail::get_ptree_value("Debug");
-      if (auto v = debug_section.get_optional<std::string>("xdp_mode"))
-        return *v;
-
-      // 2. No explicit value: if the runtime config blob carries a
-      //    control_instrumentation section, promote to "xdna" so the
-      //    plugin loader and device gates select the XDNA variant.
-      if (has_control_instrumentation())
-        return std::string("xdna");
-
-      // 3. Otherwise fall through to the built-in default.
-      return xrt_core::config::get_xdp_mode();
-    }();
-    return value;
-  }
-
 } // namespace xdp::profiling_runtime_config

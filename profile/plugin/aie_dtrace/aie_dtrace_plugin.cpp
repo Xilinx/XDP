@@ -15,7 +15,6 @@
 #include "xdp/profile/device/utility.h"
 #include "xdp/profile/device/xdp_base_device.h"
 #include "xdp/profile/plugin/vp_base/info.h"
-#include "xdp/profile/plugin/vp_base/profiling_runtime_config.h"
 
 #if defined(XDP_VE2_BUILD)
 #include "xdp/profile/plugin/aie_dtrace/ve2/aie_dtrace_ve2.h"
@@ -66,7 +65,7 @@ namespace xdp {
   {
     xrt_core::message::send(severity_level::info, "XRT", "AIE dtrace: update device.");
 
-    if (!profiling_runtime_config::aie_dtrace_enabled())
+    if (!xrt_core::config::get_aie_dtrace())
       return;
 
     if (!handle)
@@ -95,12 +94,12 @@ namespace xdp {
 
     auto device = util::convertToCoreDevice(handle, hw_context_flow);
 #if !defined(XRT_X86_BUILD) && !defined(XDP_CLIENT_BUILD)
-    if (1 == device->get_device_id() && profiling_runtime_config::xdp_mode_effective() == "xdna") {
+    if (1 == device->get_device_id() && xrt_core::config::get_xdp_mode() == "xdna") {
       xrt_core::message::send(severity_level::warning, "XRT",
                             "AIE dtrace: unexpected ZOCL device with xdp_mode=xdna; skipping.");
       return;
     }
-    else if (0 == device->get_device_id() && profiling_runtime_config::xdp_mode_effective() == "zocl") {
+    else if (0 == device->get_device_id() && xrt_core::config::get_xdp_mode() == "zocl") {
 #ifdef XDP_VE2_ZOCL_BUILD
       xrt_core::message::send(severity_level::warning, "XRT",
                             "AIE dtrace: XDNA device with xdp_mode=zocl; skipping.");
@@ -190,7 +189,7 @@ namespace xdp {
   void AieDtracePlugin::runConstructorHook(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                                            const std::string& kernel_name, void* elf_handle)
   {
-    if (!profiling_runtime_config::aie_dtrace_enabled())
+    if (!xrt_core::config::get_aie_dtrace())
       return;
 
     auto itr = handleToAIEDtraceImpl.find(hwctx);
@@ -205,7 +204,7 @@ namespace xdp {
   void AieDtracePlugin::runStartHook(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                                      const std::string& kernel_name)
   {
-    if (!profiling_runtime_config::aie_dtrace_enabled())
+    if (!xrt_core::config::get_aie_dtrace())
       return;
 
     (void)run_impl_ptr;
@@ -217,7 +216,7 @@ namespace xdp {
   void AieDtracePlugin::runWaitHook(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                                     const std::string& kernel_name, int ert_cmd_state)
   {
-    if (!profiling_runtime_config::aie_dtrace_enabled())
+    if (!xrt_core::config::get_aie_dtrace())
       return;
 
     (void)run_impl_ptr;

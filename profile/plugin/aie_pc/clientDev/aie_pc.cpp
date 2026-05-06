@@ -38,9 +38,9 @@
 #include "core/include/xclbin.h"
 
 extern "C" {
-  #include <xaiengine.h>
-  #include <xaiengine/xaiegbl_params.h>
-  #include <xaiengine/xaie_events_aie.h>
+  #include <aie_codegen.h>
+  #include <aie_codegen_inc/xaiegbl_params.h>
+  #include <aie_codegen_inc/xaie_events_aie.h>
 }
 
 namespace xdp {

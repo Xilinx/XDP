@@ -34,8 +34,8 @@
 #include "core/include/xclbin.h"
 
 extern "C" {
-  #include <xaiengine.h>
-  #include <xaiengine/xaiemlgbl_params.h>
+#include <aie_codegen.h>
+#include <aie_codegen_inc/xaiemlgbl_params.h>
 }
 
 #ifdef _WIN32

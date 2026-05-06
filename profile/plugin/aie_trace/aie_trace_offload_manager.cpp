@@ -49,6 +49,11 @@ uint64_t AIETraceOffloadManager::checkAndCapToBankSize(uint8_t memIndex, uint64_
   {}
 
   void AIETraceOffloadManager::initPLIO(void* handle, PLDeviceIntf* deviceIntf, uint64_t bufSize, uint64_t numStreams, XAie_DevInst* devInst) {
+    // VE2 XDNA: PLIO unsupported and AIETraceOffload has no devInst ctor — omit the body below so it is not instantiated.
+#if defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD)
+    xrt_core::message::send(severity_level::debug, "XRT", "No support for VE2 XDNA PLIO right now");
+    return;
+#else
     if (!offloadEnabledPLIO)
       return;
 
@@ -70,13 +75,14 @@ uint64_t AIETraceOffloadManager::checkAndCapToBankSize(uint8_t memIndex, uint64_
         << " MB is used for AIE trace buffer for "
         << numStreams << " PLIO streams.";
     xrt_core::message::send(severity_level::debug, "XRT", msg.str());
-
+#endif
   }
 
-  #ifdef XDP_CLIENT_BUILD
+#if defined(XDP_CLIENT_BUILD) || (defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD))
   void AIETraceOffloadManager::initGMIO(void* handle, PLDeviceIntf* deviceIntf,
-              uint64_t bufSize, uint64_t numStreams, xrt::hw_context context, 
-              std::shared_ptr<AieTraceMetadata> metadata) {
+                                        uint64_t bufSize, uint64_t numStreams, xrt::hw_context context, 
+                                        std::shared_ptr<AieTraceMetadata> metadata) 
+  {
     if (!offloadEnabledGMIO)
       return;
 
@@ -206,10 +212,14 @@ uint64_t AIETraceOffloadManager::checkAndCapToBankSize(uint8_t memIndex, uint64_
     }
   }
 
-
 bool AIETraceOffloadManager::configureAndInitPLIO(void* handle, PLDeviceIntf* deviceIntf,
                   uint64_t desiredBufSize, uint64_t numStreamsPLIO, XAie_DevInst* devInst)
 {
+#if (defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD))
+  xrt_core::message::send(severity_level::debug, "XRT", "No support for VE2 XDNA PLIO right now");
+  return true;
+#endif
+
   uint8_t memIndex = 0;
   if (deviceIntf)
     memIndex = deviceIntf->getAIETs2mmMemIndex(0);
@@ -227,23 +237,23 @@ bool AIETraceOffloadManager::configureAndInitPLIO(void* handle, PLDeviceIntf* de
   return true;
 }
 
-bool AIETraceOffloadManager::configureAndInitGMIO(
-  void* handle, PLDeviceIntf* deviceIntf,
-  uint64_t desiredBufSize, uint64_t numStreamsGMIO
-#ifdef XDP_CLIENT_BUILD
-  , const xrt::hw_context& hwctx, const std::shared_ptr<AieTraceMetadata>& md
-#else
-  , XAie_DevInst* devInst
-#endif
-  )
+#if defined(XDP_CLIENT_BUILD) || (defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD))
+bool AIETraceOffloadManager::configureAndInitGMIO(void* handle, PLDeviceIntf* deviceIntf,
+                              uint64_t desiredBufSize, uint64_t numStreamsGMIO,
+                              const xrt::hw_context& hwctx, const std::shared_ptr<AieTraceMetadata>& md)
 {
   desiredBufSize = checkAndCapToBankSize(/*bank 0*/ 0, desiredBufSize);
   desiredBufSize = aieTraceImpl->checkTraceBufSize(desiredBufSize);
-
-#ifdef XDP_CLIENT_BUILD
   initGMIO(handle, deviceIntf, desiredBufSize, numStreamsGMIO, hwctx, md);
   return true;
+}
 #else
+bool AIETraceOffloadManager::configureAndInitGMIO(void* handle, PLDeviceIntf* deviceIntf,
+                              uint64_t desiredBufSize, uint64_t numStreamsGMIO,
+                              XAie_DevInst* devInst)
+{
+  desiredBufSize = checkAndCapToBankSize(/*bank 0*/ 0, desiredBufSize);
+  desiredBufSize = aieTraceImpl->checkTraceBufSize(desiredBufSize);
   if (!devInst) {
     xrt_core::message::send(severity_level::warning, "XRT",
       "Unable to get AIE device instance. AIE event trace will not be available.");
@@ -251,7 +261,7 @@ bool AIETraceOffloadManager::configureAndInitGMIO(
   }
   initGMIO(handle, deviceIntf, desiredBufSize, numStreamsGMIO, devInst);
   return true;
-#endif
 }
+#endif
 
 } // namespace xdp

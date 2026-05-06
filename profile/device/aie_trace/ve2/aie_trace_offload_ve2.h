@@ -18,13 +18,27 @@
 #ifndef XDP_PROFILE_AIE_TRACE_OFFLOAD_VE2_H_
 #define XDP_PROFILE_AIE_TRACE_OFFLOAD_VE2_H_
 
-#include "xdp/profile/device/tracedefs.h"
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
 
-extern "C"
-{
-  #include "xaiengine/xaiegbl.h"
-  #include <xaiengine.h>
+#include "core/include/xrt/xrt_bo.h"
+#include "core/include/xrt/xrt_hw_context.h"
+
+#include "xdp/profile/device/tracedefs.h"
+#include "xdp/profile/plugin/aie_trace/aie_trace_metadata.h"
+
+#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD)
+// Edge ZOCL: xaiengine only (no aie_codegen / ve2_transaction).
+extern "C" {
+#include <xaiengine.h>
+#include <xaiengine/xaiegbl_params.h>
 }
+#else
+#include "xdp/profile/device/common/ve2/ve2_transaction.h"
+#endif
 
 namespace xdp {
 
@@ -71,14 +85,23 @@ enum class AIEOffloadThreadStatus {
 class AIETraceOffload 
 {
   public:
+    // ZOCL edge: live devInst pointer. VE2 XDNA (client-style): hw_context + metadata.
+#if defined(XDP_VE2_BUILD) && ! defined(XDP_VE2_ZOCL_BUILD)
     AIETraceOffload(void* handle, uint64_t id,
                     PLDeviceIntf*, AIETraceLogger*,
                     bool     isPlio,
                     uint64_t totalSize,
                     uint64_t numStrm,
-                    XAie_DevInst* devInstance
-                   );
-
+                    xrt::hw_context context,
+                    std::shared_ptr<AieTraceMetadata> metadata);
+#else
+    AIETraceOffload(void* handle, uint64_t id,
+                    PLDeviceIntf*, AIETraceLogger*,
+                    bool     isPlio,
+                    uint64_t totalSize,
+                    uint64_t numStrm,
+                    XAie_DevInst* devInstance);
+#endif
     virtual ~AIETraceOffload();
 
 public:
@@ -101,13 +124,6 @@ public:
     void readTrace(bool final) {mReadTrace(final);};
 
 private:
-
-    void*           deviceHandle;
-    uint64_t        deviceId;
-    PLDeviceIntf*   deviceIntf;
-    AIETraceLogger* traceLogger;
-    XAie_DevInst*   devInst;
-
     bool isPLIO;
     uint64_t totalSz;
     uint64_t numStream;
@@ -117,8 +133,6 @@ private:
     //Internal use only
     // Set this for verbose trace offload
     bool m_debug = false;
-    std::vector<AIETraceGmioDMAInst> gmioDMAInsts;
-
 
     // Continuous Trace Offload (For PLIO)
     bool traceContinuous;
@@ -142,6 +156,21 @@ private:
     uint64_t syncAndLog(uint64_t index);
     std::function<void(bool)> mReadTrace;
     uint64_t searchWrittenBytes(void * buf, uint64_t bytes);
+    
+    void*           deviceHandle;
+    uint64_t        deviceId;
+    PLDeviceIntf*   deviceIntf;
+    AIETraceLogger* traceLogger;
+#if defined(XDP_VE2_BUILD) && ! defined(XDP_VE2_ZOCL_BUILD)
+    std::unique_ptr<xdp::aie::VE2Transaction> tranxHandler;
+    xrt::hw_context context;
+    std::shared_ptr<AieTraceMetadata> metadata;
+    std::vector<xrt::bo> xrt_bos;
+    XAie_DevInst    aieDevInst = {0};
+#else
+    XAie_DevInst*   devInst;
+    std::vector<AIETraceGmioDMAInst> gmioDMAInsts;
+#endif
 };
 
 }

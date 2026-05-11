@@ -60,7 +60,7 @@ private:
   struct AIEData {
     uint64_t deviceID;
     bool valid = false;
-    std::atomic<bool> pollAIETimerThreadCtrlBool;
+    std::atomic<bool> pollAIETimerThreadCtrlBool{false};
     std::thread pollAIETimerThread;
     std::unique_ptr<AIETraceOffloadManager> offloadManager;
     std::unique_ptr<AieTraceImpl> implementation;

@@ -302,10 +302,21 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
     xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
                             msg);
     AIEData.valid = false;
+    return;
   }
 
+  // System timeline (INI flag): enable only for load_xclbin single-partition designs.
+  const bool iniEnableTimeline =
+      xrt_core::config::get_aie_trace_settings_enable_system_timeline();
+  const bool vitisLoadXclbin =
+      (db->getStaticInfo().getAppStyle() == xdp::AppStyle::LOAD_XCLBIN_STYLE);
+  const auto &overlayCols = AIEData.metadata->getPartitionOverlayStartCols();
+  const bool multipartitionDesign = (overlayCols.size() > 1);
+  const bool enableSystemTimeline =
+      iniEnableTimeline && vitisLoadXclbin && !multipartitionDesign;
+
   // Support system timeline
-  if (xrt_core::config::get_aie_trace_settings_enable_system_timeline()) {
+  if (enableSystemTimeline) {
 #ifdef _WIN32
     std::string deviceName = "win_device";
 #else

@@ -40,11 +40,7 @@ struct LatencyConfig;
 
 constexpr unsigned int NUM_CORE_COUNTERS = 4;
 constexpr unsigned int NUM_MEMORY_COUNTERS = 2;
-#if defined(XDP_VE2_BUILD) || defined(XDP_VE2_ZOCL_BUILD)
-constexpr unsigned int NUM_SHIM_COUNTERS = 6;  // VE2 interface tiles have 6 performance counters
-#else
-constexpr unsigned int NUM_SHIM_COUNTERS = 2;  // Edge/x86/client: 2 shim counters per tile
-#endif
+constexpr unsigned int NUM_SHIM_COUNTERS = 2;
 constexpr unsigned int NUM_MEM_TILE_COUNTERS = 4;
 constexpr unsigned int NUM_UC_EVENT_COUNTERS = 5;
 constexpr unsigned int NUM_UC_LATENCY_COUNTERS = 1;
@@ -74,8 +70,7 @@ class AieProfileMetadata {
           "s2mm_throughputs", "mm2s_throughputs",
           "input_stalls", "output_stalls", "s2mm_stalls", 
           "mm2s_stalls", "packets", METRIC_BYTE_COUNT,
-          "uc_dma_activity", "uc_axis_throughputs", "uc_core",
-          "ddr_bandwidth", "read_bandwidth", "write_bandwidth"}
+          "uc_dma_activity", "uc_axis_throughputs", "uc_core"}
       },
       {
         module_type::mem_tile, {

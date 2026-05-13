@@ -237,25 +237,12 @@ namespace xdp {
       "tile_based_aie_metrics", "tile_based_aie_memory_metrics",
       "tile_based_memory_tile_metrics", "tile_based_interface_tile_metrics",
       "interval_us", "interface_tile_latency", "start_type", "start_iteration",
-      "tile_based_microcontroller_metrics", "config_one_partition", "dtrace_debug"};
+      "tile_based_microcontroller_metrics", "config_one_partition"};
     const std::map<std::string, std::string> deprecatedSettings {
       {"aie_profile_core_metrics", "AIE_profile_settings.graph_based_aie_metrics or tile_based_aie_metrics"},
       {"aie_profile_memory_metrics", "AIE_profile_settings.graph_based_aie_memory_metrics or tile_based_aie_memory_metrics"},
       {"aie_profile_interface_metrics", "AIE_profile_settings.tile_based_interface_tile_metrics"},
       {"aie_profile_interval_us", "AIE_profile_settings.interval_us"}};
-
-    // Check dtrace_debug configuration requirements
-    bool dtraceDebug = xrt_core::config::get_aie_profile_settings_dtrace_debug();
-    if (dtraceDebug) {
-      bool aieProfile = xrt_core::config::get_aie_profile();
-      if (!aieProfile) {
-        std::stringstream msg;
-        msg << "AIE_profile_settings.dtrace_debug is enabled "
-            << "but requires Debug.aie_profile=true. "
-            << "Current settings : aie_profile=" << (aieProfile ? "true" : "false");
-        xrt_core::message::send(severity_level::warning, "XRT", msg.str());
-      }
-    }
 
     // Verify settings in AIE_profile_settings section
     auto tree1 = xrt_core::config::detail::get_ptree_value("AIE_profile_settings");
@@ -1442,20 +1429,6 @@ namespace xdp {
       if (tileSrc.empty() || tileDest.empty()) {
         xrt_core::message::send(severity_level::info, "XRT", "No valid tiles found for the graph ports " 
           + g1 + ":" + p1 + " or " + g2 + ":" + p2 + ", skipping this setting. Please confirm if these are valid graph ports.");
-        continue;
-      }
-
-      // Validate that tiles have stream_ids populated
-      if (tileSrc[0].stream_ids.empty() || tileDest[0].stream_ids.empty()) {
-        xrt_core::message::send(severity_level::warning, "XRT", "Tiles for graph ports " 
-          + g1 + ":" + p1 + " or " + g2 + ":" + p2 + " have empty stream_ids, skipping latency configuration.");
-        continue;
-      }
-
-      // Validate that tiles have stream_ids populated
-      if (tileSrc[0].stream_ids.empty() || tileDest[0].stream_ids.empty()) {
-        xrt_core::message::send(severity_level::warning, "XRT", "Tiles for graph ports "
-          + g1 + ":" + p1 + " or " + g2 + ":" + p2 + " have empty stream_ids, skipping latency configuration.");
         continue;
       }
 

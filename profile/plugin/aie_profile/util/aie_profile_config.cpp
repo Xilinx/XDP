@@ -90,7 +90,7 @@ namespace xdp::aie::profile {
           switchPortRsc->setPortToSelect(slaveOrMaster, SOUTH, streamPortId);
 
           if (aie::isDebugVerbosity()) {
-            std::string typeName = (tile.is_master_vec.at(portnum) == 0) ? "slave" : "master";
+            std::string typeName = (tile.is_master_vec.at(portnum) == 0) ? "MM2S" : "S2MM";
             std::string msg = "Configuring interface tile stream switch to monitor " 
                             + typeName + " stream port " + std::to_string(streamPortId);
             xrt_core::message::send(severity_level::debug, "XRT", msg);

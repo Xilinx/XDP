@@ -49,8 +49,7 @@ namespace xdp {
                                  uint8_t row, 
                                  uint16_t startEvent,
                                  const std::string metricSet,
-                                 const uint8_t channel,
-                                 uint8_t logicalPortIndex = 0);
+                                 const uint8_t channel);
       uint64_t getAdfProfileAPIPayload(const tile_type& tile, const std::string metricSet);
 
     private:

@@ -2594,6 +2594,15 @@ namespace xdp {
 
   XclbinInfoType VPStaticDatabase::getXclbinType(xrt::xclbin& xclbin)
   {
+    const axlf* binary = xclbin.get_axlf();
+    if (binary == nullptr) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+          "getXclbinType: xrt::xclbin handle is empty; defaulting to XCLBIN_PL_ONLY.");
+      return XCLBIN_PL_ONLY;
+    }
+    if (binary->m_header.m_actionMask & (AM_LOAD_AIE | AM_LOAD_PDI))
+      return XCLBIN_AIE_ONLY;
+    
     bool is_aie_available = false;
     bool is_pl_available  = false;
 

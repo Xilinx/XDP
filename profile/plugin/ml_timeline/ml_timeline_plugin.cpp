@@ -110,7 +110,7 @@ namespace xdp {
   {
     xrt_core::message::send(xrt_core::message::severity_level::info, "XRT",
           "In ML Timeline Plugin : updateDevice.");          
-      
+
 #ifdef XDP_CLIENT_BUILD
 
     if (mMultiImpl.find(hwCtxImpl) != mMultiImpl.end()) {
@@ -201,6 +201,18 @@ namespace xdp {
     auto mlImpl = mMultiImpl[hwCtxImpl].second.get();
     mlImpl->updateDevice(hwCtxImpl, deviceId);
 
+    try {
+      xrt::hw_context::cfg_type hwCtxCfgMap = xrt_core::hw_context_int::get_cfg_map(hwContext);
+      auto itr = hwCtxCfgMap.find("hw_context_name");
+      if (hwCtxCfgMap.end() != itr) {
+        mlImpl->setHWContextName(itr->second);
+      }
+    } catch (const std::exception& e) {
+      std::stringstream msg;
+      msg << e.what() << " Failed while accessing config map for HW Context Name. " << std::endl;
+      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", msg.str());
+    }
+
 #elif defined (XDP_VE2_BUILD)
 
     if (mMultiImpl.find(hwCtxImpl) != mMultiImpl.end()) {
@@ -270,7 +282,19 @@ namespace xdp {
     mMultiImpl[hwCtxImpl] = std::make_pair(implId, std::make_unique<MLTimelineVE2Impl>(db, mBufSz));
     auto mlImpl = mMultiImpl[hwCtxImpl].second.get();
     mlImpl->updateDevice(hwCtxImpl, deviceId);
-    
+
+    try {
+      xrt::hw_context::cfg_type hwCtxCfgMap = xrt_core::hw_context_int::get_cfg_map(hwContext);
+      auto itr = hwCtxCfgMap.find("hw_context_name");
+      if (hwCtxCfgMap.end() != itr) {
+        mlImpl->setHWContextName(itr->second);
+      }
+    } catch (const std::exception& e) {
+      std::stringstream msg;
+      msg << e.what() << " Failed while accessing config map for HW Context Name. " << std::endl;
+      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", msg.str());
+    }
+
   #endif
 
   }

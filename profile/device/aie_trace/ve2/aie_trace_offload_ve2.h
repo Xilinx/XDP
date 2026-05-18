@@ -26,20 +26,20 @@
 
 #include "core/include/xrt/xrt_bo.h"
 #include "core/include/xrt/xrt_hw_context.h"
-
 #include "xdp/profile/device/tracedefs.h"
-
-// VE2 ZOCL: xaiengine. VE2 XDNA + aie_codegen: ve2_transaction pulls xaiegbl_dynlink + aie_codegen first.
-#if defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD) && defined(XDP_USE_AIE_CODEGEN)
-#include "xdp/profile/device/common/ve2/ve2_transaction.h"
-#else
-extern "C" {
-#include <xaiengine.h>
-#include <xaiengine/xaiegbl_params.h>
-}
-#endif
-
 #include "xdp/profile/plugin/aie_trace/aie_trace_metadata.h"
+
+extern "C" {
+#if defined(XDP_USE_AIE_CODEGEN)
+  #include <xaiegbl_dynlink.h>
+  #include <aie_codegen.h>
+  #include <aie_codegen_inc/xaiegbl_params.h>
+  #include "xdp/profile/device/common/ve2/ve2_transaction.h"
+#else
+  #include <xaiengine.h>
+  #include <xaiengine/xaiegbl_params.h>
+#endif
+}
 
 namespace xdp {
 
@@ -86,23 +86,18 @@ enum class AIEOffloadThreadStatus {
 class AIETraceOffload 
 {
   public:
-    // ZOCL edge: live devInst pointer. VE2 XDNA (client-style): hw_context + metadata.
-#if defined(XDP_VE2_BUILD) && ! defined(XDP_VE2_ZOCL_BUILD)
     AIETraceOffload(void* handle, uint64_t id,
                     PLDeviceIntf*, AIETraceLogger*,
                     bool     isPlio,
                     uint64_t totalSize,
                     uint64_t numStrm,
-                    xrt::hw_context context,
-                    std::shared_ptr<AieTraceMetadata> metadata);
-#else
-    AIETraceOffload(void* handle, uint64_t id,
-                    PLDeviceIntf*, AIETraceLogger*,
-                    bool     isPlio,
-                    uint64_t totalSize,
-                    uint64_t numStrm,
-                    XAie_DevInst* devInstance);
+#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD) // ZOCL build: live devInst pointer
+                    XAie_DevInst* devInstance
+#else // XDNA build: hw_context + metadata
+                    xrt::hw_context ctx,
+                    std::shared_ptr<AieTraceMetadata> md
 #endif
+                    );
     virtual ~AIETraceOffload();
 
 public:
@@ -132,15 +127,15 @@ private:
     bool isPLIO;
     uint64_t totalSz;
     uint64_t numStream;
-#if defined(XDP_VE2_BUILD) && ! defined(XDP_VE2_ZOCL_BUILD) // XDNA VE2
+#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD) // ZOCL build: live devInst pointer
+    XAie_DevInst*   devInst;
+    std::vector<AIETraceGmioDMAInst> gmioDMAInsts;
+#else // XDNA build
     xrt::hw_context context;
     std::shared_ptr<AieTraceMetadata> metadata;
     std::vector<xrt::bo> xrt_bos;
     XAie_DevInst    aieDevInst = {0};
     std::unique_ptr<xdp::aie::VE2Transaction> tranxHandler;
-#else // ZOCL VE2
-    XAie_DevInst*   devInst;
-    std::vector<AIETraceGmioDMAInst> gmioDMAInsts;
 #endif
 
     uint64_t bufAllocSz;

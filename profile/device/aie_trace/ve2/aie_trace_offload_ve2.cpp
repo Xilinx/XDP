@@ -1,4 +1,3 @@
-// VE2 class
 /**
  * Copyright (C) 2019-2022 Xilinx, Inc
  * Copyright (C) 2022-2024 Advanced Micro Devices, Inc. - All rights reserved
@@ -28,11 +27,6 @@
 #include "core/common/shim/hwctx_handle.h"
 #include "core/include/xrt/xrt_hw_context.h"
 #include "core/common/api/hw_context_int.h"
-// VE2 XDNA + aie_codegen: establish which xaiegbl.h (which in turn decides which XAie_* layout) before any TU-local include that might pull
-// xaiengine/xaiegbl.h (same XAIEGBL_H guard). Not used for VE2 ZOCL (xaiengine path).
-#if defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD) && defined(XDP_USE_AIE_CODEGEN)
-#include "xdp/profile/device/common/ve2/ve2_transaction.h"
-#endif
 #include "xdp/profile/database/database.h"
 #include "xdp/profile/database/static_info/aie_constructs.h"
 #include "xdp/profile/plugin/aie_base/aie_nop_util.h"
@@ -53,9 +47,9 @@ AIETraceOffload::AIETraceOffload
   , bool isPlio
   , uint64_t totalSize
   , uint64_t numStrm
-#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD)
+#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD) // ZOCL build
   , XAie_DevInst* devInstance
-#elif defined(XDP_VE2_BUILD) && ! defined(XDP_VE2_ZOCL_BUILD)
+#else // XDNA build
   , xrt::hw_context ctx
   , std::shared_ptr<AieTraceMetadata> md
 #endif
@@ -67,9 +61,9 @@ AIETraceOffload::AIETraceOffload
   , isPLIO(isPlio)
   , totalSz(totalSize)
   , numStream(numStrm)
-#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD)
+#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD) // ZOCL build
   , devInst(devInstance)
-#elif defined(XDP_VE2_BUILD) && ! defined(XDP_VE2_ZOCL_BUILD)
+#else // XDNA build
   , context(ctx)
   , metadata(md)
 #endif
@@ -97,7 +91,7 @@ AIETraceOffload::~AIETraceOffload()
     offloadThread.join();
 }
 
-#ifdef XDP_VE2_ZOCL_BUILD
+#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD) // ZOCL build
 bool AIETraceOffload::initReadTrace()
 {
   // Submit nop.elf to initialize AIE array before BD configuration
@@ -174,8 +168,8 @@ bool AIETraceOffload::initReadTrace()
 
       // Compute BD: use metadata value if set, otherwise channelNumber * 4
       uint16_t bdNum = (traceGMIO->bufferDescriptorId != UINT16_MAX) 
-                      ? traceGMIO->bufferDescriptorId 
-                      : channelNumber * 4;
+                       ? traceGMIO->bufferDescriptorId 
+                       : channelNumber * 4;
       std::stringstream bdMsg;
       bdMsg << "AIE Trace: Using BD " << bdNum << " for channel " << (int)channelNumber
             << " on shim column " << (int)traceGMIO->shimColumn;
@@ -246,9 +240,6 @@ bool AIETraceOffload::initReadTrace()
       return false;
     }
 
-    // xrt_bos.emplace_back(xrt::bo(context.get_device(), bufAllocSz,
-    //                      XRT_BO_FLAGS_HOST_ONLY, tranxHandler->getGroupID(0, context)));
-    
     buffers[i].bufId = xrt_bos.size();
     if (!buffers[i].bufId) {
       bufferInitialized = false;
@@ -260,45 +251,77 @@ bool AIETraceOffload::initReadTrace()
       memset(bo_map, 0, bufAllocSz);
     }
 
-    XAie_LocType loc;
+    XAie_LocType loc = XAie_TileLoc(traceGMIO->shimColumn, 0);
     XAie_DmaDesc dmaDesc;
-    loc = XAie_TileLoc(traceGMIO->shimColumn, 0);
 
-    uint16_t channelNumber = (traceGMIO->channelNumber > 1) ? (traceGMIO->channelNumber - 2) : traceGMIO->channelNumber;
+    uint16_t channelNumber = (traceGMIO->channelNumber > 1) 
+                            ? (traceGMIO->channelNumber - 2) 
+                            : traceGMIO->channelNumber;
     XAie_DmaDirection dmaDir = (traceGMIO->channelNumber > 1) ? DMA_MM2S : DMA_S2MM;
 
     // Compute BD: use metadata value if set, otherwise channelNumber * 4
-    uint16_t bdNum = (traceGMIO->bufferDescriptorId != UINT16_MAX) ? traceGMIO->bufferDescriptorId : channelNumber * 4;
+    uint16_t bdNum = (traceGMIO->bufferDescriptorId != UINT16_MAX) 
+                       ? traceGMIO->bufferDescriptorId 
+                       : channelNumber * 4;
     std::stringstream bdMsg;
     bdMsg << "AIE Trace: Using BD " << bdNum << " for channel " << (int)channelNumber << " on shim column " << (int)traceGMIO->shimColumn;
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", bdMsg.str());
     
-    int driverStatus = XAIE_OK;
-    driverStatus = XAie_DmaDescInit(&aieDevInst, &dmaDesc, loc);
-    if(XAIE_OK != driverStatus) {
-      throw std::runtime_error("Initialization of DMA Descriptor failed while setting up SHIM DMA channel for GMIO Trace offload");
+    RC = XAie_DmaDescInit(&aieDevInst, &dmaDesc, loc);
+    if(RC != XAIE_OK) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "Initialization of DMA Descriptor failed while setting up SHIM DMA channel for GMIO Trace offload");
+      return false;
     }
     
     RC = XAie_DmaChannelEnable(&aieDevInst, loc, channelNumber, dmaDir);
+    if(RC != XAIE_OK) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "Failed to enable DMA channel for GMIO Trace offload");
+      return false;
+    }
+
     RC = XAie_DmaSetAxi(&dmaDesc, 0, traceGMIO->burstLength, 0, 0, 0);
+    if(RC != XAIE_OK) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "Failed to set AXI burst length for GMIO Trace offload");
+      return false;
+    }
+
     RC = XAie_DmaSetAddrLen(&dmaDesc, xrt_bos[i].address(), static_cast<uint32_t>(bufAllocSz));
+    if(RC != XAIE_OK) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "Failed to set address length for GMIO Trace offload");
+      return false;
+    }
+
     RC = XAie_DmaEnableBd(&dmaDesc);
+    if(RC != XAIE_OK) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "Failed to enable BD for GMIO Trace offload");
+      return false;
+    }
+
     RC = XAie_DmaWriteBd(&aieDevInst, &dmaDesc, loc, bdNum);
+    if(RC != XAIE_OK) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "Failed to write BD for GMIO Trace offload");
+      return false;
+    }
+
     RC = XAie_DmaChannelPushBdToQueue(&aieDevInst, loc, channelNumber, dmaDir, bdNum);
+    if(RC != XAIE_OK) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "Failed to push BD to queue for GMIO Trace offload");
+      return false;
+    }
   }
 
-  if (!tranxHandler->submitTransaction(&aieDevInst, context))
-      return false;
+  if (!tranxHandler->submitTransaction(&aieDevInst, context)) {
+    xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "Failed to submit transaction for GMIO Trace offload");
+    return false;
+  }
 
-      
-  xrt_core::message::send(severity_level::info, "XRT", "Successfully scheduled AIE Trace Offloading VE2.");
-
+  xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Successfully scheduled AIE Trace Offloading VE2.");
   bufferInitialized = true;
   return bufferInitialized;
 }
 #endif
 
-#ifdef XDP_VE2_ZOCL_BUILD
+#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD) // ZOCL build
 void AIETraceOffload::endReadTrace()
 {
   // reset
@@ -358,12 +381,13 @@ void AIETraceOffload::readTraceGMIO(bool final)
   }
 }
 
-// TODO: only for zocl right now since xdna does not support plio right now, and this function is only for plio
+// Only for ZOCL build since XDNA does not support PLIO
 void AIETraceOffload::readTracePLIO(bool final)
 {
-    #if defined(XDP_VE2_BUILD) && ! defined(XDP_VE2_ZOCL_BUILD)
-        return;
-    #endif
+  #if defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD) // XDNA build
+    xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "PLIO trace offload not supported for XDNA build");
+    return;
+  #endif
     
   if (mCircularBufOverwrite)
     return;
@@ -448,7 +472,7 @@ void AIETraceOffload::readTracePLIO(bool final)
   }
 }
 
-#ifdef XDP_VE2_ZOCL_BUILD
+#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD) // ZOCL build
 uint64_t AIETraceOffload::syncAndLog(uint64_t index)
 {
   auto& bd = buffers[index];
@@ -488,7 +512,7 @@ uint64_t AIETraceOffload::syncAndLog(uint64_t index)
   traceLogger->addAIETraceData(index, hostBuf, nBytes, mEnCircularBuf);
   return nBytes;
 }
-#else // XDNA
+#else // XDNA build
 uint64_t AIETraceOffload::syncAndLog(uint64_t index)
 {
   auto& bd = buffers[index];
@@ -501,7 +525,7 @@ uint64_t AIETraceOffload::syncAndLog(uint64_t index)
 
   // Sync to host
   xrt_bos[index].sync(XCL_BO_SYNC_BO_FROM_DEVICE, nBytes, bd.offset);
-  auto in_bo_map = xrt_bos[index].map<uint8_t*>() + bd.offset;
+  auto in_bo_map = xrt_bos[index].map<uint8_t*>() + bd.offset; // TODO: should this be uint32_t*?
 
   if (!in_bo_map) 
     return 0;
@@ -532,12 +556,13 @@ bool AIETraceOffload::isTraceBufferFull()
   return false;
 }
 
-// TODO: only for zocl right now since xdna does not support plio right now, and this function is only for plio
+// Only for ZOCL build since XDNA does not support PLIO
 void AIETraceOffload::checkCircularBufferSupport()
 {
-    #if defined(XDP_VE2_BUILD) && ! defined(XDP_VE2_ZOCL_BUILD)
-        return;
-    #endif
+  #if defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD) // XDNA build
+    xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "Circular buffer support not supported for XDNA build");
+    return;
+  #endif
 
   mEnCircularBuf = xrt_core::config::get_aie_trace_settings_reuse_buffer();
   if (!mEnCircularBuf)
@@ -635,9 +660,9 @@ void AIETraceOffload::offloadFinished()
 uint64_t AIETraceOffload::searchWrittenBytes(void* buf, uint64_t bytes)
 {
   /*
-  * Look For trace boundary using binary search.
-  * Use Dword to be safe
-  */
+   * Look For trace boundary using binary search.
+   * Use Dword to be safe
+   */
   auto words = static_cast<uint64_t *>(buf);
   uint64_t wordcount = bytes / TRACE_PACKET_SIZE;
 

@@ -6,35 +6,26 @@
 #include "xdp/profile/plugin/aie_trace/ve2/aie_trace.h"
 #include "xdp/profile/plugin/aie_trace/util/aie_trace_util.h"
 #include "xdp/profile/plugin/aie_trace/util/aie_trace_config.h"
-#include "xdp/profile/database/static_info/aie_util.h"
-
-#include "xdp/profile/database/database.h"
-#include "xdp/profile/database/events/creator/aie_trace_data_logger.h"
-#include "xdp/profile/database/static_info/aie_constructs.h"
-#include "xdp/profile/database/static_info/pl_constructs.h"
-#include "xdp/profile/device/pl_device_intf.h"
-#include "xdp/profile/device/tracedefs.h"
 #include "xdp/profile/plugin/aie_trace/aie_trace_metadata.h"
 #include "xdp/profile/plugin/aie_base/aie_base_util.h"
 #include "xdp/profile/plugin/vp_base/utility.h"
+#include "xdp/profile/database/static_info/aie_util.h"
+#include "xdp/profile/database/database.h"
+#include "xdp/profile/database/static_info/aie_constructs.h"
+#include "xdp/profile/device/tracedefs.h"
+#include "core/common/message.h"
 
 #include <algorithm>
-#include <boost/algorithm/string.hpp>
 #include <cmath>
-#include <cstring>
+#include <iomanip>
 #include <iostream>
 #include <memory>
-#include <regex>
+#include <sstream>
 
-#include "core/common/message.h"
-#include "core/common/time.h"
-#include "core/include/xrt/xrt_kernel.h"
+#if defined (XDP_VE2_BUILD) && defined (XDP_VE2_ZOCL_BUILD) // ZOCL build
 #include "core/common/shim/hwctx_handle.h"
 #include "core/common/api/hw_context_int.h"
 #include "shim_ve2/xdna_hwctx.h"
-
-#ifndef XDP_VE2_ZOCL_BUILD
-#include "xdp/profile/device/aie_trace/ve2/aie_trace_offload_ve2.h"
 #endif
 
 #ifdef XDP_VE2_ZOCL_BUILD
@@ -2560,7 +2551,6 @@ namespace xdp {
     return nullptr;
   }
 
-  bool AieTrace_VE2Impl::tileHasFreeRsc(xaiefal::XAieDev* aieDevice, XAie_LocType& loc, const module_type type, const std::string& metricSet) {}
   void AieTrace_VE2Impl::freeResources() {}
 
 

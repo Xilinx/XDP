@@ -11,13 +11,13 @@
 #include "xrt/xrt_hw_context.h"
 #include "xrt/xrt_kernel.h"
 
-// XDNA-only: pulled from device offload via aie_trace_offload_ve2.h (ZOCL does not use this file).
-// xaiegbl_dynlink.h must come before aie_codegen.h so XAIE_AIG_EXPORT is defined for xaie_noc.h et al.
-extern "C" {
-#include <xaiegbl_dynlink.h>
-#include <aie_codegen.h>
-#include <aie_codegen_inc/xaiegbl_params.h>
-}
+#if defined(XDP_USE_AIE_CODEGEN)
+  extern "C" {
+    #include <xaiegbl_dynlink.h>
+    #include <aie_codegen.h>
+    #include <aie_codegen_inc/xaiegbl_params.h>
+  }
+#endif
 
 /**
  * @brief VE2Transaction class for generating and submitting VE2 XDNA transactions
@@ -36,9 +36,6 @@ namespace xdp::aie {
       bool generateELF();
       bool submitELF(xrt::hw_context hwContext);
 
-      bool prepareFlushKernel(xrt::hw_context hwContext);
-      bool runFlushKernel();
-      
       void setTransactionName(std::string newTransactionName) {m_transactionName = newTransactionName;}
       std::string getAsmFileName() { return m_transactionName + ".asm"; }
       std::string getElfFileName() { return m_transactionName + ".elf"; }
@@ -47,6 +44,16 @@ namespace xdp::aie {
         return kernel.group_id(id); 
       }
 
+      // Below functions are required for AIE Trace only
+      // AIE Trace requires a flush ELF to force trace packets out of the tiles at end-of-run.  
+      //
+      // During flush ELF, creation of xrt::kernel calls ip_context::open() which accesses a
+      // static map (dev2ips) in xrt_kernel.cpp. This map may already be destroyed during teardown.
+      // We split into prepare (creates the kernel during setup when statics are alive) and 
+      // run (reuses it at flush time without touching the static map).
+      bool prepareFlushKernel(xrt::hw_context hwContext);
+      bool runFlushKernel();
+
     private:
       std::string m_transactionName;
       std::vector<uint8_t> m_columns;
@@ -54,6 +61,7 @@ namespace xdp::aie {
       std::vector<uint64_t> m_offsets;
       std::vector<uint32_t> m_values;
 
+      // AIE trace flush kernel, pre-created during setup
       xrt::kernel m_flushKernel;
       bool m_flushKernelReady = false;
   };

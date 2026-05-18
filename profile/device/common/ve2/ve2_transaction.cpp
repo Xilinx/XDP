@@ -1,30 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved
 
+#include <iostream>
+#include <fstream>
 #include <sstream>
+#include <filesystem>
 
 #include "ve2_transaction.h"
 #include "core/common/message.h"
+#include "core/common/aiebu/src/cpp/include/aiebu/aiebu_assembler.h"
+#include "core/common/aiebu/src/cpp/include/aiebu/aiebu_error.h"
 #include "xrt/experimental/xrt_elf.h"
 #include "xrt/experimental/xrt_ext.h"
 #include "xrt/experimental/xrt_module.h"
 #include "xrt/xrt_hw_context.h"
 #include "xrt/xrt_kernel.h"
-
-#include "core/common/aiebu/src/cpp/include/aiebu/aiebu_assembler.h"
-#include "core/common/aiebu/src/cpp/include/aiebu/aiebu_error.h"
-
-#include <cstdlib>
-#include <iostream>
-#include <fstream>
-#include <iomanip>
-
-#include <cstring>
-
-extern "C" {
-    #include <aie_codegen.h>
-    #include <aie_codegen_inc/xaiegbl_params.h>
-}
 
 namespace xdp::aie {
     using severity_level = xrt_core::message::severity_level;
@@ -138,12 +128,6 @@ namespace xdp::aie {
             return false;
         }
 
-        const char* mode = std::getenv("ELF_TO_SUBMIT");
-        if (mode && std::strcmp(mode, "offload") == 0 && m_transactionName == "AieTraceMetrics")
-            return true;
-        if (mode && std::strcmp(mode, "metrics") == 0 && m_transactionName == "AieTraceOffload")
-            return true;
-
         xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "Elf Object Created");
         xrt::module mod{profileElf};
 
@@ -156,8 +140,8 @@ namespace xdp::aie {
             "XDP_KERNEL not found in HW Context. Unable to run " + getElfFileName());
             return false;
         }
-
         xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "XDP_KERNEL created");
+        
         xrt::run run{kernel};
         xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "Kernel run created");
         
@@ -181,6 +165,13 @@ namespace xdp::aie {
         return true;
     }
 
+    // Below functions are required for AIE Trace only
+    // AIE Trace requires a flush ELF to force trace packets out of the tiles at end-of-run.  
+    //
+    // During flush ELF, creation of xrt::kernel calls ip_context::open() which accesses a
+    // static map (dev2ips) in xrt_kernel.cpp. This map may already be destroyed during teardown.
+    // We split into prepare (creates the kernel during setup when statics are alive) and 
+    // run (reuses it at flush time without touching the static map).
     bool VE2Transaction::prepareFlushKernel(xrt::hw_context hwContext)
     {
         xrt_core::message::send(severity_level::info, "XRT",
@@ -216,9 +207,7 @@ namespace xdp::aie {
         try {
             xrt_core::message::send(severity_level::debug, "XRT", "Running pre-created flush kernel");
             xrt::run run{m_flushKernel};
-            xrt_core::message::send(severity_level::debug, "XRT", "Flush kernel run created");
             run.start();
-            xrt_core::message::send(severity_level::debug, "XRT", "Flush run started");
             run.wait2();
             xrt_core::message::send(severity_level::debug, "XRT", "Flush run done!");
             return true;

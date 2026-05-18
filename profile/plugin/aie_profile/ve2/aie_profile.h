@@ -12,7 +12,6 @@
 #include "core/edge/common/aie_parser.h"
 #include "xdp/profile/plugin/aie_profile/aie_profile_impl.h"
 #include "xdp/profile/plugin/aie_profile/util/aie_profile_util.h"
-#include "xdp/profile/device/common/ve2/ve2_transaction.h"
 #include "xdp/profile/plugin/aie_base/generations/aie2ps_registers.h"
 #include "xaiefal/xaiefal.hpp"
 #include "xrt/xrt_bo.h"
@@ -21,6 +20,7 @@ extern "C" {
 #ifdef XDP_USE_AIE_CODEGEN
 #include <aie_codegen.h>
 #include <aie_codegen_inc/xaiegbl_params.h>
+#include "xdp/profile/device/common/ve2/ve2_transaction.h"
 #else
 #include <xaiengine.h>
 #include <xaiengine/xaiegbl_params.h>

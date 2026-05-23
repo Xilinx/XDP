@@ -305,15 +305,13 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
     return;
   }
 
-  // System timeline (INI flag): enable only for load_xclbin single-partition designs.
+  // System timeline: enable on single-partition designs
+  // (load_xclbin and register_xclbin / hw_context flows). 
   const bool iniEnableTimeline =
       xrt_core::config::get_aie_trace_settings_enable_system_timeline();
-  const bool vitisLoadXclbin =
-      (db->getStaticInfo().getAppStyle() == xdp::AppStyle::LOAD_XCLBIN_STYLE);
   const auto &overlayCols = AIEData.metadata->getPartitionOverlayStartCols();
   const bool multipartitionDesign = (overlayCols.size() > 1);
-  const bool enableSystemTimeline =
-      iniEnableTimeline && vitisLoadXclbin && !multipartitionDesign;
+  const bool enableSystemTimeline = iniEnableTimeline && !multipartitionDesign;
 
   // Support system timeline
   if (enableSystemTimeline) {

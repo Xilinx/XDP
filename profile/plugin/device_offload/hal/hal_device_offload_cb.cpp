@@ -19,6 +19,7 @@
 
 #include "xdp/profile/plugin/device_offload/hal/hal_device_offload_cb.h"
 #include "xdp/profile/plugin/device_offload/hal/hal_device_offload_plugin.h"
+#include "xdp/profile/database/database.h"
 
 namespace xdp {
   static HALDeviceOffloadPlugin deviceOffloadPluginInstance ;
@@ -35,6 +36,12 @@ namespace xdp {
     deviceOffloadPluginInstance.flushDevice(handle) ;
   }
 
+  static int getAppStyleHAL()
+  {
+    return static_cast<int>(
+      VPDatabase::Instance()->getStaticInfo().getAppStyle()) ;
+  }
+
 } // end namespace xdp 
 
 extern "C"
@@ -47,5 +54,11 @@ extern "C"
 void flushDeviceHAL(void* handle)
 {
   xdp::flushDeviceHAL(handle) ;
+}
+
+extern "C"
+int getAppStyleHAL()
+{
+  return xdp::getAppStyleHAL() ;
 }
 

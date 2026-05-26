@@ -27,4 +27,9 @@ void updateDeviceHAL(void* handle, bool hw_context_flow=false) ;
 extern "C"
 void flushDeviceHAL(void* handle) ;
 
+// Returns the current XDP AppStyle as an int
+// xdp::AppStyle: 0 = NOT_SET, 1 = LOAD_XCLBIN_STYLE, 2 = REGISTER_XCLBIN_STYLE.
+extern "C"
+int getAppStyleHAL() ;
+
 #endif

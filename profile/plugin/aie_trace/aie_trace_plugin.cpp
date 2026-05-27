@@ -297,6 +297,11 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
       AIEData.valid = false;
       return;
     }
+  } catch (const std::bad_alloc&) {
+    xrt_core::message::send(severity_level::warning, "XRT",
+                            AIE_TRACE_BUF_ALLOC_FAIL);
+    AIEData.valid = false;
+    return;
   } catch (...) {
     std::string msg = "AIE trace is currently not supported on this platform.";
     xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",

@@ -28,6 +28,7 @@
 
 #include "xdp/config.h"
 #include "xdp/profile/database/static_info/aie_constructs.h"
+#include "xdp/profile/database/static_info/vp_bin_data.h"
 #include "xdp/profile/database/static_info/xclbin_types.h"
 
 namespace xdp {
@@ -161,18 +162,46 @@ namespace xdp {
       void releaseResources();
   } ;
 
-  // The struct XclbinInfo contains all of the information and configuration
-  //  for a single xclbin.  Since an application may load many xclbins, and
-  //  we need to output summary information on all of the application at
-  //  the end of execution, we need to some configuration data for
-  //  all the xclbins that are encountered.  An xclbin can contain PL-specific
-  //  information and AIE-specific information
-  struct XclbinInfo
+  // The class XclbinBinData contains all of the information and
+  //  configuration for a single xclbin. Since an application may load many
+  //  xclbins, and we need to output summary information on all of the
+  //  application at the end of execution, we need some configuration data
+  //  for all the xclbins that are encountered. An xclbin can contain
+  //  PL-specific information and AIE-specific information.
+  //
+  //  This class is the xclbin-backed implementation of the neutral
+  //  VPBinData interface (see vp_bin_data.h). A future ElfBinData
+  //  implementation will provide AIE-only data parsed from ELF metadata.
+  class XclbinBinData final : public VPBinData
   {
-    // The unique ID for this xclbin.  We use this to see if the same
-    //  xclbin is loaded multiple times in the same application.
+  public:
+    explicit XclbinBinData(XclbinInfoType xclbinType) ;
+    ~XclbinBinData() override = default;
+
+    // VPBinData interface
+    const xrt_core::uuid& getUuid() const override { return uuid; }
+    const std::string&    getName() const override { return name; }
+    XclbinInfoType        getType() const override { return type; }
+    BinDataSource         source()  const override { return BinDataSource::XCLBIN; }
+
+    PLInfo&       getPl()        override { return pl; }
+    const PLInfo& getPl()  const override { return pl; }
+
+    AIEInfo&       getAie()       override { return aie; }
+    const AIEInfo& getAie() const override { return aie; }
+
+    // Setters
+    void setUuid(const xrt_core::uuid& value) { uuid = value; }
+    void setName(const std::string& value)    { name = value; }
+    void setType(XclbinInfoType value)        { type = value; }
+
+    // Fields are kept public during the VPBinData migration so non-profile
+    //  writers and plugins (which still use direct field access) keep
+    //  compiling. Accessor-based code paths (e.g. ConfigInfo internals,
+    //  profile plugin and its writers in Part 2) go through the virtual
+    //  interface above.
     xrt_core::uuid uuid ;
-    std::string name ;
+    std::string    name ;
     XclbinInfoType type {XCLBIN_AIE_PL} ;
 
     // The configuration of the PL portion of the design
@@ -180,18 +209,35 @@ namespace xdp {
 
     // The configuration of the AIE portion of the design (if applicable)
     AIEInfo aie ;
-
-    XclbinInfo(XclbinInfoType xclbinType) ;
-    ~XclbinInfo() = default;
   } ;
 
-  // The config struct stores multiple xclbins
+  // Compatibility alias kept during the VPBinData migration. Plugin and
+  //  writer call sites that still spell the xclbin-typed pointer as
+  //  XclbinInfo* continue to compile while they are migrated to VPBinData*
+  //  in Part 2. Once every caller speaks VPBinData* / XclbinBinData* this
+  //  alias can be removed entirely.
+  using XclbinInfo = XclbinBinData;
+
+} // end namespace xdp
+
+// ElfBinData is a non-instantiated skeleton sharing the VPBinData interface
+//  with XclbinBinData. Included here (after PLInfo / AIEInfo are defined) so
+//  any translation unit that has xclbin_info.h also sees the ELF-side type
+//  for future polymorphic use. Not constructed anywhere in this pass.
+#include "xdp/profile/database/static_info/elf_bin_data.h"
+
+namespace xdp {
+
+  // The config struct stores multiple binaries (xclbin and/or ELF). It is
+  //  a VPBinData aggregator: it does not care whether each entry is an
+  //  XclbinBinData or an ElfBinData, only that it exposes the VPBinData
+  //  interface.
   struct ConfigInfo {
-    // This defines what kind of xclbininfo is loaded on the device.
+    // This defines what kind of binaries are loaded on the device.
     ConfigInfoType type {CONFIG_AIE_PL} ;
 
-    // The currently loaded XCLbinInfo for the device.
-    std::vector<XclbinInfo*> currentXclbins ;
+    // The currently loaded binaries (xclbin and/or ELF) for the device.
+    std::vector<VPBinData*> currentBinaries ;
 
     // The interface with actually communicating with the device.  This
     //  handles the abstractions necessary for communicating in emulation,
@@ -199,47 +245,47 @@ namespace xdp {
     PLDeviceIntf* plDeviceIntf = nullptr ;
 
     ConfigInfo() : type(CONFIG_AIE_PL) {};
-    ConfigInfo(XclbinInfo* xclbin) ;
+    ConfigInfo(VPBinData* binary) ;
     ~ConfigInfo() ;
 
     xrt_core::uuid getConfigUuid() ;
-    void addXclbin(XclbinInfo* newXclbin) ;
+    void addBinary(VPBinData* newBinary) ;
     inline void updateType(ConfigInfoType cfgType) { type=cfgType; }
 
-    bool containsXclbin(xrt_core::uuid& uuid) ;
-    bool containsXclbinType(XclbinInfoType& xclbinQueryType);
+    bool containsBinary(xrt_core::uuid& uuid) ;
+    bool containsBinaryType(XclbinInfoType& binaryQueryType);
 
-    XDP_CORE_EXPORT XclbinInfo* getPlXclbin() ;
-    XDP_CORE_EXPORT XclbinInfo* getAieXclbin() ;
-    XDP_CORE_EXPORT std::string getXclbinNames() ;
+    XDP_CORE_EXPORT VPBinData* getPlBinary() ;
+    XDP_CORE_EXPORT VPBinData* getAieBinary() ;
+    XDP_CORE_EXPORT std::string getBinaryNames() ;
 
     bool isAiePlusPl() ;
     bool isAieOnly();
     bool isPlOnly();
-    bool hasXclbin(XclbinInfo* xclbin);
-   
-    bool hasFloatingAIMWithTrace(XclbinInfo* xclbin);
-    bool hasFloatingASMWithTrace(XclbinInfo* xclbin);
+    bool hasBinary(VPBinData* binary);
 
-    uint64_t getNumAM(XclbinInfo* xclbin) ;
-    uint64_t getNumUserAMWithTrace(XclbinInfo* xclbin) ;
-    uint64_t getNumAIM(XclbinInfo* xclbin) ;
-    uint64_t getNumUserAIM(XclbinInfo* xclbin) ;
-    uint64_t getNumUserAIMWithTrace(XclbinInfo* xclbin) const ;
+    bool hasFloatingAIMWithTrace(VPBinData* binary);
+    bool hasFloatingASMWithTrace(VPBinData* binary);
 
-    uint64_t getNumASM(XclbinInfo* xclbin) const ;
-    uint64_t getNumUserASM(XclbinInfo* xclbin) const ;
-    uint64_t getNumUserASMWithTrace(XclbinInfo* xclbin) ;
+    uint64_t getNumAM(VPBinData* binary) ;
+    uint64_t getNumUserAMWithTrace(VPBinData* binary) ;
+    uint64_t getNumAIM(VPBinData* binary) ;
+    uint64_t getNumUserAIM(VPBinData* binary) ;
+    uint64_t getNumUserAIMWithTrace(VPBinData* binary) const ;
 
-    uint64_t getNumNOC(XclbinInfo* xclbin) ;
-    Monitor* getAMonitor(XclbinInfo* xclbin, uint64_t slotId) ;
-    Monitor* getAIMonitor(XclbinInfo* xclbin, uint64_t slotId) ;
-    Monitor* getASMonitor(XclbinInfo* xclbin, uint64_t slotId) ;
-    NoCNode* getNOC(XclbinInfo* xclbin, uint64_t idx) ;
-    std::vector<Monitor*>* getAIMonitors(XclbinInfo* xclbin) ;
-    std::vector<Monitor*>* getASMonitors(XclbinInfo* xclbin) ;
-    std::vector<Monitor*> getUserAIMsWithTrace(XclbinInfo* xclbin) ;
-    std::vector<Monitor*> getUserASMsWithTrace(XclbinInfo* xclbin) ;
+    uint64_t getNumASM(VPBinData* binary) const ;
+    uint64_t getNumUserASM(VPBinData* binary) const ;
+    uint64_t getNumUserASMWithTrace(VPBinData* binary) ;
+
+    uint64_t getNumNOC(VPBinData* binary) ;
+    Monitor* getAMonitor(VPBinData* binary, uint64_t slotId) ;
+    Monitor* getAIMonitor(VPBinData* binary, uint64_t slotId) ;
+    Monitor* getASMonitor(VPBinData* binary, uint64_t slotId) ;
+    NoCNode* getNOC(VPBinData* binary, uint64_t idx) ;
+    std::vector<Monitor*>* getAIMonitors(VPBinData* binary) ;
+    std::vector<Monitor*>* getASMonitors(VPBinData* binary) ;
+    std::vector<Monitor*> getUserAIMsWithTrace(VPBinData* binary) ;
+    std::vector<Monitor*> getUserASMsWithTrace(VPBinData* binary) ;
 
     void addTraceGMIO(uint32_t id, uint8_t col, uint8_t num,
                                 uint8_t stream, uint8_t len, uint16_t bdId = UINT16_MAX) ;
@@ -260,7 +306,7 @@ namespace xdp {
     void addAIEMemTileEventResources(uint32_t numEvents,
                                               uint32_t numTiles) ;
     void addAIECfgTile(std::unique_ptr<aie_cfg_tile>&& tile) ;
-    void cleanCurrentXclbinInfos(XclbinInfoType xclbinType) ;
+    void cleanCurrentBinaryInfos(XclbinInfoType binaryType) ;
     bool hasAIMNamed(const std::string& name) ;
   } ;
 

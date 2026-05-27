@@ -48,7 +48,9 @@ namespace xdp {
   // Forward declarations of device and xclbin contents
   struct DeviceInfo;
   struct ConfigInfo;
-  struct XclbinInfo;
+  class  VPBinData;
+  class  XclbinBinData;
+  using  XclbinInfo = XclbinBinData;
   class  IpMetadata;
 
   //Forward declaration of XDP's device structure
@@ -439,48 +441,48 @@ namespace xdp {
     XDP_CORE_EXPORT void addAIEmetadataReader(uint64_t deviceId, std::unique_ptr<aie::BaseFiletypeImpl> metadataReader) ;
 
     // ************************************************************************
-    // ***** Functions for information from a specific xclbin on a device *****
-    XDP_CORE_EXPORT uint64_t getNumAM(uint64_t deviceId, XclbinInfo* xclbin) ;
+    // ***** Functions for information from a specific binary on a device *****
+    XDP_CORE_EXPORT uint64_t getNumAM(uint64_t deviceId, VPBinData* binary) ;
     XDP_CORE_EXPORT
-    uint64_t getNumUserAMWithTrace(uint64_t deviceId, XclbinInfo* xclbin) ;
-    XDP_CORE_EXPORT uint64_t getNumAIM(uint64_t deviceId, XclbinInfo* xclbin) ;
-    XDP_CORE_EXPORT uint64_t getNumUserAIM(uint64_t deviceId, XclbinInfo* xclbin) ;
+    uint64_t getNumUserAMWithTrace(uint64_t deviceId, VPBinData* binary) ;
+    XDP_CORE_EXPORT uint64_t getNumAIM(uint64_t deviceId, VPBinData* binary) ;
+    XDP_CORE_EXPORT uint64_t getNumUserAIM(uint64_t deviceId, VPBinData* binary) ;
     XDP_CORE_EXPORT
-    uint64_t getNumUserAIMWithTrace(uint64_t deviceId, XclbinInfo* xclbin) ;
-    XDP_CORE_EXPORT uint64_t getNumASM(uint64_t deviceId, XclbinInfo* xclbin) ;
-    XDP_CORE_EXPORT uint64_t getNumUserASM(uint64_t deviceId, XclbinInfo* xclbin) ;
+    uint64_t getNumUserAIMWithTrace(uint64_t deviceId, VPBinData* binary) ;
+    XDP_CORE_EXPORT uint64_t getNumASM(uint64_t deviceId, VPBinData* binary) ;
+    XDP_CORE_EXPORT uint64_t getNumUserASM(uint64_t deviceId, VPBinData* binary) ;
     XDP_CORE_EXPORT
-    uint64_t getNumUserASMWithTrace(uint64_t deviceId, XclbinInfo* xclbin) ;
-    XDP_CORE_EXPORT uint64_t getNumNOC(uint64_t deviceId, XclbinInfo* xclbin) ;
+    uint64_t getNumUserASMWithTrace(uint64_t deviceId, VPBinData* binary) ;
+    XDP_CORE_EXPORT uint64_t getNumNOC(uint64_t deviceId, VPBinData* binary) ;
     // Functions that get all of a certain type of monitor
     XDP_CORE_EXPORT
-    std::vector<Monitor*>* getAIMonitors(uint64_t deviceId, XclbinInfo* xclbin);
+    std::vector<Monitor*>* getAIMonitors(uint64_t deviceId, VPBinData* binary);
     XDP_CORE_EXPORT
     std::vector<Monitor*>  getUserAIMsWithTrace(uint64_t deviceId,
-                                                XclbinInfo* xclbin) ;
+                                                VPBinData* binary) ;
     XDP_CORE_EXPORT
-    std::vector<Monitor*>* getASMonitors(uint64_t deviceId, XclbinInfo* xclbin);
+    std::vector<Monitor*>* getASMonitors(uint64_t deviceId, VPBinData* binary);
     XDP_CORE_EXPORT
     std::vector<Monitor*>  getUserASMsWithTrace(uint64_t deviceId,
-                                                XclbinInfo* xclbin) ;
+                                                VPBinData* binary) ;
     XDP_CORE_EXPORT bool hasFloatingAIMWithTrace(uint64_t deviceId,
-                                            XclbinInfo* xclbin) ;
+                                            VPBinData* binary) ;
     XDP_CORE_EXPORT bool hasFloatingASMWithTrace(uint64_t deviceId,
-                                            XclbinInfo* xclbin) ;
+                                            VPBinData* binary) ;
 
     // ********************************************************************
-    // ***** Functions for single monitors from an xclbin on a device *****
+    // ***** Functions for single monitors from a binary on a device *****
     XDP_CORE_EXPORT
-    Monitor* getAMonitor(uint64_t deviceId, XclbinInfo* xclbin,
+    Monitor* getAMonitor(uint64_t deviceId, VPBinData* binary,
                          uint64_t slotId) ;
     XDP_CORE_EXPORT
-    Monitor* getAIMonitor(uint64_t deviceId, XclbinInfo* xclbin,
+    Monitor* getAIMonitor(uint64_t deviceId, VPBinData* binary,
                           uint64_t slotId) ;
     XDP_CORE_EXPORT
-    Monitor* getASMonitor(uint64_t deviceId, XclbinInfo* xclbin,
+    Monitor* getASMonitor(uint64_t deviceId, VPBinData* binary,
                           uint64_t slotID) ;
     XDP_CORE_EXPORT
-    NoCNode* getNOC(uint64_t deviceId, XclbinInfo* xclbin, uint64_t idx) ;
+    NoCNode* getNOC(uint64_t deviceId, VPBinData* binary, uint64_t idx) ;
     // This function takes a pre-allocated array of bools to fill with
     //  the status of each compute unit's AM dataflow enabled status
     XDP_CORE_EXPORT

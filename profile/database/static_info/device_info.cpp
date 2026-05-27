@@ -44,95 +44,109 @@ namespace xdp {
     return loadedConfigInfos.back()->getConfigUuid();
   }
 
-  XclbinInfo* DeviceInfo::createXclbinFromLastConfig(XclbinInfoType xclbinQueryType)
+  VPBinData* DeviceInfo::createXclbinFromLastConfig(XclbinInfoType xclbinQueryType)
   {
-    XclbinInfo* requiredXclbinInfo = nullptr;
+    VPBinData* requiredBinary = nullptr;
     if (loadedConfigInfos.empty()) {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "Loaded config on device is empty.");
-      return requiredXclbinInfo;
+      return requiredBinary;
     }
 
-    bool xclbinAvailable = false;
+    bool binaryAvailable = false;
     auto lastConfigType = loadedConfigInfos.back()->type;
     if (lastConfigType == CONFIG_AIE_PL || lastConfigType == CONFIG_AIE_PL_FORMED)
-      xclbinAvailable = true;
+      binaryAvailable = true;
 
-    if (!xclbinAvailable) {
-      if (loadedConfigInfos.back()->containsXclbinType(xclbinQueryType))
-        xclbinAvailable = true;
+    if (!binaryAvailable) {
+      if (loadedConfigInfos.back()->containsBinaryType(xclbinQueryType))
+        binaryAvailable = true;
     }
 
-    if (xclbinAvailable) {
-      xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Missing xclbin is available in config.");
+    if (binaryAvailable) {
+      xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Missing binary is available in config.");
       ConfigInfo* lastCfg = loadedConfigInfos.back().get();
-      for (auto &xclbin : lastCfg->currentXclbins)
+      for (auto &bin : lastCfg->currentBinaries)
       {
-        if (xclbin->type == xclbinQueryType || xclbin->type == XCLBIN_AIE_PL) {
-          // Create a copy of required missing xclbinInfo.
-          requiredXclbinInfo = new XclbinInfo(xclbinQueryType);
-          if (xclbinQueryType == XCLBIN_AIE_ONLY)
+        if (bin->getType() == xclbinQueryType || bin->getType() == XCLBIN_AIE_PL) {
+          // Construct the missing binary based on the query enum. ELF_AIE_ONLY
+          //  yields an ElfBinData; everything else yields an XclbinBinData.
+          //  The ELF branch is currently dead code (no caller passes
+          //  ELF_AIE_ONLY) but is wired here for the future ELF flow.
+          if (xclbinQueryType == ELF_AIE_ONLY) {
+            requiredBinary = new ElfBinData();
+          } else {
+            requiredBinary = new XclbinBinData(xclbinQueryType);
+          }
+
+          if (xclbinQueryType == XCLBIN_AIE_ONLY || xclbinQueryType == ELF_AIE_ONLY)
           {
-            // Perform deep copy of missing AIE xclbin
-            requiredXclbinInfo->aie = xclbin->aie;
-            requiredXclbinInfo->pl.valid = false ;
+            // Perform deep copy of missing AIE binary
+            requiredBinary->getAie() = bin->getAie();
+            requiredBinary->getPl().valid = false ;
           }
           else
           {
-            // Perform deep copy of missing PL xclbin
-            requiredXclbinInfo->pl = xclbin->pl;
-            requiredXclbinInfo->aie.valid = false ;
+            // Perform deep copy of missing PL binary
+            requiredBinary->getPl() = bin->getPl();
+            requiredBinary->getAie().valid = false ;
           }
-          requiredXclbinInfo->uuid = xclbin->uuid ;
-          requiredXclbinInfo->name = xclbin->name ;
-          break;  // Need only one such missing xclbinInfo from last config.
+          // setUuid/setName are XclbinBinData-only setters; route through a
+          //  downcast guarded by isXclbin(). ElfBinData currently has no
+          //  identity setters and keeps its defaults.
+          if (requiredBinary->isXclbin()) {
+            auto* xclbinBin = static_cast<XclbinBinData*>(requiredBinary);
+            xclbinBin->setUuid(bin->getUuid()) ;
+            xclbinBin->setName(bin->getName()) ;
+          }
+          break;  // Need only one such missing binary from last config.
         }
       }
     }
-    return requiredXclbinInfo;
+    return requiredBinary;
   }
 
-  void DeviceInfo::createConfig(XclbinInfo* xclbin)
+  void DeviceInfo::createConfig(VPBinData* binary)
   {
     // Create a new config
     std::unique_ptr<ConfigInfo> config = std::make_unique<ConfigInfo>();
-    config->addXclbin(xclbin);
+    config->addBinary(binary);
 
-    auto currentXclbinType = xclbin->type;
+    auto currentBinaryType = binary->getType();
 
     // Check if this itself is a complete xclbin (AIE+PL).
-    if (currentXclbinType == XCLBIN_AIE_PL)
+    if (currentBinaryType == XCLBIN_AIE_PL)
     {
       loadedConfigInfos.push_back(std::move(config));
       return;
     }
 
     // If it is not a complete xclbin.
-    //  Check what is missing & request that missing XclbinInfo.?
-    //    a. AIEInfo or PLInfo 
-    XclbinInfo *missingXclbin = nullptr;
-    if (currentXclbinType == XCLBIN_AIE_ONLY)
+    //  Check what is missing & request that missing binary.
+    //    a. AIEInfo or PLInfo
+    VPBinData *missingBinary = nullptr;
+    if (currentBinaryType == XCLBIN_AIE_ONLY)
     {
-      xclbin->pl.valid = false ;
-      missingXclbin = createXclbinFromLastConfig(XCLBIN_PL_ONLY);
+      binary->getPl().valid = false ;
+      missingBinary = createXclbinFromLastConfig(XCLBIN_PL_ONLY);
     }
     else
     {
-      xclbin->aie.valid = false ;
-      missingXclbin = createXclbinFromLastConfig(XCLBIN_AIE_ONLY);
+      binary->getAie().valid = false ;
+      missingBinary = createXclbinFromLastConfig(XCLBIN_AIE_ONLY);
     }
 
-    // If missing part of XclbinInfo is available. 
-    if (missingXclbin)
+    // If missing part of the binary is available.
+    if (missingBinary)
     {
-      config->currentXclbins.back()->aie.numTracePLIO = loadedConfigInfos.size() == 0 ? 0 : loadedConfigInfos.back()->currentXclbins.back()->aie.numTracePLIO;
-      config->addXclbin(missingXclbin);
+      config->currentBinaries.back()->getAie().numTracePLIO = loadedConfigInfos.size() == 0 ? 0 : loadedConfigInfos.back()->currentBinaries.back()->getAie().numTracePLIO;
+      config->addBinary(missingBinary);
       config->type = CONFIG_AIE_PL_FORMED;
     }
     else
     {
-      // If missing part of XclbinInfo is not available.
-      // This is same xclbin type load as previous xclbin.
-      config->type = (currentXclbinType == XCLBIN_AIE_ONLY) ? CONFIG_AIE_ONLY : CONFIG_PL_ONLY ;
+      // If missing part of the binary is not available.
+      // This is same binary type load as previous binary.
+      config->type = (currentBinaryType == XCLBIN_AIE_ONLY) ? CONFIG_AIE_ONLY : CONFIG_PL_ONLY ;
     }
 
     loadedConfigInfos.push_back(std::move(config));
@@ -145,176 +159,176 @@ namespace xdp {
     loadedConfigInfos.push_back(std::move(config));
   }
 
-  bool DeviceInfo::hasFloatingAIMWithTrace(XclbinInfo* xclbin) const
+  bool DeviceInfo::hasFloatingAIMWithTrace(VPBinData* binary) const
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->hasFloatingAIMWithTrace(xclbin);
+      if (cfg->hasBinary(binary))
+        return cfg->hasFloatingAIMWithTrace(binary);
     }
     return false ;
   }
 
-  bool DeviceInfo::hasFloatingASMWithTrace(XclbinInfo* xclbin) const
+  bool DeviceInfo::hasFloatingASMWithTrace(VPBinData* binary) const
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->hasFloatingASMWithTrace(xclbin);
+      if (cfg->hasBinary(binary))
+        return cfg->hasFloatingASMWithTrace(binary);
     }
     return false ;
   }
 
-  uint64_t DeviceInfo::getNumAM(XclbinInfo* xclbin) const
+  uint64_t DeviceInfo::getNumAM(VPBinData* binary) const
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getNumAM(xclbin);
+      if (cfg->hasBinary(binary))
+        return cfg->getNumAM(binary);
     }
     return 0 ;
   }
 
-  uint64_t DeviceInfo::getNumUserAMWithTrace(XclbinInfo* xclbin) const
+  uint64_t DeviceInfo::getNumUserAMWithTrace(VPBinData* binary) const
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getNumUserAMWithTrace(xclbin) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getNumUserAMWithTrace(binary) ;
     }
     return 0 ;
   }
 
-  uint64_t DeviceInfo::getNumAIM(XclbinInfo* xclbin) const
+  uint64_t DeviceInfo::getNumAIM(VPBinData* binary) const
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getNumAIM(xclbin) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getNumAIM(binary) ;
     }
 
     return 0 ;
   }
 
-  uint64_t DeviceInfo::getNumUserAIM(XclbinInfo* xclbin) const
+  uint64_t DeviceInfo::getNumUserAIM(VPBinData* binary) const
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getNumUserAIM(xclbin) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getNumUserAIM(binary) ;
     }
     return 0 ;
   }
 
-  uint64_t DeviceInfo::getNumUserAIMWithTrace(XclbinInfo* xclbin) const
+  uint64_t DeviceInfo::getNumUserAIMWithTrace(VPBinData* binary) const
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getNumUserAIMWithTrace(xclbin) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getNumUserAIMWithTrace(binary) ;
     }
     return 0 ;
   }
 
-  uint64_t DeviceInfo::getNumASM(XclbinInfo* xclbin) const
+  uint64_t DeviceInfo::getNumASM(VPBinData* binary) const
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getNumASM(xclbin) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getNumASM(binary) ;
     }
     return 0 ;
   }
 
-  uint64_t DeviceInfo::getNumUserASM(XclbinInfo* xclbin) const
+  uint64_t DeviceInfo::getNumUserASM(VPBinData* binary) const
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getNumUserASM(xclbin) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getNumUserASM(binary) ;
     }
     return 0;
   }
 
-  uint64_t DeviceInfo::getNumUserASMWithTrace(XclbinInfo* xclbin) const
+  uint64_t DeviceInfo::getNumUserASMWithTrace(VPBinData* binary) const
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getNumUserASMWithTrace(xclbin) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getNumUserASMWithTrace(binary) ;
     }
     return 0 ;
   }
 
-  uint64_t DeviceInfo::getNumNOC(XclbinInfo* xclbin) const
+  uint64_t DeviceInfo::getNumNOC(VPBinData* binary) const
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getNumNOC(xclbin) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getNumNOC(binary) ;
     }
     return 0 ;
   }
 
-  Monitor* DeviceInfo::getAMonitor(XclbinInfo* xclbin, uint64_t slotId)
+  Monitor* DeviceInfo::getAMonitor(VPBinData* binary, uint64_t slotId)
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getAMonitor(xclbin, slotId) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getAMonitor(binary, slotId) ;
     }
     return nullptr ;
   }
 
-  Monitor* DeviceInfo::getAIMonitor(XclbinInfo* xclbin, uint64_t slotId)
+  Monitor* DeviceInfo::getAIMonitor(VPBinData* binary, uint64_t slotId)
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getAIMonitor(xclbin, slotId) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getAIMonitor(binary, slotId) ;
     }
     return nullptr ;
   }
 
-  Monitor* DeviceInfo::getASMonitor(XclbinInfo* xclbin, uint64_t slotId)
+  Monitor* DeviceInfo::getASMonitor(VPBinData* binary, uint64_t slotId)
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getASMonitor(xclbin, slotId) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getASMonitor(binary, slotId) ;
     }
     return nullptr ;
   }
 
-  NoCNode* DeviceInfo::getNOC(XclbinInfo* xclbin, uint64_t idx)
+  NoCNode* DeviceInfo::getNOC(VPBinData* binary, uint64_t idx)
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getNOC(xclbin, idx) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getNOC(binary, idx) ;
     }
     return nullptr ;
   }
 
-  std::vector<Monitor*>* DeviceInfo::getAIMonitors(XclbinInfo* xclbin)
+  std::vector<Monitor*>* DeviceInfo::getAIMonitors(VPBinData* binary)
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getAIMonitors(xclbin) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getAIMonitors(binary) ;
     }
     return nullptr ;
   }
 
-  std::vector<Monitor*>* DeviceInfo::getASMonitors(XclbinInfo* xclbin)
+  std::vector<Monitor*>* DeviceInfo::getASMonitors(VPBinData* binary)
   {
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getASMonitors(xclbin) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getASMonitors(binary) ;
     }
     return nullptr ;
   }
 
-  std::vector<Monitor*> DeviceInfo::getUserAIMsWithTrace(XclbinInfo* xclbin)
+  std::vector<Monitor*> DeviceInfo::getUserAIMsWithTrace(VPBinData* binary)
   {
     std::vector<Monitor*> constructed ;
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getUserAIMsWithTrace(xclbin) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getUserAIMsWithTrace(binary) ;
     }
     return constructed ;
   }
 
-  std::vector<Monitor*> DeviceInfo::getUserASMsWithTrace(XclbinInfo* xclbin)
+  std::vector<Monitor*> DeviceInfo::getUserASMsWithTrace(VPBinData* binary)
   {
     std::vector<Monitor*> constructed ;
     for (const auto& cfg : getLoadedConfigs()) {
-      if (cfg->hasXclbin(xclbin))
-        return cfg->getUserASMsWithTrace(xclbin) ;
+      if (cfg->hasBinary(binary))
+        return cfg->getUserASMsWithTrace(binary) ;
     }
     return constructed ;
   }
@@ -323,7 +337,7 @@ namespace xdp {
                                 uint8_t stream, uint8_t len, uint16_t bdId)
   {
     ConfigInfo* config = currentConfig() ;
-    if (!config || config->currentXclbins.empty())
+    if (!config || config->currentBinaries.empty())
       return ;
 
     config->addTraceGMIO(id, col, num, stream, len, bdId) ;
@@ -336,7 +350,7 @@ namespace xdp {
                                  const std::string& aieName, uint8_t streamId)
   {
     ConfigInfo* config = currentConfig() ;
-    if (!config || config->currentXclbins.empty())
+    if (!config || config->currentBinaries.empty())
       return ;
 
     config->addAIECounter(i, col, row, num, start, end,
@@ -348,7 +362,7 @@ namespace xdp {
                                           uint8_t moduleType)
   {
     ConfigInfo* config = currentConfig() ;
-    if (!config || config->currentXclbins.empty())
+    if (!config || config->currentBinaries.empty())
       return ;
 
     config->addAIECounterResources(numCounters, numTiles, moduleType) ;
@@ -358,7 +372,7 @@ namespace xdp {
                                             uint32_t numTiles)
   {
     ConfigInfo* config = currentConfig() ;
-    if (!config || config->currentXclbins.empty())
+    if (!config || config->currentBinaries.empty())
       return ;
 
     config->addAIECoreEventResources(numEvents, numTiles) ;
@@ -368,7 +382,7 @@ namespace xdp {
                                               uint32_t numTiles)
   {
     ConfigInfo* config = currentConfig() ;
-    if (!config || config->currentXclbins.empty())
+    if (!config || config->currentBinaries.empty())
       return ;
 
     config->addAIEMemoryEventResources(numEvents, numTiles) ;
@@ -378,7 +392,7 @@ namespace xdp {
                                             uint32_t numTiles)
   {
     ConfigInfo* config = currentConfig() ;
-    if (!config || config->currentXclbins.empty())
+    if (!config || config->currentBinaries.empty())
       return ;
 
     config->addAIEShimEventResources(numEvents, numTiles) ;
@@ -388,7 +402,7 @@ namespace xdp {
                                                uint32_t numTiles)
   {
     ConfigInfo* config = currentConfig() ;
-    if (!config || config->currentXclbins.empty())
+    if (!config || config->currentBinaries.empty())
       return ;
 
     config->addAIEMemTileEventResources(numEvents, numTiles) ;
@@ -397,10 +411,10 @@ namespace xdp {
   void DeviceInfo::addAIECfgTile(std::unique_ptr<aie_cfg_tile>& tile)
   {
     ConfigInfo* config = currentConfig() ;
-    if (!config || config->currentXclbins.empty())
+    if (!config || config->currentBinaries.empty())
       return ;
 
-    config->addAIECfgTile(std::move(tile)) ; 
+    config->addAIECfgTile(std::move(tile)) ;
   }
 
   ConfigInfo* DeviceInfo::currentConfig() const
@@ -410,14 +424,14 @@ namespace xdp {
 
     return getLoadedConfigs().back().get() ;
   }
-  
+
   void DeviceInfo::cleanCurrentConfig(XclbinInfoType type)
   {
     ConfigInfo* config = currentConfig() ;
-    if (!config || config->currentXclbins.empty())
+    if (!config || config->currentBinaries.empty())
       return ;
 
-    config->cleanCurrentXclbinInfos(type) ;
+    config->cleanCurrentBinaryInfos(type) ;
   }
 
   double DeviceInfo::getMaxClockRatePLMHz()
@@ -430,10 +444,10 @@ namespace xdp {
   bool DeviceInfo::hasAIMNamed(const std::string& name)
   {
     ConfigInfo* config = currentConfig() ;
-    if (!config || config->currentXclbins.empty())
+    if (!config || config->currentBinaries.empty())
       return false;
-    
-    return config->hasAIMNamed(name) ; 
+
+    return config->hasAIMNamed(name) ;
   }
 
   bool DeviceInfo::hasDMAMonitor()

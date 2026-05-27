@@ -31,7 +31,9 @@
 namespace xdp {
 
   // Forward declarations
-  struct XclbinInfo ;
+  class VPBinData ;
+  class XclbinBinData ;
+  using XclbinInfo = XclbinBinData ;
   struct Monitor ;
   struct NoCNode ;
   class aie_cfg_tile ;
@@ -87,8 +89,13 @@ namespace xdp {
     ~DeviceInfo() ;
 
     // ****** Functions for Device ConfigInfo ******
-    XDP_CORE_EXPORT XclbinInfo* createXclbinFromLastConfig(XclbinInfoType xclbinQueryType) ;
-    XDP_CORE_EXPORT void createConfig(XclbinInfo* xclbin) ;
+    // createXclbinFromLastConfig is the single factory that returns either
+    //  an XclbinBinData or an ElfBinData depending on the query enum value
+    //  (ELF_AIE_ONLY -> ElfBinData, otherwise -> XclbinBinData). The return
+    //  is a VPBinData* so the caller does not have to care which concrete
+    //  binary kind was produced.
+    XDP_CORE_EXPORT VPBinData* createXclbinFromLastConfig(XclbinInfoType xclbinQueryType) ;
+    XDP_CORE_EXPORT void createConfig(VPBinData* binary) ;
     XDP_CORE_EXPORT void createEmptyConfig() ;
     
     // ****** Functions for information on the device ******
@@ -111,31 +118,31 @@ namespace xdp {
     XDP_CORE_EXPORT bool hasKDMAMonitor() ;
     XDP_CORE_EXPORT bool hasAIMNamed(const std::string& name) ;
 
-    // ****** Functions for PL information on a specific xclbin ******
-    XDP_CORE_EXPORT bool hasFloatingAIMWithTrace(XclbinInfo* xclbin) const ;
-    XDP_CORE_EXPORT bool hasFloatingASMWithTrace(XclbinInfo* xclbin) const ;
-    XDP_CORE_EXPORT uint64_t getNumAM(XclbinInfo* xclbin) const ;
-    XDP_CORE_EXPORT uint64_t getNumUserAMWithTrace(XclbinInfo* xclbin) const ;
-    XDP_CORE_EXPORT uint64_t getNumAIM(XclbinInfo* xclbin) const ;
-    XDP_CORE_EXPORT uint64_t getNumUserAIM(XclbinInfo* xclbin) const ;
-    XDP_CORE_EXPORT uint64_t getNumUserAIMWithTrace(XclbinInfo* xclbin) const ;
-    XDP_CORE_EXPORT uint64_t getNumASM(XclbinInfo* xclbin) const ;
-    XDP_CORE_EXPORT uint64_t getNumUserASM(XclbinInfo* xclbin) const ;
-    XDP_CORE_EXPORT uint64_t getNumUserASMWithTrace(XclbinInfo* xclbin) const ;
+    // ****** Functions for PL information on a specific binary ******
+    XDP_CORE_EXPORT bool hasFloatingAIMWithTrace(VPBinData* binary) const ;
+    XDP_CORE_EXPORT bool hasFloatingASMWithTrace(VPBinData* binary) const ;
+    XDP_CORE_EXPORT uint64_t getNumAM(VPBinData* binary) const ;
+    XDP_CORE_EXPORT uint64_t getNumUserAMWithTrace(VPBinData* binary) const ;
+    XDP_CORE_EXPORT uint64_t getNumAIM(VPBinData* binary) const ;
+    XDP_CORE_EXPORT uint64_t getNumUserAIM(VPBinData* binary) const ;
+    XDP_CORE_EXPORT uint64_t getNumUserAIMWithTrace(VPBinData* binary) const ;
+    XDP_CORE_EXPORT uint64_t getNumASM(VPBinData* binary) const ;
+    XDP_CORE_EXPORT uint64_t getNumUserASM(VPBinData* binary) const ;
+    XDP_CORE_EXPORT uint64_t getNumUserASMWithTrace(VPBinData* binary) const ;
 
     // Functions that get specific information on monitors
-    XDP_CORE_EXPORT Monitor* getAMonitor(XclbinInfo* xclbin, uint64_t slotId) ;
-    XDP_CORE_EXPORT Monitor* getAIMonitor(XclbinInfo* xclbin, uint64_t slotId) ;
-    XDP_CORE_EXPORT Monitor* getASMonitor(XclbinInfo* xclbin, uint64_t slotId) ;
+    XDP_CORE_EXPORT Monitor* getAMonitor(VPBinData* binary, uint64_t slotId) ;
+    XDP_CORE_EXPORT Monitor* getAIMonitor(VPBinData* binary, uint64_t slotId) ;
+    XDP_CORE_EXPORT Monitor* getASMonitor(VPBinData* binary, uint64_t slotId) ;
 
-    XDP_CORE_EXPORT std::vector<Monitor*>* getAIMonitors(XclbinInfo* xclbin) ;
-    XDP_CORE_EXPORT std::vector<Monitor*>* getASMonitors(XclbinInfo* xclbin) ;
-    XDP_CORE_EXPORT std::vector<Monitor*> getUserAIMsWithTrace(XclbinInfo* xclbin) ;
-    XDP_CORE_EXPORT std::vector<Monitor*> getUserASMsWithTrace(XclbinInfo* xclbin) ;
-    
-    // ****** Functions for AIE information on a specific xclbin ******
-    XDP_CORE_EXPORT uint64_t getNumNOC(XclbinInfo* xclbin) const ;
-    XDP_CORE_EXPORT NoCNode* getNOC(XclbinInfo* xclbin, uint64_t idx) ;
+    XDP_CORE_EXPORT std::vector<Monitor*>* getAIMonitors(VPBinData* binary) ;
+    XDP_CORE_EXPORT std::vector<Monitor*>* getASMonitors(VPBinData* binary) ;
+    XDP_CORE_EXPORT std::vector<Monitor*> getUserAIMsWithTrace(VPBinData* binary) ;
+    XDP_CORE_EXPORT std::vector<Monitor*> getUserASMsWithTrace(VPBinData* binary) ;
+
+    // ****** Functions for AIE information on a specific binary ******
+    XDP_CORE_EXPORT uint64_t getNumNOC(VPBinData* binary) const ;
+    XDP_CORE_EXPORT NoCNode* getNOC(VPBinData* binary, uint64_t idx) ;
 
     // ****** Functions for AIE information on the current xclbin ******
     XDP_CORE_EXPORT

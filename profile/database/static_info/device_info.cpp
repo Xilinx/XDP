@@ -68,17 +68,15 @@ namespace xdp {
       for (auto &bin : lastCfg->currentBinaries)
       {
         if (bin->getType() == xclbinQueryType || bin->getType() == XCLBIN_AIE_PL) {
-          // Construct the missing binary based on the query enum. ELF_AIE_ONLY
-          //  yields an ElfBinData; everything else yields an XclbinBinData.
-          //  The ELF branch is currently dead code (no caller passes
-          //  ELF_AIE_ONLY) but is wired here for the future ELF flow.
-          if (xclbinQueryType == ELF_AIE_ONLY) {
-            requiredBinary = new ElfBinData();
-          } else {
-            requiredBinary = new XclbinBinData(xclbinQueryType);
-          }
+          // createXclbinFromLastConfig is the "missing piece" lookup for the
+          //  xclbin partial-load flow (AIE-only xclbin + later PL-only xclbin
+          //  pairs up into a logical full config, or vice versa). The ELF
+          //  flow loads a single self-complete AIE-only binary and is never
+          //  paired with anything, so ELF_AIE_ONLY is not a valid query for
+          //  this function. The caller (createConfig) gates it out.
+          requiredBinary = new XclbinBinData(xclbinQueryType);
 
-          if (xclbinQueryType == XCLBIN_AIE_ONLY || xclbinQueryType == ELF_AIE_ONLY)
+          if (xclbinQueryType == XCLBIN_AIE_ONLY)
           {
             // Perform deep copy of missing AIE binary
             requiredBinary->getAie() = bin->getAie();
@@ -91,8 +89,9 @@ namespace xdp {
             requiredBinary->getAie().valid = false ;
           }
           // setUuid/setName are XclbinBinData-only setters; route through a
-          //  downcast guarded by isXclbin(). ElfBinData currently has no
-          //  identity setters and keeps its defaults.
+          //  downcast guarded by isXclbin(). Since createXclbinFromLastConfig
+          //  only produces XclbinBinData (never ElfBinData), the cast is
+          //  always valid here.
           if (requiredBinary->isXclbin()) {
             auto* xclbinBin = static_cast<XclbinBinData*>(requiredBinary);
             xclbinBin->setUuid(bin->getUuid()) ;
@@ -112,6 +111,17 @@ namespace xdp {
     config->addBinary(binary);
 
     auto currentBinaryType = binary->getType();
+
+    // ELF binaries are self-complete (AIE-only by construction, never
+    //  paired with a PL piece). Skip the xclbin "missing piece" search
+    //  entirely - it would otherwise call binary->getPl() and throw on
+    //  an ElfBinData.
+    if (currentBinaryType == ELF_AIE_ONLY)
+    {
+      config->type = CONFIG_ELF_AIE_ONLY;
+      loadedConfigInfos.push_back(std::move(config));
+      return;
+    }
 
     // Check if this itself is a complete xclbin (AIE+PL).
     if (currentBinaryType == XCLBIN_AIE_PL)

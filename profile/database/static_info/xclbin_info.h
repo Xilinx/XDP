@@ -220,10 +220,10 @@ namespace xdp {
 
 } // end namespace xdp
 
-// ElfBinData is a non-instantiated skeleton sharing the VPBinData interface
-//  with XclbinBinData. Included here (after PLInfo / AIEInfo are defined) so
-//  any translation unit that has xclbin_info.h also sees the ELF-side type
-//  for future polymorphic use. Not constructed anywhere in this pass.
+// ElfBinData is the ELF-backed VPBinData implementation, sibling of
+//  XclbinBinData. Included here (after PLInfo / AIEInfo are defined) so any
+//  translation unit that has xclbin_info.h also sees the ELF-side type for
+//  polymorphic use (e.g. ConfigInfo::currentBinaries can hold either kind).
 #include "xdp/profile/database/static_info/elf_bin_data.h"
 
 namespace xdp {

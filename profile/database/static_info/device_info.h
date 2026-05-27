@@ -89,12 +89,15 @@ namespace xdp {
     ~DeviceInfo() ;
 
     // ****** Functions for Device ConfigInfo ******
-    // createXclbinFromLastConfig is the single factory that returns either
-    //  an XclbinBinData or an ElfBinData depending on the query enum value
-    //  (ELF_AIE_ONLY -> ElfBinData, otherwise -> XclbinBinData). The return
-    //  is a VPBinData* so the caller does not have to care which concrete
-    //  binary kind was produced.
+    // createXclbinFromLastConfig is the "missing piece" lookup for the
+    //  partial-xclbin flow (AIE-only xclbin paired with a later PL-only
+    //  xclbin, or vice versa). It always returns an XclbinBinData; the ELF
+    //  flow does not partial-pair and is gated out by createConfig.
     XDP_CORE_EXPORT VPBinData* createXclbinFromLastConfig(XclbinInfoType xclbinQueryType) ;
+    // createConfig wraps a single VPBinData (XclbinBinData or ElfBinData)
+    //  into a fresh ConfigInfo and appends it to loadedConfigInfos. For
+    //  ELF the new config is CONFIG_ELF_AIE_ONLY; for xclbin it is one of
+    //  CONFIG_AIE_PL / CONFIG_AIE_PL_FORMED / CONFIG_AIE_ONLY / CONFIG_PL_ONLY.
     XDP_CORE_EXPORT void createConfig(VPBinData* binary) ;
     XDP_CORE_EXPORT void createEmptyConfig() ;
     

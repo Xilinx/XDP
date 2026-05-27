@@ -31,6 +31,7 @@
 
 #include "xdp/profile/database/database.h"
 #include "xdp/profile/database/static_info/device_info.h"
+#include "xdp/profile/database/static_info/elf_bin_data.h"
 #include "xdp/profile/database/static_info/pl_constructs.h"
 #include "xdp/profile/database/static_info/xclbin_info.h"
 #include "xdp/profile/database/static_info_database.h"
@@ -1673,12 +1674,13 @@ namespace xdp {
   updateDeviceFromCoreDeviceElf(uint64_t deviceId,
                                 std::shared_ptr<xrt_core::device> /*device*/)
   {
-    // For ELF Flow, always reset the device for now.
+    // Legacy 2-arg ELF stub kept for non-VE2 builds and the original
+    //  disk-only "register the reader, no binary" flow.
     //
-    // TODO (VPBinData migration): when full-ELF support is implemented, an
-    // ElfBinData (derived from VPBinData) will be constructed here and
-    // pushed into a CONFIG_ELF_AIE_ONLY ConfigInfo via DeviceInfo, mirroring
-    // how XclbinBinData is built in updateDevice() for the xclbin path.
+    // The Full ELF flow (VE2) uses the 3-arg overload below, which builds
+    // an ElfBinData (derived from VPBinData) and pushes it into a
+    // CONFIG_ELF_AIE_ONLY ConfigInfo via DeviceInfo, mirroring how
+    // XclbinBinData is built in updateDevice() for the xclbin path.
     DeviceInfo* devInfo = nullptr ;
     auto itr = deviceInfo.find(deviceId);
     if (itr == deviceInfo.end()) {
@@ -1705,6 +1707,55 @@ namespace xdp {
       addAIEmetadataReader(deviceId, std::move(metadataReader));
     }
     return;  
+  }
+
+  // Full ELF flow (VE2): the source (xrt::elf) carries the AIE metadata
+  // directly. Construct an ElfBinData, populate its AIEInfo from the
+  // metadata reader, register the reader on the device's side map, and
+  // push the binary through DeviceInfo::createConfig so it appears in
+  // loadedConfigInfos as a CONFIG_ELF_AIE_ONLY entry. From here on,
+  // every downstream lookup (clock rate, isAIECounterRead, AIE counter
+  // list, ...) traverses the same VPBinData accessors used by the xclbin
+  // path - no devInfo->elfBin sidecar branching is needed.
+  void
+  VPStaticDatabase::
+  updateDeviceFromCoreDeviceElf(uint64_t deviceId,
+                                std::shared_ptr<xrt_core::device> device,
+                                xrt::elf elf)
+  {
+    DeviceInfo* devInfo = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(deviceLock);
+      auto itr = deviceInfo.find(deviceId);
+      if (itr == deviceInfo.end()) {
+        deviceInfo[deviceId] = std::make_unique<DeviceInfo>();
+        devInfo = deviceInfo[deviceId].get();
+        devInfo->deviceId = deviceId;
+      } else {
+        devInfo = itr->second.get();
+      }
+    }
+
+    auto bin = std::make_unique<ElfBinData>(std::move(elf), std::move(device));
+
+    boost::property_tree::ptree aieTree;
+    auto reader = bin->readAIEMetadata(aieTree);
+    if (reader) {
+      bin->populateFromReader(*reader);
+      devInfo->setAIEGeneration(static_cast<uint8_t>(reader->getHardwareGeneration()));
+      addAIEmetadataReader(deviceId, std::move(reader));
+    }
+    else {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+        "AIE Profile ELF flow: no AIE metadata available; "
+        "downstream stages may have nothing to configure.");
+    }
+
+    // Hand ownership over to ConfigInfo via the standard creation path.
+    // VPBinData ownership model matches XclbinBinData: ConfigInfo's
+    // destructor deletes through the polymorphic base.
+    devInfo->createConfig(bin.release());
+    devInfo->isReady = true;
   }
  
   xrt::uuid VPStaticDatabase::getXclbinUuidOnDevice(std::shared_ptr<xrt_core::device> device)

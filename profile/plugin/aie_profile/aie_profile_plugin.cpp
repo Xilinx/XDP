@@ -15,6 +15,7 @@
 #include "core/common/message.h"
 #include "core/common/system.h"
 #include "core/include/xrt/experimental/xrt-next.h"
+#include "core/include/xrt/experimental/xrt_elf.h"
 
 #include "xdp/profile/database/database.h"
 #include "xdp/profile/database/static_info/aie_constructs.h"
@@ -103,12 +104,46 @@ namespace xdp {
       return;
     }
 
+    // Full ELF flow gate (VE2): when the hw_context was created from a
+    //  Full ELF (no xclbin), bypass the xclbin-style update path and let
+    //  the ELF itself drive the static-info update via ElfBinData. Other
+    //  builds keep the original "not yet supported" warning.
+    bool elfFlowHandled = false;
     if (hw_context_flow) {
-      xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+      xrt::hw_context ctx =
+        xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
       if (xrt_core::hw_context_int::get_elf_flow(ctx)) {
+#if defined(XDP_VE2_BUILD)
+        auto elfDeviceID = getDeviceIDFromHandle(handle);
+        auto elfDevice   = util::convertToCoreDevice(handle, hw_context_flow);
+        try {
+          // Pick an ELF from the hw_context's registered map rather than
+          //  looking it up by a hardcoded kernel name. The current Full
+          //  ELF flow consumes a single AIE-only ELF, so taking the last
+          //  entry is fine until multi-kernel selection is specified.
+          auto elfMap = xrt_core::hw_context_int::get_elf_map(ctx);
+          if (elfMap.empty()) {
+            xrt_core::message::send(severity_level::warning, "XRT",
+              "AIE Profile ELF flow: hw_context has no registered ELFs. "
+              "Skipping ELF flow.");
+            return;
+          }
+          xrt::elf elf = elfMap.rbegin()->second;
+          (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(
+            elfDeviceID, elfDevice, std::move(elf));
+          elfFlowHandled = true;
+        }
+        catch (const std::exception& e) {
+          xrt_core::message::send(severity_level::warning, "XRT",
+            std::string("AIE Profile ELF flow: failed to acquire ELF: ") + e.what()
+            + ". Skipping ELF flow.");
+          return;
+        }
+#else
         xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
             "AIE Profile is not yet supported for Full ELF flow.");
         return;
+#endif
       }
     }
 
@@ -129,8 +164,10 @@ namespace xdp {
 #endif
 
     auto deviceID = getDeviceIDFromHandle(handle);
-    // Update the static database with information from xclbin
-    {
+    // Update the static database with information from xclbin.
+    //  Skip when the Full ELF path already populated the device info
+    //  directly from the xrt::elf (VE2 only).
+    if (!elfFlowHandled) {
 #ifdef XDP_CLIENT_BUILD
       (db->getStaticInfo()).updateDeviceFromCoreDevice(deviceID, device);
       (db->getStaticInfo()).setDeviceName(deviceID, "win_device");

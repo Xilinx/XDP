@@ -292,6 +292,12 @@ namespace xdp {
   {
     for (auto bin : currentBinaries)
     {
+      // ELF binaries carry no PL data and their getPl() throws by design.
+      //  Skip them so getPlBinary() returns nullptr for ELF-only configs
+      //  (downstream PL clock / PL info lookups then fall through to their
+      //   default-value branches).
+      if (!bin->isXclbin())
+        continue;
       if (bin->getPl().valid)
         return bin;
     }
@@ -731,6 +737,9 @@ namespace xdp {
     bool ConfigInfo::hasAIMNamed(const std::string& name)
     {
       for (auto bin : currentBinaries) {
+        // ELF binaries have no PL data; their getPl() throws by design.
+        if (!bin->isXclbin())
+          continue;
         for (auto aim : bin->getPl().aims) {
           if (aim->name.find(name) != std::string::npos)
             return true ;

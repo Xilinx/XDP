@@ -48,7 +48,9 @@ namespace {
       auto& loadedConfigs = device->getLoadedConfigs();
       for (const auto& cfg : loadedConfigs) {
         for (auto xclbin : cfg->currentBinaries) {
-          if (!xclbin->getPl().valid)
+          // Skip ELF binaries (no PL data; getPl() would throw) and xclbins
+          //  whose PL slot is invalid.
+          if (!xclbin->isXclbin() || !xclbin->getPl().valid)
             continue;
           for (auto aim : xclbin->getPl().aims) {
             // A CU index of -1 is a floating AIM not attached to a compute unit
@@ -543,7 +545,9 @@ namespace xdp {
           db->getDynamicInfo().getCounterResults(deviceId, cfg->getConfigUuid());
 
         for (auto xclbin : cfg->currentBinaries) {
-          if (!xclbin->getPl().valid)
+          // Skip ELF binaries (no PL data; getPl() would throw) and xclbins
+          //  whose PL slot is invalid.
+          if (!xclbin->isXclbin() || !xclbin->getPl().valid)
             continue;
           for (const auto& cuInfo : xclbin->getPl().cus) {
             auto cu = cuInfo.second;
@@ -700,7 +704,9 @@ namespace xdp {
         xdp::CounterResults values = (db->getDynamicInfo()).getCounterResults(device->deviceId, cfg->getConfigUuid()) ;
         
         for (auto xclbin : cfg->currentBinaries) {
-          if (!xclbin->getPl().valid)
+          // Skip ELF binaries (no PL data; getPl() would throw) and xclbins
+          //  whose PL slot is invalid.
+          if (!xclbin->isXclbin() || !xclbin->getPl().valid)
             continue;
           uint64_t j = 0 ;      
           for (const auto& cu : (xclbin->getPl().cus))

@@ -5,7 +5,6 @@
 
 #include "core/include/xrt/experimental/xrt_elf.h"
 #include "core/include/xrt/experimental/xrt_ext.h"
-#include "core/include/xrt/experimental/xrt_module.h"
 #include "core/common/api/hw_context_int.h"
 #include "core/common/message.h"
 #include "xrt/xrt_kernel.h"
@@ -32,13 +31,17 @@ namespace xdp::aie {
       return false;
     }
 
-    xrt::module mod{nopElf};
+    // Register the nop ELF on the hw_context so the ext::kernel constructor
+    //  can resolve the kernel name from the configured ELF set.
+    hwContext.add_config(nopElf);
+
     xrt::kernel krnl;
     try {
-      krnl = xrt::ext::kernel{hwContext, mod, "XDP_KERNEL:{IPUV1CNN}"};
-    } catch (...) {
-      xrt_core::message::send(severity_level::warning, "XRT",
-                "XDP_KERNEL not found in HW Context. Cannot configure nop code.");
+      krnl = xrt::ext::kernel{hwContext, "XDP_KERNEL:IPUV1CNN"};
+    } catch (const std::exception& e) {
+      std::string msg = "XDP_KERNEL not found in HW Context. Cannot configure nop code. Error: ";
+      msg += e.what();
+      xrt_core::message::send(severity_level::warning, "XRT", msg);
       return false;
     }
 

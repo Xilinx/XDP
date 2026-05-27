@@ -15,6 +15,7 @@
 
 #include "core/common/system.h"
 #include "core/common/device.h"
+#include "core/include/xrt/experimental/xrt_elf.h"
 #include "xdp/profile/device/xdp_base_device.h"
 #include "xdp/profile/database/static_info/aie_util.h"
 #include "xdp/profile/database/static_info/aie_constructs.h"
@@ -341,6 +342,15 @@ namespace xdp {
     XDP_CORE_EXPORT
     void updateDeviceFromCoreDeviceElf(uint64_t deviceId,
                                     std::shared_ptr<xrt_core::device> device);
+
+    // Full ELF flow overload (VE2): construct an ElfBinData from the
+    //  xrt::elf, register the AIE metadata reader on the device's side
+    //  map, and push the ElfBinData through DeviceInfo::createConfig so
+    //  it lands in loadedConfigInfos as a CONFIG_ELF_AIE_ONLY entry.
+    XDP_CORE_EXPORT
+    void updateDeviceFromCoreDeviceElf(uint64_t deviceId,
+                                       std::shared_ptr<xrt_core::device> device,
+                                       xrt::elf elf);
 
     XDP_CORE_EXPORT
     uint64_t getHwCtxImplUid(void* hwCtxImpl);

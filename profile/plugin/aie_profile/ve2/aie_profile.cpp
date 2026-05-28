@@ -41,8 +41,27 @@ namespace {
     xrt::hw_context context = xrt_core::hw_context_int::create_hw_context_from_implementation(devHandle);
     auto hwctx_hdl = static_cast<xrt_core::hwctx_handle*>(context);
     auto hwctx_obj = dynamic_cast<shim_xdna_edge::xdna_hwctx*>(hwctx_hdl);
+
+    // Full-ELF flow: the shim's xdna_hwctx is constructed before any ELF
+    // is registered on the hw_context, so it cannot build its
+    // xdna_aie_array on its own (only XRT/XDP - holding the
+    // xrt::hw_context_impl pointer - can walk the elf_map). Push the
+    // registered ELF that carries AIE_TRACE_METADATA into the shim here,
+    // so that hwctx_obj->get_aie_array() below returns a valid pointer.
+    // Idempotent: no-op on the xclbin flow (m_aie_array already built by
+    // the xclbin constructor) and on subsequent invocations.
+    auto elfMap = xrt_core::hw_context_int::get_elf_map(context);
+    for (const auto& kv : elfMap) {
+      try {
+        hwctx_obj->init_aie_from_elf(kv.second);
+        break;
+      } catch (const std::exception&) {
+        // This ELF has no AIE_TRACE_METADATA - try the next one.
+      }
+    }
+
     auto aieArray = hwctx_obj->get_aie_array();
-    return aieArray->get_dev() ;
+    return aieArray->get_dev();
   }
 
   static void* allocateAieDevice(void* devHandle)

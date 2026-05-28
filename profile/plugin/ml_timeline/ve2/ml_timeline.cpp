@@ -182,6 +182,9 @@ namespace xdp {
     ptHeader.put("cycle_size", 2*sizeof(uint32_t));
     ptHeader.put("buffer_size", mBufSz);
     ptHeader.put("num_buffer_segments", mNumBufSegments);
+    if (!mHwCtxName.empty()) {
+      ptHeader.put("hw_context_name", mHwCtxName);
+    }
     ptTop.add_child("header", ptHeader);
 
     // Record Timer TS in JSON

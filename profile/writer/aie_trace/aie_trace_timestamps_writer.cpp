@@ -82,6 +82,16 @@ void AIETraceTimestampsWriter::writeCVSTimestampFile()
 
 void AIETraceTimestampsWriter::writeBinaryTimestampFile()
 {
+  // Move (not copy) all data elements to avoid doubling memory usage
+  std::vector<counters::DoubleSample> samples =
+      db->getDynamicInfo().moveAIETimerSamples(mDeviceIndex);
+
+  // XDPPlugin::endWrite() runs from finishFlushAIEDevice and again from ~AieTracePluginUnified
+  // (writeAll). Timer samples are moved out on the first write; a second write would open with
+  // trunc and destroy the file. Skip when nothing left to emit.
+  if (samples.empty())
+    return;
+
   std::fstream aStream;
   std::string binaryFileName = getcurrentFileName();
   aStream.open(binaryFileName.c_str(), std::fstream::in | std::fstream::out
@@ -97,8 +107,6 @@ void AIETraceTimestampsWriter::writeBinaryTimestampFile()
                                               aieClockFreqMhz,  PACKETSIZE );
   AIEBinaryData::AIEEventTimeStamp timeStampEvent;
 
-  // Move (not copy) all data elements to avoid doubling memory usage
-  std::vector<counters::DoubleSample> samples = db->getDynamicInfo().moveAIETimerSamples(mDeviceIndex);
   for (auto& sample : samples) {
     if (sample.values.size() == 3) {
       auto  column = static_cast<uint32_t>(sample.values[0]);

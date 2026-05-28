@@ -244,15 +244,27 @@ namespace xdp {
 
     AieDtraceCTWriter ctWriter(db, metadata, deviceID, partitionStartCol);
 
+    // Get the metric set for interface tiles (module index 2 = shim)
+    std::string bandwidthMetricSet = "ddr_bandwidth";
+    auto shimConfigMetrics = metadata->getConfigMetricsVec(2);
+    if (!shimConfigMetrics.empty()) {
+      bandwidthMetricSet = shimConfigMetrics.front().second;
+      xrt_core::message::send(severity_level::info, "XRT",
+          "AIE dtrace: Using metric set '" + bandwidthMetricSet + "' from configuration");
+    } else {
+      xrt_core::message::send(severity_level::info, "XRT",
+          "AIE dtrace: No interface tile metrics configured, using default 'ddr_bandwidth'");
+    }
+
     bool generated = false;
     auto it = m_op_locations_cache.find(kernel_name);
 
     if (it != m_op_locations_cache.end() && !it->second.empty()) {
-      generated = ctWriter.generateBandwidthCT(outputPath, hwctx, it->second);
+      generated = ctWriter.generateBandwidthCT(outputPath, hwctx, it->second, bandwidthMetricSet);
       if (generated) {
         xrt_core::message::send(severity_level::debug, "XRT",
             "AIE dtrace: Bandwidth CT generated (self-contained) for kernel '"
-            + kernel_name + "'");
+            + kernel_name + "' with metric set '" + bandwidthMetricSet + "'");
       }
     }
 
@@ -321,7 +333,9 @@ namespace xdp {
       uint8_t idToReport = (tile.subtype == io_type::GMIO) ? channel : streamPortId;
       uint8_t isChannel  = (tile.subtype == io_type::GMIO) ? 1 : 0;
       uint8_t isMaster = aie::isInputSet(type, metricSet)  ? 0 : 1;
-      if ((type == module_type::shim) && ((metricSet == "ddr_bandwidth") || (metricSet == "read_bandwidth") || (metricSet == "write_bandwidth"))) {
+      if ((type == module_type::shim) && ((metricSet == "ddr_bandwidth") || (metricSet == "read_bandwidth") || 
+          (metricSet == "write_bandwidth") || (metricSet == "peak_read_bandwidth") ||
+          (metricSet == "peak_write_bandwidth"))) {
         uint8_t idx = (portnum < tile.is_master_vec.size()) ? portnum
                     : (logicalPortIndex < tile.is_master_vec.size()) ? logicalPortIndex : 0;
         isMaster = tile.is_master_vec.at(idx);
@@ -494,7 +508,9 @@ namespace xdp {
 
         // Skip interface tiles with empty stream_ids for throughput metrics
         if ((type == module_type::shim) && 
-            ((metricSet == "read_bandwidth") || (metricSet == "write_bandwidth") || (metricSet == "ddr_bandwidth")) &&
+            ((metricSet == "read_bandwidth") || (metricSet == "write_bandwidth") || 
+             (metricSet == "ddr_bandwidth") || (metricSet == "peak_read_bandwidth") ||
+             (metricSet == "peak_write_bandwidth")) &&
             tile.stream_ids.empty()) {
           std::stringstream msg;
           msg << "Skipping " << metricSet << " configuration for tile (" << +col << "," << +row 
@@ -522,7 +538,9 @@ namespace xdp {
         int numCounters  = 0;
         auto numFreeCtr  = stats.getNumRsc(loc, mod, xaiefal::XAIE_PERFCOUNT);
         
-        if (aie::isDebugVerbosity() && ((metricSet == "ddr_bandwidth") || (metricSet == "read_bandwidth") || (metricSet == "write_bandwidth"))) {
+        if (aie::isDebugVerbosity() && ((metricSet == "ddr_bandwidth") || (metricSet == "read_bandwidth") || 
+            (metricSet == "write_bandwidth") || (metricSet == "peak_read_bandwidth") ||
+            (metricSet == "peak_write_bandwidth"))) {
           std::stringstream msg;
           msg << metricSet << " **** counter reservation: tile (" << +col << "," << +row 
               << ") startEvents.size()=" << startEvents.size()
@@ -532,7 +550,9 @@ namespace xdp {
         }
         
         numFreeCtr = (startEvents.size() < numFreeCtr) ? startEvents.size() : numFreeCtr;
-        if ((type == module_type::shim) && ((metricSet == "ddr_bandwidth") || (metricSet == "read_bandwidth") || (metricSet == "write_bandwidth"))) {
+        if ((type == module_type::shim) && ((metricSet == "ddr_bandwidth") || (metricSet == "read_bandwidth") || 
+            (metricSet == "write_bandwidth") || (metricSet == "peak_read_bandwidth") ||
+            (metricSet == "peak_write_bandwidth"))) {
           numFreeCtr = tile.stream_ids.size();
         }
 

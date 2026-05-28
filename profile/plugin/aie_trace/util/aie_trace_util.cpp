@@ -10,6 +10,7 @@
 #include "xdp/profile/device/pl_device_intf.h"
 #include "xdp/profile/device/tracedefs.h"
 
+#include "core/common/config_reader.h"
 #include "core/common/message.h"
 #include "core/include/xrt/xrt_kernel.h"
 
@@ -20,6 +21,7 @@
 #include <memory>
 #include <regex>
 #include <set>
+#include <string>
 
 // ***************************************************************
 // Anonymous namespace for helper functions local to this file
@@ -778,4 +780,48 @@ namespace xdp::aie::trace {
     }
   }
 
+  static const char* const kStartToBytesMetric = "start_to_bytes_transferred";
+
+  static bool
+  aieProfileConfiguresStartToBytesOnInterfaceTiles()
+  {
+    if (!xrt_core::config::get_aie_profile())
+      return false;
+    const std::string g = boost::algorithm::trim_copy(
+        xrt_core::config::get_aie_profile_settings_graph_based_interface_tile_metrics());
+    const std::string t = boost::algorithm::trim_copy(
+        xrt_core::config::get_aie_profile_settings_tile_based_interface_tile_metrics());
+    return (g.find(kStartToBytesMetric) != std::string::npos)
+        || (t.find(kStartToBytesMetric) != std::string::npos);
+  }
+
+  void
+  warnIfAieInterfaceTraceContendsWithStartToBytes(
+      const std::shared_ptr<AieTraceMetadata>& metadata)
+  {
+    static bool s_warned = false;
+    if (s_warned)
+      return;
+    if (!xrt_core::config::get_aie_trace())
+      return;
+    if (!aieProfileConfiguresStartToBytesOnInterfaceTiles())
+      return;
+
+    bool traceHasInterfaceTile = false;
+    for (const auto& tileMetric : metadata->getConfigMetrics()) {
+      const auto& tile = tileMetric.first;
+      if (aie::getModuleType(tile.row, metadata->getRowOffset()) == module_type::shim) {
+        traceHasInterfaceTile = true;
+        break;
+      }
+    }
+    if (!traceHasInterfaceTile)
+      return;
+
+    s_warned = true;
+    std::string msg =
+        "AIE trace on interface (shim) tiles together with AIE profile start_to_bytes_transferred "
+        "on interface tiles can contend for the same PL user event; AIE trace data may be wrong.";
+    xrt_core::message::send(severity_level::warning, "XRT", msg);
+  } 
 } // namespace xdp::aie::trace

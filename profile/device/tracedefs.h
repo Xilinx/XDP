@@ -82,7 +82,7 @@ Please increase trace_buffer_size and trace_buffer_offload_interval together or 
 #define AIE_TRACE_REUSE_MAX_STREAMS 4
 #define AIE_TRACE_REUSE_MAX_OFFLOAD_INT_US 100
 
-#define AIE_TRACE_UNAVAILABLE "Neither PLIO nor GMIO trace infrastucture is found in the given design. So, AIE event trace will not be available."
+#define AIE_TRACE_UNAVAILABLE "Neither PLIO nor GMIO trace infrastructure is found in the given design. So, AIE event trace will not be available."
 #define AIE_TRACE_BUF_ALLOC_FAIL              "Allocation of buffer for AIE trace failed. AIE trace will not be available."
 #define AIE_TS2MM_WARN_MSG_BUF_FULL           "AIE Trace Buffer is full. Device trace could be incomplete."
 #define AIE_TS2MM_WARN_MSG_CIRC_BUF_OVERWRITE "Circular buffer overwrite was detected in device trace. AIE trace could be incomplete."

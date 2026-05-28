@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (C) 2023-2025 Advanced Micro Devices, Inc. All rights reserved
+// Copyright (C) 2023-2026 Advanced Micro Devices, Inc. All rights reserved
 
 #ifndef XDP_PLUGIN_ML_TIMELINE_IMPL_H
 #define XDP_PLUGIN_ML_TIMELINE_IMPL_H
@@ -19,6 +19,7 @@ namespace xdp {
       VPDatabase* db = nullptr;
       uint32_t mBufSz;
       uint32_t mNumBufSegments;
+      std::string mHwCtxName;
 
     public:
       MLTimelineImpl(VPDatabase* dB, uint32_t sz)
@@ -33,6 +34,10 @@ namespace xdp {
 
       virtual void updateDevice(void*, uint64_t) = 0;
       virtual void finishflushDevice(void*, uint64_t) = 0;
+
+      void setHWContextName(const std::string &nm) {
+        mHwCtxName = nm;
+      }
   };
 
 }

@@ -304,15 +304,29 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
       AIEData.valid = false;
       return;
     }
+  } catch (const std::bad_alloc&) {
+    xrt_core::message::send(severity_level::warning, "XRT",
+                            AIE_TRACE_BUF_ALLOC_FAIL);
+    AIEData.valid = false;
+    return;
   } catch (...) {
     std::string msg = "AIE trace is currently not supported on this platform.";
     xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
                             msg);
     AIEData.valid = false;
+    return;
   }
 
+  // System timeline: enable on single-partition designs
+  // (load_xclbin and register_xclbin / hw_context flows). 
+  const bool iniEnableTimeline =
+      xrt_core::config::get_aie_trace_settings_enable_system_timeline();
+  const auto &overlayCols = AIEData.metadata->getPartitionOverlayStartCols();
+  const bool multipartitionDesign = (overlayCols.size() > 1);
+  const bool enableSystemTimeline = iniEnableTimeline && !multipartitionDesign;
+
   // Support system timeline
-  if (xrt_core::config::get_aie_trace_settings_enable_system_timeline()) {
+  if (enableSystemTimeline) {
 #ifdef _WIN32
     std::string deviceName = "win_device";
 #else

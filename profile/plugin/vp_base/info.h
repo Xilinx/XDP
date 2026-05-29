@@ -1,6 +1,6 @@
 /**
  * Copyright (C) 2016-2021 Xilinx, Inc
- * Copyright (C) 2022-2024 Advanced Micro Devices, Inc. - All rights reserved
+ * Copyright (C) 2022-2026 Advanced Micro Devices, Inc. - All rights reserved
  *
  * Licensed under the Apache License, Version 2.0 (the "License"). You may
  * not use this file except in compliance with the License. A copy of the
@@ -20,8 +20,7 @@
 
 #include <cstdint>
 
-namespace xdp {
-namespace info {
+namespace xdp::info {
 
   const uint64_t aie_profile     = 0x00001 ;
   const uint64_t aie_trace       = 0x00002 ;
@@ -33,7 +32,7 @@ namespace info {
   const uint64_t opencl_counters = 0x00080 ;
   const uint64_t opencl_trace    = 0x00100 ;
   const uint64_t power           = 0x00200 ;
-  const uint64_t system_compiler = 0x00400 ;
+  // Removed functionality: 0x00400 is currently unused
   const uint64_t user            = 0x00800 ;
   const uint64_t vart            = 0x01000 ;
   const uint64_t aie_status      = 0x02000 ;
@@ -43,7 +42,6 @@ namespace info {
   const uint64_t aie_debug       = 0x20000 ;
   const uint64_t aie_dtrace      = 0x40000 ;
 
-} // end namespace info
-} // end namespace xdp ;
+} // end namespace xdp::info
 
 #endif

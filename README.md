@@ -82,7 +82,6 @@ Plugins:
 * opencl : OpenCL trace of host code.  Available on Edge, Alveo, hardware emulation
 * pl_deadlock: Detect and interpret PL deadlock.  Available on Edge, Alveo
 * power: Available on Alveo
-* system_compiler : No feature
 * user : Called from user host code.  Available on Edge, Alveo, Client, hardware emulation.
 * vart : No feature
 * vp_base : No feature

@@ -89,21 +89,19 @@ namespace xdp {
     ~DeviceInfo() ;
 
     // ****** Functions for Device ConfigInfo ******
-    // createXclbinFromLastConfig is the "missing piece" lookup for the
-    //  partial-xclbin flow (AIE-only xclbin paired with a later PL-only
-    //  xclbin, or vice versa). It always returns an XclbinBinData; the ELF
-    //  flow does not partial-pair and is gated out by createConfig.
-    XDP_CORE_EXPORT VPBinData* createXclbinFromLastConfig(XclbinInfoType xclbinQueryType) ;
     // createConfig wraps a single VPBinData (XclbinBinData or ElfBinData)
-    //  into a fresh ConfigInfo and appends it to loadedConfigInfos. For
-    //  ELF the new config is CONFIG_ELF_AIE_ONLY; for xclbin it is one of
-    //  CONFIG_AIE_PL / CONFIG_AIE_PL_FORMED / CONFIG_AIE_ONLY / CONFIG_PL_ONLY.
+    //  into a fresh ConfigInfo and appends it to loadedConfigInfos. The
+    //  source-specific shape is decided by VPBinData::buildConfig:
+    //   - XclbinBinData may merge a partial-load sibling from
+    //     loadedConfigInfos (CONFIG_AIE_PL / CONFIG_AIE_PL_FORMED /
+    //     CONFIG_AIE_ONLY / CONFIG_PL_ONLY).
+    //   - ElfBinData is self-complete (CONFIG_ELF_AIE_ONLY).
     XDP_CORE_EXPORT void createConfig(VPBinData* binary) ;
     XDP_CORE_EXPORT void createEmptyConfig() ;
     
     // ****** Functions for information on the device ******
     XDP_CORE_EXPORT std::string getUniqueDeviceName() const ;
-    XDP_CORE_EXPORT xrt_core::uuid currentXclbinUUID() ;
+    XDP_CORE_EXPORT xrt_core::uuid currentConfigUuid() ;
 
     // ****** Functions for information on the device for the current config ******
     const std::vector<std::unique_ptr<ConfigInfo>>& getLoadedConfigs() const { return loadedConfigInfos ;}

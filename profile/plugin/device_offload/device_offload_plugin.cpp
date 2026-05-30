@@ -398,7 +398,7 @@ namespace xdp {
       {
         DeviceInfo* deviceInfo = (db->getStaticInfo()).getDeviceInfo(deviceId);
         if (deviceInfo != nullptr) {
-          (db->getDynamicInfo()).setCounterResults(deviceId, deviceInfo->currentXclbinUUID(), results) ;
+          (db->getDynamicInfo()).setCounterResults(deviceId, deviceInfo->currentConfigUuid(), results) ;
         }
       }
     }

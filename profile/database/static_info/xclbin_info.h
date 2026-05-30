@@ -190,6 +190,21 @@ namespace xdp {
     AIEInfo&       getAie()       override { return aie; }
     const AIEInfo& getAie() const override { return aie; }
 
+    // Build a CONFIG_AIE_PL / CONFIG_AIE_PL_FORMED / CONFIG_AIE_ONLY /
+    //  CONFIG_PL_ONLY ConfigInfo. For partial xclbins (AIE_ONLY or
+    //  PL_ONLY), consult the device's last config for a complementary
+    //  sibling and merge it in via fromLastConfig().
+    std::unique_ptr<ConfigInfo>
+    buildConfig(DeviceInfo& devInfo) override;
+
+    // Synthesize a "missing piece" XclbinBinData by deep-copying the
+    //  matching half from the device's most-recent config. Returns
+    //  nullptr when no compatible binary is available. Always produces
+    //  XclbinBinData (never ElfBinData), since the partial-load pattern
+    //  is xclbin-only by construction.
+    XDP_CORE_EXPORT static XclbinBinData*
+    fromLastConfig(DeviceInfo& devInfo, XclbinInfoType xclbinQueryType);
+
     // Setters
     void setUuid(const xrt_core::uuid& value) { uuid = value; }
     void setName(const std::string& value)    { name = value; }

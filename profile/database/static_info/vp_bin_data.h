@@ -17,6 +17,7 @@
 #ifndef VP_BIN_DATA_DOT_H
 #define VP_BIN_DATA_DOT_H
 
+#include <memory>
 #include <string>
 
 #include "core/common/system.h"
@@ -30,6 +31,13 @@ namespace xdp {
   // VPBinData implementations. Defined in xclbin_info.h.
   struct PLInfo;
   struct AIEInfo;
+
+  // Forward declarations for buildConfig (defined in xclbin_info.h /
+  // device_info.h). Each concrete VPBinData decides what shape of
+  // ConfigInfo it produces; xclbin variants may consult the device's
+  // history for a partial-load sibling, ELF variants are self-complete.
+  struct ConfigInfo;
+  struct DeviceInfo;
 
   // VPBinData is the neutral abstract interface for any "binary data"
   // associated with a profiling configuration on a device. Today the only
@@ -57,6 +65,17 @@ namespace xdp {
 
     virtual AIEInfo&       getAie()       = 0;
     virtual const AIEInfo& getAie() const = 0;
+
+    // Build a ConfigInfo wrapping this binary, ready to be appended to
+    // DeviceInfo::loadedConfigInfos. Each concrete VPBinData decides:
+    //   - XclbinBinData may consult devInfo for a partial-load sibling
+    //     (AIE-only paired with PL-only, etc.) and merge it in.
+    //   - ElfBinData is self-complete and ignores devInfo.
+    // Ownership: 'this' is non-owning at call time; the returned
+    // ConfigInfo takes ownership of it via its addBinary() and deletes
+    // through the polymorphic VPBinData* base in ~ConfigInfo().
+    virtual std::unique_ptr<ConfigInfo>
+    buildConfig(DeviceInfo& devInfo) = 0;
 
   protected:
     VPBinData() = default;

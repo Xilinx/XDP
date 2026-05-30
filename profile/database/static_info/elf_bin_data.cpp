@@ -100,4 +100,15 @@ namespace xdp {
     }
   }
 
+  std::unique_ptr<ConfigInfo>
+  ElfBinData::buildConfig(DeviceInfo& /*devInfo*/)
+  {
+    // ELF binaries are self-complete: no partial-load sibling lookup,
+    //  no inspection of prior configs. Just wrap and tag.
+    auto config = std::make_unique<ConfigInfo>();
+    config->addBinary(this);
+    config->type = CONFIG_ELF_AIE_ONLY;
+    return config;
+  }
+
 } // namespace xdp

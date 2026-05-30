@@ -20,6 +20,7 @@
 #include "xdp/profile/database/static_info/aie_constructs.h"
 #include "xdp/profile/database/static_info/pl_constructs.h"
 #include "xdp/profile/database/static_info/xclbin_info.h"
+#include "xdp/profile/database/static_info/device_info.h"
 #include "xdp/profile/device/pl_device_intf.h"
 #include "core/common/message.h"
 
@@ -746,5 +747,108 @@ namespace xdp {
         }
       }
       return false ;
+    }
+
+    // ----------------------------------------------------------------------
+    //  XclbinBinData::buildConfig and fromLastConfig
+    //
+    //  Together these own the xclbin-flow specifics that previously lived
+    //  inside DeviceInfo: the partial-load merge (AIE_ONLY paired with a
+    //  later PL_ONLY xclbin, or vice versa) and the resulting ConfigInfo
+    //  shape. DeviceInfo no longer switches on source type; it just calls
+    //  binary->buildConfig(*this) polymorphically.
+    // ----------------------------------------------------------------------
+    std::unique_ptr<ConfigInfo>
+    XclbinBinData::buildConfig(DeviceInfo& devInfo)
+    {
+      auto config = std::make_unique<ConfigInfo>();
+      config->addBinary(this);
+
+      auto currentBinaryType = getType();
+
+      // A complete xclbin (AIE+PL) needs no merge; ConfigInfo defaults to
+      //  CONFIG_AIE_PL.
+      if (currentBinaryType == XCLBIN_AIE_PL)
+        return config;
+
+      // Partial xclbin: search devInfo's last config for the missing
+      //  half. Mark this binary's missing side invalid, exactly as
+      //  DeviceInfo::createConfig used to.
+      VPBinData* missingBinary = nullptr;
+      if (currentBinaryType == XCLBIN_AIE_ONLY) {
+        getPl().valid = false;
+        missingBinary = XclbinBinData::fromLastConfig(devInfo, XCLBIN_PL_ONLY);
+      }
+      else {
+        getAie().valid = false;
+        missingBinary = XclbinBinData::fromLastConfig(devInfo, XCLBIN_AIE_ONLY);
+      }
+
+      if (missingBinary) {
+        const auto& history = devInfo.getLoadedConfigs();
+        config->currentBinaries.back()->getAie().numTracePLIO =
+            history.empty() ? 0
+                            : history.back()->currentBinaries.back()->getAie().numTracePLIO;
+        config->addBinary(missingBinary);
+        config->type = CONFIG_AIE_PL_FORMED;
+      }
+      else {
+        config->type = (currentBinaryType == XCLBIN_AIE_ONLY)
+                       ? CONFIG_AIE_ONLY : CONFIG_PL_ONLY;
+      }
+
+      return config;
+    }
+
+    XclbinBinData*
+    XclbinBinData::fromLastConfig(DeviceInfo& devInfo,
+                                  XclbinInfoType xclbinQueryType)
+    {
+      const auto& configs = devInfo.getLoadedConfigs();
+      if (configs.empty()) {
+        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+                                "Loaded config on device is empty.");
+        return nullptr;
+      }
+
+      bool binaryAvailable = false;
+      auto lastConfigType = configs.back()->type;
+      if (lastConfigType == CONFIG_AIE_PL || lastConfigType == CONFIG_AIE_PL_FORMED)
+        binaryAvailable = true;
+
+      if (!binaryAvailable) {
+        if (configs.back()->containsBinaryType(xclbinQueryType))
+          binaryAvailable = true;
+      }
+
+      if (!binaryAvailable)
+        return nullptr;
+
+      xrt_core::message::send(xrt_core::message::severity_level::info, "XRT",
+                              "Missing binary is available in config.");
+      ConfigInfo* lastCfg = configs.back().get();
+      for (auto& bin : lastCfg->currentBinaries) {
+        if (bin->getType() != xclbinQueryType && bin->getType() != XCLBIN_AIE_PL)
+          continue;
+
+        // The partial-load pattern only ever pairs xclbin halves; ELF
+        //  binaries get filtered out by the type check above (their
+        //  getType() is ELF_AIE_ONLY).
+        auto* requiredBinary = new XclbinBinData(xclbinQueryType);
+
+        if (xclbinQueryType == XCLBIN_AIE_ONLY) {
+          requiredBinary->getAie() = bin->getAie();
+          requiredBinary->getPl().valid = false;
+        }
+        else {
+          requiredBinary->getPl() = bin->getPl();
+          requiredBinary->getAie().valid = false;
+        }
+        requiredBinary->setUuid(bin->getUuid());
+        requiredBinary->setName(bin->getName());
+        return requiredBinary;
+      }
+
+      return nullptr;
     }
 } // end namespace xdp

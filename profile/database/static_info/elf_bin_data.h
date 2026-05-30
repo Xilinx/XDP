@@ -92,6 +92,13 @@ namespace xdp {
     AIEInfo&       getAie()       override { return m_aie; }
     const AIEInfo& getAie() const override { return m_aie; }
 
+    // ELF binaries are self-complete (AIE-only by construction, never
+    //  paired with a PL piece). buildConfig produces a single-binary
+    //  CONFIG_ELF_AIE_ONLY ConfigInfo and ignores devInfo entirely; the
+    //  partial-load merge that XclbinBinData performs does not apply.
+    std::unique_ptr<ConfigInfo>
+    buildConfig(DeviceInfo& devInfo) override;
+
     // ELF-specific surface ----------------------------------------------
     // Acquire AIE metadata. Tries the AIE_TRACE_METADATA custom section
     // embedded in the ELF first, then falls back to disk-JSON

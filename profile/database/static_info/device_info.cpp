@@ -37,129 +37,22 @@ namespace xdp {
     return deviceName + "-" + std::to_string(deviceId) ;
   }
 
-  xrt_core::uuid DeviceInfo::currentXclbinUUID()
+  xrt_core::uuid DeviceInfo::currentConfigUuid()
   {
     if (loadedConfigInfos.size() <= 0)
       return xrt_core::uuid() ;
     return loadedConfigInfos.back()->getConfigUuid();
   }
 
-  VPBinData* DeviceInfo::createXclbinFromLastConfig(XclbinInfoType xclbinQueryType)
-  {
-    VPBinData* requiredBinary = nullptr;
-    if (loadedConfigInfos.empty()) {
-      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "Loaded config on device is empty.");
-      return requiredBinary;
-    }
-
-    bool binaryAvailable = false;
-    auto lastConfigType = loadedConfigInfos.back()->type;
-    if (lastConfigType == CONFIG_AIE_PL || lastConfigType == CONFIG_AIE_PL_FORMED)
-      binaryAvailable = true;
-
-    if (!binaryAvailable) {
-      if (loadedConfigInfos.back()->containsBinaryType(xclbinQueryType))
-        binaryAvailable = true;
-    }
-
-    if (binaryAvailable) {
-      xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Missing binary is available in config.");
-      ConfigInfo* lastCfg = loadedConfigInfos.back().get();
-      for (auto &bin : lastCfg->currentBinaries)
-      {
-        if (bin->getType() == xclbinQueryType || bin->getType() == XCLBIN_AIE_PL) {
-          // createXclbinFromLastConfig is the "missing piece" lookup for the
-          //  xclbin partial-load flow (AIE-only xclbin + later PL-only xclbin
-          //  pairs up into a logical full config, or vice versa). The ELF
-          //  flow loads a single self-complete AIE-only binary and is never
-          //  paired with anything, so ELF_AIE_ONLY is not a valid query for
-          //  this function. The caller (createConfig) gates it out.
-          requiredBinary = new XclbinBinData(xclbinQueryType);
-
-          if (xclbinQueryType == XCLBIN_AIE_ONLY)
-          {
-            // Perform deep copy of missing AIE binary
-            requiredBinary->getAie() = bin->getAie();
-            requiredBinary->getPl().valid = false ;
-          }
-          else
-          {
-            // Perform deep copy of missing PL binary
-            requiredBinary->getPl() = bin->getPl();
-            requiredBinary->getAie().valid = false ;
-          }
-          // setUuid/setName are XclbinBinData-only setters; route through a
-          //  downcast guarded by isXclbin(). Since createXclbinFromLastConfig
-          //  only produces XclbinBinData (never ElfBinData), the cast is
-          //  always valid here.
-          if (requiredBinary->isXclbin()) {
-            auto* xclbinBin = static_cast<XclbinBinData*>(requiredBinary);
-            xclbinBin->setUuid(bin->getUuid()) ;
-            xclbinBin->setName(bin->getName()) ;
-          }
-          break;  // Need only one such missing binary from last config.
-        }
-      }
-    }
-    return requiredBinary;
-  }
-
   void DeviceInfo::createConfig(VPBinData* binary)
   {
-    // Create a new config
-    std::unique_ptr<ConfigInfo> config = std::make_unique<ConfigInfo>();
-    config->addBinary(binary);
-
-    auto currentBinaryType = binary->getType();
-
-    // ELF binaries are self-complete (AIE-only by construction, never
-    //  paired with a PL piece). Skip the xclbin "missing piece" search
-    //  entirely - it would otherwise call binary->getPl() and throw on
-    //  an ElfBinData.
-    if (currentBinaryType == ELF_AIE_ONLY)
-    {
-      config->type = CONFIG_ELF_AIE_ONLY;
-      loadedConfigInfos.push_back(std::move(config));
-      return;
-    }
-
-    // Check if this itself is a complete xclbin (AIE+PL).
-    if (currentBinaryType == XCLBIN_AIE_PL)
-    {
-      loadedConfigInfos.push_back(std::move(config));
-      return;
-    }
-
-    // If it is not a complete xclbin.
-    //  Check what is missing & request that missing binary.
-    //    a. AIEInfo or PLInfo
-    VPBinData *missingBinary = nullptr;
-    if (currentBinaryType == XCLBIN_AIE_ONLY)
-    {
-      binary->getPl().valid = false ;
-      missingBinary = createXclbinFromLastConfig(XCLBIN_PL_ONLY);
-    }
-    else
-    {
-      binary->getAie().valid = false ;
-      missingBinary = createXclbinFromLastConfig(XCLBIN_AIE_ONLY);
-    }
-
-    // If missing part of the binary is available.
-    if (missingBinary)
-    {
-      config->currentBinaries.back()->getAie().numTracePLIO = loadedConfigInfos.size() == 0 ? 0 : loadedConfigInfos.back()->currentBinaries.back()->getAie().numTracePLIO;
-      config->addBinary(missingBinary);
-      config->type = CONFIG_AIE_PL_FORMED;
-    }
-    else
-    {
-      // If missing part of the binary is not available.
-      // This is same binary type load as previous binary.
-      config->type = (currentBinaryType == XCLBIN_AIE_ONLY) ? CONFIG_AIE_ONLY : CONFIG_PL_ONLY ;
-    }
-
-    loadedConfigInfos.push_back(std::move(config));
+    // Source-specific config construction lives on the binary itself
+    //  (VPBinData::buildConfig). XclbinBinData performs the partial-load
+    //  merge by consulting loadedConfigInfos via XclbinBinData::fromLastConfig;
+    //  ElfBinData produces a self-complete CONFIG_ELF_AIE_ONLY. DeviceInfo
+    //  no longer switches on getType() and never calls the partial-load
+    //  factory directly.
+    loadedConfigInfos.push_back(binary->buildConfig(*this));
   }
 
   void DeviceInfo::createEmptyConfig()

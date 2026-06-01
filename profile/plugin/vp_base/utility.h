@@ -25,6 +25,14 @@ namespace xdp {
   XDP_CORE_EXPORT uint64_t getAlignedTraceBufSize(uint64_t totalBytes,
                                                   unsigned int numChunks);
 
+  // Returns true if the given kernel name identifies a run that an
+  // XDP plugin submitted itself (as opposed to a user-application
+  // run). The convention is a "XDP_KERNEL" prefix on the kernel name
+  // passed to xrt::ext::kernel; see vp_base_plugin.cpp for the
+  // canonical definition. Use this from any non-hook XDP code path
+  // (e.g. device-flow hooks) that needs the same filter.
+  XDP_CORE_EXPORT bool isXdpInternalKernel(const std::string& kernel_name);
+
   enum Flow {
     SW_EMU  = 0,
     HW_EMU  = 1,

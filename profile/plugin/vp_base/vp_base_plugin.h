@@ -18,6 +18,8 @@
 #ifndef VP_BASE_PLUGIN_DOT_H
 #define VP_BASE_PLUGIN_DOT_H
 
+#include <cstdint>
+#include <string>
 #include <vector>
 
 #include "xdp/profile/database/database.h"
@@ -73,6 +75,24 @@ namespace xdp {
     XDP_CORE_EXPORT void endWrite();
     XDP_CORE_EXPORT void trySafeWrite(const std::string& type, bool openNewFiles);
 
+    // Run-lifecycle hook implementations. Plugins that want to react to
+    // xrt::run construction / start / wait override one or more of these.
+    // Defaults are no-ops so plugins that don't care need no code.
+    // These are NEVER called directly by plugin _cb.cpp glue; the public
+    // non-virtual run*Hook wrappers below are the only entry point and
+    // they filter out XDP-internal runs first.
+    virtual void runConstructorImpl(void* /*run_impl_ptr*/, void* /*hwctx*/,
+                                    uint32_t /*run_uid*/,
+                                    const std::string& /*kernel_name*/,
+                                    void* /*elf_handle*/) {}
+    virtual void runStartImpl(void* /*run_impl_ptr*/, void* /*hwctx*/,
+                              uint32_t /*run_uid*/,
+                              const std::string& /*kernel_name*/) {}
+    virtual void runWaitImpl(void* /*run_impl_ptr*/, void* /*hwctx*/,
+                             uint32_t /*run_uid*/,
+                             const std::string& /*kernel_name*/,
+                             int /*ert_cmd_state*/) {}
+
   public:
     XDP_CORE_EXPORT XDPPlugin() ;
     XDP_CORE_EXPORT virtual ~XDPPlugin() ;
@@ -90,6 +110,24 @@ namespace xdp {
 
     XDP_CORE_EXPORT
     static unsigned int get_trace_file_dump_int_s ();
+
+    // Run-lifecycle hook entry points. Plugin _cb.cpp glue MUST call
+    // these (not the protected *Impl methods). Each one first skips
+    // runs that an XDP plugin itself submitted (kernels whose name has
+    // the "XDP_KERNEL" prefix) and otherwise delegates to the
+    // corresponding virtual *Impl. These are intentionally non-virtual
+    // so derived plugins cannot accidentally bypass the filter.
+    XDP_CORE_EXPORT void runConstructorHook(void* run_impl_ptr, void* hwctx,
+                                            uint32_t run_uid,
+                                            const std::string& kernel_name,
+                                            void* elf_handle);
+    XDP_CORE_EXPORT void runStartHook(void* run_impl_ptr, void* hwctx,
+                                      uint32_t run_uid,
+                                      const std::string& kernel_name);
+    XDP_CORE_EXPORT void runWaitHook(void* run_impl_ptr, void* hwctx,
+                                     uint32_t run_uid,
+                                     const std::string& kernel_name,
+                                     int ert_cmd_state);
   } ;
 
 }

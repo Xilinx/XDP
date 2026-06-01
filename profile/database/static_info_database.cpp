@@ -1723,9 +1723,22 @@ namespace xdp {
                                 std::shared_ptr<xrt_core::device> device,
                                 xrt::elf elf)
   {
+    xrt_core::uuid elfUuid;
+    try {
+      elfUuid = elf.get_cfg_uuid();
+    }
+    catch (const std::exception& e) {
+      std::string msg = "AIE ELF flow: ELF does not report a config UUID: ";
+      msg += e.what();
+      msg += ". Device static info will not be updated for this ELF.";
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg);
+      return;
+    }
+
     DeviceInfo* devInfo = nullptr;
     {
       std::lock_guard<std::mutex> lock(deviceLock);
+
       auto itr = deviceInfo.find(deviceId);
       if (itr == deviceInfo.end()) {
         deviceInfo[deviceId] = std::make_unique<DeviceInfo>();
@@ -1733,6 +1746,16 @@ namespace xdp {
         devInfo->deviceId = deviceId;
       } else {
         devInfo = itr->second.get();
+      }
+
+      // If multiple plugins are enabled for the current run, the first plugin
+      //  has already updated device information in the static database for this
+      //  ELF. So, no need to build and register it again.
+      ConfigInfo* config = devInfo->currentConfig();
+      if (config && config->containsBinary(elfUuid)) {
+        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+          "AIE ELF flow: device already updated for this ELF; skipping duplicate config.");
+        return;
       }
     }
 

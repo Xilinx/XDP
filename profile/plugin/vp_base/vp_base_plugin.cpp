@@ -18,7 +18,9 @@
 #define XDP_CORE_SOURCE
 
 #include <cstdlib>
+#include <string>
 
+#include "xdp/profile/plugin/vp_base/utility.h"
 #include "xdp/profile/plugin/vp_base/vp_base_plugin.h"
 #include "xdp/profile/writer/vp_base/vp_run_summary.h"
 #include "xdp/profile/database/database.h"
@@ -33,6 +35,23 @@
 #endif
 
 namespace xdp {
+
+  // Single source of truth for the convention that distinguishes a run
+  // submitted by an XDP plugin itself from a run submitted by user code.
+  // xrt_core::api kernel_impl::get_name() strips everything after the
+  // first ':' (see core/common/api/xrt_kernel.cpp), so an XDP plugin
+  // kernel constructed as e.g. "XDP_KERNEL:{IPUV1CNN}" arrives at the
+  // run-lifecycle hooks as exactly "XDP_KERNEL". A prefix match is used
+  // (rather than equality) to leave room for future internal kernels of
+  // the form "XDP_KERNEL_FOO" without changing this convention.
+  namespace {
+    constexpr const char* kXdpInternalKernelPrefix = "XDP_KERNEL";
+  } // namespace
+
+  bool isXdpInternalKernel(const std::string& kernel_name)
+  {
+    return kernel_name.rfind(kXdpInternalKernelPrefix, 0) == 0;
+  }
 
   unsigned int XDPPlugin::trace_file_dump_int_s = 5;
   bool XDPPlugin::trace_int_cached = false;
@@ -162,6 +181,35 @@ namespace xdp {
       }
       mtx_writer_list.unlock();
     }
+  }
+
+  void XDPPlugin::runConstructorHook(void* run_impl_ptr, void* hwctx,
+                                     uint32_t run_uid,
+                                     const std::string& kernel_name,
+                                     void* elf_handle)
+  {
+    if (isXdpInternalKernel(kernel_name))
+      return;
+    runConstructorImpl(run_impl_ptr, hwctx, run_uid, kernel_name, elf_handle);
+  }
+
+  void XDPPlugin::runStartHook(void* run_impl_ptr, void* hwctx,
+                               uint32_t run_uid,
+                               const std::string& kernel_name)
+  {
+    if (isXdpInternalKernel(kernel_name))
+      return;
+    runStartImpl(run_impl_ptr, hwctx, run_uid, kernel_name);
+  }
+
+  void XDPPlugin::runWaitHook(void* run_impl_ptr, void* hwctx,
+                              uint32_t run_uid,
+                              const std::string& kernel_name,
+                              int ert_cmd_state)
+  {
+    if (isXdpInternalKernel(kernel_name))
+      return;
+    runWaitImpl(run_impl_ptr, hwctx, run_uid, kernel_name, ert_cmd_state);
   }
 
 } // end namespace xdp

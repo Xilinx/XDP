@@ -26,12 +26,13 @@ namespace xdp {
     try {
       m_uuid = m_elf.get_cfg_uuid();
     }
-    catch (const std::exception&) {
-      // Keep default-constructed (nil) uuid if the ELF cannot report one.
+    catch (const std::exception& e) {
+      std::string msg = "ElfBinData: ELF does not report a config UUID: ";
+      msg += e.what();
+      xrt_core::message::send(severity_level::debug, "XRT", msg);
+      throw;
     }
-
-    // Mirror XclbinBinData(XCLBIN_AIE_ONLY): AIE side is the only valid
-    // half of an ELF-backed binary.
+    
     m_aie.valid = true;
   }
 

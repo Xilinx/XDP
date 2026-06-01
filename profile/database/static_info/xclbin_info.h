@@ -175,13 +175,13 @@ namespace xdp {
   class XclbinBinData final : public VPBinData
   {
   public:
-    explicit XclbinBinData(XclbinInfoType xclbinType) ;
+    explicit XclbinBinData(BinaryInfoType xclbinType) ;
     ~XclbinBinData() override = default;
 
     // VPBinData interface
     const xrt_core::uuid& getUuid() const override { return uuid; }
     const std::string&    getName() const override { return name; }
-    XclbinInfoType        getType() const override { return type; }
+    BinaryInfoType        getType() const override { return type; }
     BinDataSource         source()  const override { return BinDataSource::XCLBIN; }
 
     PLInfo&       getPl()        override { return pl; }
@@ -203,12 +203,12 @@ namespace xdp {
     //  XclbinBinData (never ElfBinData), since the partial-load pattern
     //  is xclbin-only by construction.
     XDP_CORE_EXPORT static XclbinBinData*
-    fromLastConfig(DeviceInfo& devInfo, XclbinInfoType xclbinQueryType);
+    fromLastConfig(DeviceInfo& devInfo, BinaryInfoType xclbinQueryType);
 
     // Setters
     void setUuid(const xrt_core::uuid& value) { uuid = value; }
     void setName(const std::string& value)    { name = value; }
-    void setType(XclbinInfoType value)        { type = value; }
+    void setType(BinaryInfoType value)        { type = value; }
 
     // Fields are kept public during the VPBinData migration so non-profile
     //  writers and plugins (which still use direct field access) keep
@@ -217,7 +217,7 @@ namespace xdp {
     //  interface above.
     xrt_core::uuid uuid ;
     std::string    name ;
-    XclbinInfoType type {XCLBIN_AIE_PL} ;
+    BinaryInfoType type {XCLBIN_AIE_PL} ;
 
     // The configuration of the PL portion of the design
     PLInfo pl ;
@@ -268,7 +268,7 @@ namespace xdp {
     inline void updateType(ConfigInfoType cfgType) { type=cfgType; }
 
     bool containsBinary(xrt_core::uuid& uuid) ;
-    bool containsBinaryType(XclbinInfoType& binaryQueryType);
+    bool containsBinaryType(BinaryInfoType& binaryQueryType);
 
     XDP_CORE_EXPORT VPBinData* getPlBinary() ;
     XDP_CORE_EXPORT VPBinData* getAieBinary() ;
@@ -321,7 +321,7 @@ namespace xdp {
     void addAIEMemTileEventResources(uint32_t numEvents,
                                               uint32_t numTiles) ;
     void addAIECfgTile(std::unique_ptr<aie_cfg_tile>&& tile) ;
-    void cleanCurrentBinaryInfos(XclbinInfoType binaryType) ;
+    void cleanCurrentBinaryInfos(BinaryInfoType binaryType) ;
     bool hasAIMNamed(const std::string& name) ;
   } ;
 

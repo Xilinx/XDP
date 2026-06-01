@@ -20,7 +20,7 @@
 
 namespace xdp {
 
-  enum XclbinInfoType {
+  enum BinaryInfoType {
       XCLBIN_PL_ONLY,
       XCLBIN_AIE_ONLY,
       XCLBIN_AIE_PL,
@@ -36,9 +36,6 @@ namespace xdp {
     CONFIG_ELF_AIE_ONLY
   } ;
 
-  // Distinguishes the binary source backing a VPBinData instance
-  // without requiring RTTI. Plugins / database code can branch on this
-  // (e.g. xclbin path vs. full-ELF path).
   enum class BinDataSource {
     XCLBIN,
     ELF

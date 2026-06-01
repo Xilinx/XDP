@@ -54,7 +54,7 @@ namespace xdp {
 
     virtual const xrt_core::uuid& getUuid() const = 0;
     virtual const std::string&    getName() const = 0;
-    virtual XclbinInfoType        getType() const = 0;
+    virtual BinaryInfoType        getType() const = 0;
     virtual BinDataSource         source()  const = 0;
 
     bool isXclbin() const { return source() == BinDataSource::XCLBIN; }

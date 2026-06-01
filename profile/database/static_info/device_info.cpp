@@ -328,7 +328,7 @@ namespace xdp {
     return getLoadedConfigs().back().get() ;
   }
 
-  void DeviceInfo::cleanCurrentConfig(XclbinInfoType type)
+  void DeviceInfo::cleanCurrentConfig(BinaryInfoType type)
   {
     ConfigInfo* config = currentConfig() ;
     if (!config || config->currentBinaries.empty())

@@ -206,19 +206,12 @@ namespace xdp {
     aieCfgList.clear() ;
   }
 
-  XclbinBinData::XclbinBinData(XclbinInfoType xclbinType) : type(xclbinType)
+  XclbinBinData::XclbinBinData(BinaryInfoType xclbinType) : type(xclbinType)
   {
-      if (xclbinType == XclbinInfoType::XCLBIN_PL_ONLY) {
+      if (xclbinType == BinaryInfoType::XCLBIN_PL_ONLY) {
         pl.valid  = true;
         aie.valid = false;
-      } else if (xclbinType == XclbinInfoType::XCLBIN_AIE_ONLY) {
-        pl.valid  = false;
-        aie.valid = true;
-      } else if (xclbinType == XclbinInfoType::ELF_AIE_ONLY) {
-        // Forward-compat: ELF-sourced configuration is AIE-only. The
-        // concrete xclbin-backed object is not normally constructed with
-        // this enum value (it is reserved for the future ElfBinData
-        // implementation), but keep behavior symmetric should it occur.
+      } else if (xclbinType == BinaryInfoType::XCLBIN_AIE_ONLY) {
         pl.valid  = false;
         aie.valid = true;
       }
@@ -278,7 +271,7 @@ namespace xdp {
     return false;
   }
 
-  bool ConfigInfo::containsBinaryType(XclbinInfoType& binaryQueryType)
+  bool ConfigInfo::containsBinaryType(BinaryInfoType& binaryQueryType)
   {
     for (auto bin : currentBinaries)
     {
@@ -710,7 +703,7 @@ namespace xdp {
       }
     }
 
-    void ConfigInfo::cleanCurrentBinaryInfos(XclbinInfoType binaryType)
+    void ConfigInfo::cleanCurrentBinaryInfos(BinaryInfoType binaryType)
     {
       if (binaryType == XCLBIN_AIE_ONLY)   {
         xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
@@ -802,7 +795,7 @@ namespace xdp {
 
     XclbinBinData*
     XclbinBinData::fromLastConfig(DeviceInfo& devInfo,
-                                  XclbinInfoType xclbinQueryType)
+                                  BinaryInfoType xclbinQueryType)
     {
       const auto& configs = devInfo.getLoadedConfigs();
       if (configs.empty()) {

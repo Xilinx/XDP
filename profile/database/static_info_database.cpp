@@ -436,7 +436,7 @@ namespace xdp {
   // This function will create a PL Device Interface if an xdp::Device is
   // passed in, and then associate it with the current xclbin loaded onto
   // the device corresponding to deviceId.
-  void VPStaticDatabase::createPLDeviceIntf(uint64_t deviceId, std::unique_ptr<xdp::Device> dev, XclbinInfoType newXclbinType)
+  void VPStaticDatabase::createPLDeviceIntf(uint64_t deviceId, std::unique_ptr<xdp::Device> dev, BinaryInfoType newXclbinType)
   {
     std::lock_guard<std::mutex> lock(deviceLock);
 
@@ -1661,7 +1661,7 @@ namespace xdp {
       }
     }
     if (addPlIntfOnly) {
-      XclbinInfoType xclbinType = getXclbinType(xrtXclbin);
+      BinaryInfoType xclbinType = getXclbinType(xrtXclbin);
       createPLDeviceIntf(deviceId, std::move(xdpDevice), xclbinType);
       return;
     }
@@ -1736,7 +1736,17 @@ namespace xdp {
       }
     }
 
-    auto bin = std::make_unique<ElfBinData>(std::move(elf), std::move(device));
+    std::unique_ptr<ElfBinData> bin;
+    try {
+      bin = std::make_unique<ElfBinData>(std::move(elf), std::move(device));
+    }
+    catch (const std::exception& e) {
+      std::string msg = "AIE Profile ELF flow: failed to construct ElfBinData: ";
+      msg += e.what();
+      msg += ". Device static info will not be updated for this ELF.";
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg);
+      return;
+    }
 
     boost::property_tree::ptree aieTree;
     auto reader = bin->readAIEMetadata(aieTree);
@@ -1835,11 +1845,11 @@ namespace xdp {
 
     xrt::uuid loadedXclbinUuid = getXclbinUuidOnDeviceHwCtxFlow(hwCtxImpl);
     xrt::xclbin loadedXclbin     = device->get_xclbin(loadedXclbinUuid);
-    XclbinInfoType loadedXclbinType = getXclbinType(loadedXclbin);
+    BinaryInfoType loadedXclbinType = getXclbinType(loadedXclbin);
 
     std::lock_guard<std::mutex> lock(hwCtxImplUIDMapLock);
-    if ((loadedXclbinType == XclbinInfoType::XCLBIN_PL_ONLY) ||
-        (loadedXclbinType == XclbinInfoType::XCLBIN_AIE_PL)) {
+    if ((loadedXclbinType == BinaryInfoType::XCLBIN_PL_ONLY) ||
+        (loadedXclbinType == BinaryInfoType::XCLBIN_AIE_PL)) {
       hwCtxImplUIDMap.emplace(hwCtxImpl, HwContextInfo(DEFAULT_PL_DEVICE_ID, 1)); // For PL_ONLY and AIE_PL xclbins, use 0 deviceId.
 
       // At this point, also keep track of which xclbin is associated
@@ -1906,10 +1916,10 @@ namespace xdp {
     else
       loadedXclbinUuid = getXclbinUuidOnDevice(device);
     xrt::xclbin loadedXclbin = device->get_xclbin(loadedXclbinUuid);
-    XclbinInfoType loadedXclbinType = getXclbinType(loadedXclbin);
+    BinaryInfoType loadedXclbinType = getXclbinType(loadedXclbin);
 
-    return ((loadedXclbinType == XclbinInfoType::XCLBIN_PL_ONLY) ||
-            (loadedXclbinType == XclbinInfoType::XCLBIN_AIE_PL));
+    return ((loadedXclbinType == BinaryInfoType::XCLBIN_PL_ONLY) ||
+            (loadedXclbinType == BinaryInfoType::XCLBIN_AIE_PL));
   }
 
   // Return true if we should reset the device information.
@@ -2649,7 +2659,7 @@ namespace xdp {
     commandQueueAddresses.emplace(a) ;
   }
 
-  XclbinInfoType VPStaticDatabase::getXclbinType(xrt::xclbin& xclbin)
+  BinaryInfoType VPStaticDatabase::getXclbinType(xrt::xclbin& xclbin)
   {
     const axlf* binary = xclbin.get_axlf();
     if (binary == nullptr) {
@@ -2697,7 +2707,7 @@ namespace xdp {
 
   DeviceInfo* VPStaticDatabase::updateDevice(uint64_t deviceId, xrt::xclbin xrtXclbin, std::unique_ptr<xdp::Device> xdpDevice, bool clientBuild, bool readAIEdata)
   {
-    XclbinInfoType xclbinType = getXclbinType(xrtXclbin);
+    BinaryInfoType xclbinType = getXclbinType(xrtXclbin);
     // We need to update the device, but if we had an xclbin previously loaded
     //  then we need to mark it and remove the PL interface.  We'll
     //  create a new PL interface if necessary

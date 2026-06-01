@@ -83,7 +83,7 @@ namespace xdp {
     // VPBinData interface ------------------------------------------------
     const xrt_core::uuid& getUuid() const override { return m_uuid; }
     const std::string&    getName() const override { return m_name; }
-    XclbinInfoType        getType() const override { return ELF_AIE_ONLY; }
+    BinaryInfoType        getType() const override { return ELF_AIE_ONLY; }
     BinDataSource         source()  const override { return BinDataSource::ELF; }
 
     PLInfo&       getPl()       override;

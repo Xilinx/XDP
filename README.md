@@ -68,7 +68,6 @@ Plugins:
 * aie_base : No feature
 * aie_debug : No feature
 * aie_halt : Internal, used with ML Debugger on Client
-* aie_pc : No feature
 * aie_profile : Used on Client, Edge, Alveo, hardware emulation
 * aie_status : Used on Edge, Alveo, hardware emulation
 * aie_trace : Used on Client, Edge, Alveo, hardware emulation
@@ -78,7 +77,6 @@ Plugins:
 * lop : Low-overhead OpenCL trace of host code.  Available on Edge, Alveo, hardware emulation
 * ml_timeline : Available on Client and VE2 (VAIML)
 * native : host trace used on Edge, Alveo, and Client, hardware emulation
-* noc : No feature
 * opencl : OpenCL trace of host code.  Available on Edge, Alveo, hardware emulation
 * pl_deadlock: Detect and interpret PL deadlock.  Available on Edge, Alveo
 * power: Available on Alveo

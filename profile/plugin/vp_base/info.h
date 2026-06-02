@@ -28,7 +28,7 @@ namespace xdp::info {
   const uint64_t hal             = 0x00008 ;
   const uint64_t lop             = 0x00010 ;
   const uint64_t native          = 0x00020 ;
-  const uint64_t noc             = 0x00040 ;
+  // Removed functionality: 0x00040 is currently unused
   const uint64_t opencl_counters = 0x00080 ;
   const uint64_t opencl_trace    = 0x00100 ;
   const uint64_t power           = 0x00200 ;
@@ -38,7 +38,7 @@ namespace xdp::info {
   const uint64_t aie_status      = 0x02000 ;
   const uint64_t ml_timeline     = 0x04000 ;
   const uint64_t aie_halt        = 0x08000 ;
-  const uint64_t aie_pc          = 0x10000 ;
+  // Removed functionality: 0x10000 is currently unused
   const uint64_t aie_debug       = 0x20000 ;
   const uint64_t aie_dtrace      = 0x40000 ;
 

@@ -25,7 +25,6 @@ elseif (XDP_CLIENT_BUILD_CMAKE STREQUAL "yes")
 
   if (WIN32)
     add_subdirectory(aie_halt)
-    add_subdirectory(aie_pc)
   endif()
    
 else()

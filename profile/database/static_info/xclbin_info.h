@@ -51,16 +51,16 @@ namespace xdp {
     ~XclbinBinData() override = default;
 
     // VPBinData interface
-    const xrt_core::uuid& getUuid() const override { return uuid; }
-    const std::string&    getName() const override { return name; }
-    BinaryInfoType        getType() const override { return type; }
+    const xrt_core::uuid& getUuid() const override { return m_uuid; }
+    const std::string&    getName() const override { return m_name; }
+    BinaryInfoType        getType() const override { return m_type; }
     BinDataSource         source()  const override { return BinDataSource::XCLBIN; }
 
-    PLInfo&       getPl()        override { return pl; }
-    const PLInfo& getPl()  const override { return pl; }
+    PLInfo&       getPl()        override { return m_pl; }
+    const PLInfo& getPl()  const override { return m_pl; }
 
-    AIEInfo&       getAie()       override { return aie; }
-    const AIEInfo& getAie() const override { return aie; }
+    AIEInfo&       getAie()       override { return m_aie; }
+    const AIEInfo& getAie() const override { return m_aie; }
 
     // Build a CONFIG_AIE_PL / CONFIG_AIE_PL_FORMED / CONFIG_AIE_ONLY /
     //  CONFIG_PL_ONLY ConfigInfo. For partial xclbins (AIE_ONLY or
@@ -77,25 +77,21 @@ namespace xdp {
     XDP_CORE_EXPORT static XclbinBinData*
     fromLastConfig(DeviceInfo& devInfo, BinaryInfoType xclbinQueryType);
 
-    // Setters
-    void setUuid(const xrt_core::uuid& value) { uuid = value; }
-    void setName(const std::string& value)    { name = value; }
-    void setType(BinaryInfoType value)        { type = value; }
+    // Setters (VPBinData interface)
+    void setUuid(const xrt_core::uuid& value) override { m_uuid = value; }
+    void setName(const std::string& value)    override { m_name = value; }
+    void setType(BinaryInfoType value)        override { m_type = value; }
 
-    // Fields are kept public during the VPBinData migration so non-profile
-    //  writers and plugins (which still use direct field access) keep
-    //  compiling. Accessor-based code paths (e.g. ConfigInfo internals,
-    //  profile plugin and its writers in Part 2) go through the virtual
-    //  interface above.
-    xrt_core::uuid uuid ;
-    std::string    name ;
-    BinaryInfoType type {XCLBIN_AIE_PL} ;
+  private:
+    xrt_core::uuid m_uuid ;
+    std::string    m_name ;
+    BinaryInfoType m_type {XCLBIN_AIE_PL} ;
 
     // The configuration of the PL portion of the design
-    PLInfo pl ;
+    PLInfo m_pl ;
 
     // The configuration of the AIE portion of the design (if applicable)
-    AIEInfo aie ;
+    AIEInfo m_aie ;
   } ;
 
   // Compatibility alias kept during the VPBinData migration. Plugin and

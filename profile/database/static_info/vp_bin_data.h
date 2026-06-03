@@ -57,6 +57,13 @@ namespace xdp {
     virtual BinaryInfoType        getType() const = 0;
     virtual BinDataSource         source()  const = 0;
 
+    // Identity setters. Concrete classes own their backing state; the
+    // interface only fixes the contract so callers holding a
+    // VPBinData* can mutate identity uniformly.
+    virtual void setUuid(const xrt_core::uuid& value) = 0;
+    virtual void setName(const std::string& value)    = 0;
+    virtual void setType(BinaryInfoType value)        = 0;
+
     bool isXclbin() const { return source() == BinDataSource::XCLBIN; }
     bool isElf()    const { return source() == BinDataSource::ELF;    }
 

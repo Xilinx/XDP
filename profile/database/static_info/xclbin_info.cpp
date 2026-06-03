@@ -206,14 +206,14 @@ namespace xdp {
     aieCfgList.clear() ;
   }
 
-  XclbinBinData::XclbinBinData(BinaryInfoType xclbinType) : type(xclbinType)
+  XclbinBinData::XclbinBinData(BinaryInfoType xclbinType) : m_type(xclbinType)
   {
       if (xclbinType == BinaryInfoType::XCLBIN_PL_ONLY) {
-        pl.valid  = true;
-        aie.valid = false;
+        m_pl.valid  = true;
+        m_aie.valid = false;
       } else if (xclbinType == BinaryInfoType::XCLBIN_AIE_ONLY) {
-        pl.valid  = false;
-        aie.valid = true;
+        m_pl.valid  = false;
+        m_aie.valid = true;
       }
   }
 

@@ -59,14 +59,32 @@ namespace xdp {
   class ElfBinData final : public VPBinData
   {
   public:
+    XDP_CORE_EXPORT
     ElfBinData(xrt::elf elf, std::shared_ptr<xrt_core::device> device);
     ~ElfBinData() override = default;
+
+    // Non-copyable, non-movable: ElfBinData is a unique-resource owner
+    // (xrt::elf + shared device handle + cached AIEInfo). Its lifecycle
+    // is "construct via make_unique, transfer via raw pointer to
+    // ConfigInfo, deleted polymorphically through VPBinData*"; copying
+    // would silently duplicate state and bump shared-device refcounts.
+    // Move operations are already implicitly suppressed by the
+    // user-declared destructor above.
+    ElfBinData(const ElfBinData&)            = delete;
+    ElfBinData& operator=(const ElfBinData&) = delete;
 
     // VPBinData interface ------------------------------------------------
     const xrt_core::uuid& getUuid() const override { return m_uuid; }
     const std::string&    getName() const override { return m_name; }
-    BinaryInfoType        getType() const override { return ELF_AIE_ONLY; }
+    BinaryInfoType        getType() const override { return m_type; }
     BinDataSource         source()  const override { return BinDataSource::ELF; }
+
+    // VPBinData identity setters. setType is exposed for interface
+    // symmetry; the ELF flow currently uses only ELF_AIE_ONLY, which
+    // is the default-initialized value of m_type.
+    void setUuid(const xrt_core::uuid& value) override { m_uuid = value; }
+    void setName(const std::string& value)    override { m_name = value; }
+    void setType(BinaryInfoType value)        override { m_type = value; }
 
     PLInfo&       getPl()       override;
     const PLInfo& getPl() const override;
@@ -88,12 +106,14 @@ namespace xdp {
     // the produced filetype reader so the caller can register it on the
     // database's metadata-reader side map; nullptr if neither source is
     // available.
+    XDP_CORE_EXPORT
     std::unique_ptr<aie::BaseFiletypeImpl>
     readAIEMetadata(boost::property_tree::ptree& out);
 
     // Cache the AIE state derivable from a metadata reader on m_aie so
     // subsequent database lookups (clock rate, hw gen) can answer without
     // re-parsing.
+    XDP_CORE_EXPORT
     void populateFromReader(const aie::BaseFiletypeImpl& reader);
 
   private:
@@ -102,6 +122,7 @@ namespace xdp {
 
     xrt_core::uuid m_uuid;
     std::string    m_name = "elf";
+    BinaryInfoType m_type = ELF_AIE_ONLY;
 
     // The AIE side of the inherited VPBinData state. valid=true is set
     // by the constructor body so writers/database can rely on the same

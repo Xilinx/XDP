@@ -24,7 +24,7 @@ namespace xdp {
     , m_device(std::move(device))
   {
     try {
-      m_uuid = m_elf.get_cfg_uuid();
+      setUuid(m_elf.get_cfg_uuid());
     }
     catch (const std::exception& e) {
       std::string msg = "ElfBinData: ELF does not report a config UUID: ";

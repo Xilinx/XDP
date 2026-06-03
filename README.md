@@ -13,6 +13,11 @@ and AIE components.
 User controls are through the xrt.ini file.  Support exists for both PCIe
 based platforms and embedded platforms.
 
+Note: XDP is intended to be used as part of the supported AMD software flow
+and platform enablement ecosystem. The repository structure is provided for
+development and distribution purposes and does not imply a change in product
+positioning, support model, or intended usage as a standalone offering.
+
 -------------------------------------------------------------------------------
 
 XRT, and subsequently XDP, is run on a variety of platforms with varying

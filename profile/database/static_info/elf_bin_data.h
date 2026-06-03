@@ -26,18 +26,9 @@
 #include "core/include/xrt/experimental/xrt_elf.h"
 
 #include "xdp/config.h"
+#include "xdp/profile/database/static_info/pl_aie_info.h"
 #include "xdp/profile/database/static_info/vp_bin_data.h"
 #include "xdp/profile/database/static_info/xclbin_types.h"
-
-namespace xdp {
-
-  // Forward declarations: PLInfo and AIEInfo are defined in xclbin_info.h.
-  // This header is included from xclbin_info.h AFTER those types are defined,
-  // so the value member m_aie below sees the full AIEInfo definition.
-  struct PLInfo;
-  struct AIEInfo;
-
-} // namespace xdp
 
 namespace xdp::aie {
   // Forward declaration; full type is in
@@ -45,15 +36,6 @@ namespace xdp::aie {
   // which is pulled in only by elf_bin_data.cpp to keep this header light.
   class BaseFiletypeImpl;
 } // namespace xdp::aie
-
-// Pull in the full PLInfo / AIEInfo definitions for the value member below.
-// This safety include only fires when a translation unit reaches us before
-// xclbin_info.h has been processed. The xclbin_info.h header itself includes
-// us at the end (after PLInfo/AIEInfo), in which case the guard short-circuits
-// here and the AIEInfo definition is already in scope.
-#ifndef XCLBIN_INFO_DOT_H
-#include "xdp/profile/database/static_info/xclbin_info.h"
-#endif
 
 namespace xdp {
 
@@ -124,7 +106,7 @@ namespace xdp {
     // The AIE side of the inherited VPBinData state. valid=true is set
     // by the constructor body so writers/database can rely on the same
     // "valid PLInfo or valid AIEInfo per binary" invariant XclbinBinData
-    // honors. AIEInfo is defined in xclbin_info.h (included above).
+    // honors. AIEInfo is defined in pl_aie_info.h (included above).
     AIEInfo m_aie;
   };
 

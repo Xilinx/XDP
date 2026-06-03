@@ -28,139 +28,11 @@
 
 #include "xdp/config.h"
 #include "xdp/profile/database/static_info/aie_constructs.h"
+#include "xdp/profile/database/static_info/pl_aie_info.h"
 #include "xdp/profile/database/static_info/vp_bin_data.h"
 #include "xdp/profile/database/static_info/xclbin_types.h"
 
 namespace xdp {
-
-  // Forward declarations
-  class PLDeviceIntf;
-  struct Monitor ;
-  struct Memory ;
-  class ComputeUnitInstance ;
-
-  // The PLInfo struct keeps track of all the information in the PL section
-  //  of an xclbin.  This includes information on compute units, memories,
-  //  and all of the added debug IP.
-  struct PLInfo
-  {
-    // Max read/write bandwidth information is retrieved from either
-    //  a call to the shim functions xclGet*MaxBandwidthMBps, or from 
-    //  the higher level xrt_xocl::device functions getHostMax* and 
-    //  getKernelMax* in OpenCL applications.
-    double hostMaxReadBW    = 0.0 ;
-    double hostMaxWriteBW   = 0.0 ;
-    double kernelMaxReadBW  = 0.0 ;
-    double kernelMaxWriteBW = 0.0 ;
-
-    // By default, we assume a PL clock rate of 300 MHz.  We try to set this
-    //  to the true value based on device information gotten from either the
-    //  shim functions or the xrt_xocl::device functions.
-    double clockRatePLMHz = 300.0 ;
-
-    // For trace offload, we can either use FIFO or a memory resource.  If
-    //  we use a memory resource, we must have a TS2MM.  We cannot mix FIFO
-    //  and memory resources for trace offload.
-    bool usesTs2mm = false ;
-    bool usesFifo = false ;
-    
-    // Our AIMs and ASMs can be attached to any AXI-MM or AXI-S connection.
-    //  If we cannot associate the AXI-MM or AXI-S connection to a specific
-    //  compute unit, we consider them to be "floating" and we lump their
-    //  information in a different section of our final trace output
-    bool hasFloatingAIMWithTrace = false ;
-    bool hasFloatingASMWithTrace = false ;
-
-    // AIMs attached to memory connections are configured just with counters
-    //  (no trace) and will have their information reported in a different
-    //  section in the summary file.
-    bool hasMemoryAIM = false ;
-
-    // Compute unit information
-    std::map<int32_t, ComputeUnitInstance*> cus ;
-
-    // Memory information
-    std::map<int32_t, Memory*> memoryInfo ;
-
-    // Information on all our Monitor IPs (including shell monitors)
-    std::vector<Monitor*> ams ;   // Accelerator Monitors
-    std::vector<Monitor*> aims ;  // AXI Interface Monitors
-    std::vector<Monitor*> asms ;  // AXI Stream Monitors
-
-    // Informs if this PLInfo is valid for current xclbins configuration
-    bool valid = true ;
-
-    PLInfo& operator=(const PLInfo& src) ;
-    ~PLInfo() ;
-    void addComputeUnitPorts(const std::string& kernelName,
-                             const std::string& portName,
-                             int32_t portWidth);
-    void addArgToPort(const std::string& kernelName,
-                      const std::string& argName,
-                      const std::string& portName);
-    void connectArgToMemory(const std::string& cuName,
-                            const std::string& portName,
-                            const std::string& argName,
-                            int32_t memId);
-    // Collect all compute units of a kernel
-    std::vector<ComputeUnitInstance*> collectCUs(const std::string& kernelName);
-
-    private:
-      void releaseResources();
-  } ;
-
-  // The AIEInfo struct keeps track of all of the information associated
-  //  with AIE constructs in an xclbin.  This includes all configured
-  //  counters in the AIE, used GMIO connections, and any PLIO connections
-  //  from the AIE to our trace IP.
-  struct AIEInfo
-  {
-    // By default, we assume that the AIE is running at 1 GHz.  This can be
-    //  set if different based on information from the device.
-    double clockRateAIEMHz = 1000.0 ;
-
-    // The number of PLIO ports on the AIE used for trace.  This should be
-    //  equivalent to the number of AIE TS2MMs in the PL portion.
-    uint32_t numTracePLIO = 0 ;
-
-    // isGMIORead keeps track of whether or not the AIE GMIO trace ports
-    //  have been configured.  We only want to configure once per xclbin,
-    //  so it defaults to false and is set after configuration.
-    bool isGMIORead = false ;
-
-    // isAIEcounterRead keeps track of whether or not the AIE counters have
-    //  been configured.  We only want to configure once per xclbin, 
-    //  so it defaults to false and is set after configuration.
-    bool isAIEcounterRead = false ;
-
-    // Information on the specific configuration of performance counters
-    //  and trace events.
-    std::vector<AIECounter*> aieList ;
-    std::vector<TraceGMIO*> gmioList ;
-    std::map<uint32_t, uint32_t> aieCoreCountersMap ;
-    std::map<uint32_t, uint32_t> aieMemoryCountersMap ;
-    std::map<uint32_t, uint32_t> aieShimCountersMap ;
-    std::map<uint32_t, uint32_t> aieMemTileCountersMap ;
-    std::map<uint32_t, uint32_t> aieCoreEventsMap ;
-    std::map<uint32_t, uint32_t> aieMemoryEventsMap ;
-    std::map<uint32_t, uint32_t> aieShimEventsMap ;
-    std::map<uint32_t, uint32_t> aieMemTileEventsMap ;
-    std::vector<std::unique_ptr<aie_cfg_tile>> aieCfgList ;
-
-    // A list of all the NoC nodes identified at compile time used by
-    //  our design.  Eventually, these can be configured and polled to
-    //  gain information on NoC traffic, but today is unused.
-    std::vector<NoCNode*> nocList ;
-
-    // Informs if this AIEInfo is valid for current xclbins configuration
-    bool valid = true ;
-
-    AIEInfo& operator=(const AIEInfo& src) ;
-    ~AIEInfo() ;
-
-    private:
-      void releaseResources();
-  } ;
 
   // The class XclbinBinData contains all of the information and
   //  configuration for a single xclbin. Since an application may load many
@@ -232,16 +104,6 @@ namespace xdp {
   //  in Part 2. Once every caller speaks VPBinData* / XclbinBinData* this
   //  alias can be removed entirely.
   using XclbinInfo = XclbinBinData;
-
-} // end namespace xdp
-
-// ElfBinData is the ELF-backed VPBinData implementation, sibling of
-//  XclbinBinData. Included here (after PLInfo / AIEInfo are defined) so any
-//  translation unit that has xclbin_info.h also sees the ELF-side type for
-//  polymorphic use (e.g. ConfigInfo::currentBinaries can hold either kind).
-#include "xdp/profile/database/static_info/elf_bin_data.h"
-
-namespace xdp {
 
   // The config struct stores multiple binaries (xclbin and/or ELF). It is
   //  a VPBinData aggregator: it does not care whether each entry is an

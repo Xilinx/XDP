@@ -757,11 +757,38 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateStreamSwitchPortConfig(
 
   auto configs = getBandwidthCounterConfigs(metricSet);
 
-  // Build the register value: 4 ports packed into 32 bits, 8 bits per port
+  // Build the per-counter list into the SS event-port slots that the perf
+  // counter events actually reference. Each Port_Running_N / Port_Stalled_N
+  // event reads logical SS port N (encoded in the event ID), so the SS port
+  // packing depends on the event-to-counter mapping in generatePerfCounterConfig.
+  //
+  // ddr_bandwidth / read_bandwidth / write_bandwidth: Counters 0..3 use events
+  //   Port_Running_0..3, so each counter monitors a unique logical SS port and
+  //   configs[i] maps directly onto logical SS slot i.
+  //
+  // peak_read_bandwidth / peak_write_bandwidth: Counters 0,1 share logical SS
+  //   port 0 (Port_Running_0 + Port_Stalled_0 for channel 0) and Counters 2,3
+  //   share logical SS port 1 (Port_Running_1 + Port_Stalled_1 for channel 1).
+  //   So the channel-0 config goes into slot 0 and the channel-1 config (which
+  //   sits at configs[2] in the per-counter list) goes into slot 1; slots 2
+  //   and 3 are not consumed by any event and are left zero.
+  std::vector<BandwidthCounterConfig> slotConfigs;
+  if (metricSet == "peak_read_bandwidth" || metricSet == "peak_write_bandwidth") {
+    if (configs.size() >= 3) {
+      slotConfigs.push_back(configs[0]);
+      slotConfigs.push_back(configs[2]);
+    } else {
+      slotConfigs = configs;
+    }
+  } else {
+    slotConfigs = configs;
+  }
+
+  // Build the register value: up to 4 ports packed into 32 bits, 8 bits per port
   // Each port: bits [4:0] = DMA port index, bit [5] = slave(0)/master(1)
   uint32_t regValue = 0;
-  for (size_t i = 0; i < configs.size() && i < PORTS_PER_REGISTER; ++i) {
-    const auto& cfg = configs[i];
+  for (size_t i = 0; i < slotConfigs.size() && i < PORTS_PER_REGISTER; ++i) {
+    const auto& cfg = slotConfigs[i];
     uint8_t slaveOrMaster = cfg.isMaster ? 1 : 0;
     uint8_t bitOffset = static_cast<uint8_t>(i) * 8;
     regValue |= (static_cast<uint32_t>(cfg.dmaPortIndex) << bitOffset)

@@ -74,7 +74,7 @@ namespace xdp {
   // in test rather than silently returning a permanently-invalid PLInfo&. All
   // happy-path call sites either guard with isXclbin()/source() == XCLBIN, or
   // go through ConfigInfo::getPlBinary() which never returns an ELF binary.
-  class XDP_CORE_EXPORT ElfBinData final : public VPBinData
+  class ElfBinData final : public VPBinData
   {
   public:
     ElfBinData(xrt::elf elf, std::shared_ptr<xrt_core::device> device);

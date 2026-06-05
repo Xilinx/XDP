@@ -74,13 +74,15 @@ namespace xdp {
     if (!((db->getStaticInfo()).continueXDPConfig(hw_context_flow)))
       return;
 
-    if ((xrt_core::config::get_aie_profile_settings_config_one_partition()) &&
-        (configuredOnePartition)) {
-      xrt_core::message::send(
-          severity_level::warning, "XRT",
-          "AIE dtrace: a previous partition was already configured; skipping "
-          "(config_one_partition=true).");
-      return;
+    {
+      auto tree = xrt_core::config::detail::get_ptree_value("AIE_dtrace_settings");
+      if (tree.get_optional<bool>("config_one_partition").value_or(false) && configuredOnePartition) {
+        xrt_core::message::send(
+            severity_level::warning, "XRT",
+            "AIE dtrace: a previous partition was already configured; skipping "
+            "(config_one_partition=true).");
+        return;
+      }
     }
 
     if (hw_context_flow) {
@@ -130,19 +132,17 @@ namespace xdp {
       return;
 #endif
 
-    auto metadata =
-        std::make_shared<AieProfileMetadata>(deviceID, handle, aie_dtrace_ini_metadata_tag{});
+    auto metadata = std::make_shared<AieDtraceMetadata>(deviceID, handle);
     if (metadata->aieMetadataEmpty()) {
       xrt_core::message::send(severity_level::debug, "XRT",
                               "AIE dtrace: no AIE metadata for this xclbin; skipping.");
       return;
     }
 
-    if ((xrt_core::config::get_aie_profile_settings_config_one_partition()) &&
-        (metadata->isConfigured()))
+    if (metadata->isConfigOnePartition() && metadata->isConfigured())
       configuredOnePartition = true;
 
-    std::unique_ptr<AieProfileImpl> implementation;
+    std::unique_ptr<AieDtraceImpl> implementation;
 #if defined(XDP_VE2_BUILD)
     implementation = std::make_unique<AieDtrace_VE2Impl>(db, metadata, deviceID);
 #else
@@ -150,11 +150,6 @@ namespace xdp {
                           "AIE dtrace: no implementation for this build; skipping.");
     return;
 #endif
-
-    if (!(db->getStaticInfo()).isAIECounterRead(deviceID)) {
-      implementation->updateDevice();
-      (db->getStaticInfo()).setIsAIECounterRead(deviceID, true);
-    }
 
     (db->getStaticInfo()).saveProfileConfig(metadata->createAIEProfileConfig(), deviceID);
 

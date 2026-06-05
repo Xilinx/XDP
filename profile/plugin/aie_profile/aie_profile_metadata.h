@@ -38,9 +38,6 @@ namespace xdp {
 // Forwadr declarations of XDP constructs
 struct LatencyConfig;
 
-// Tag type: construct metadata from [AIE_dtrace_settings] only (bandwidth metrics for dtrace).
-struct aie_dtrace_ini_metadata_tag {};
-
 constexpr unsigned int NUM_CORE_COUNTERS = 4;
 constexpr unsigned int NUM_MEMORY_COUNTERS = 2;
 #if defined(XDP_VE2_BUILD) || defined(XDP_VE2_ZOCL_BUILD)
@@ -128,15 +125,8 @@ class AieProfileMetadata {
 
     const aie::BaseFiletypeImpl* metadataReader = nullptr;
 
-    bool m_dtraceBandwidthMode = false;
-
-    void checkDtraceSettings();
-
   public:
     AieProfileMetadata(uint64_t deviceID, void* handle);
-    AieProfileMetadata(uint64_t deviceID, void* handle, aie_dtrace_ini_metadata_tag);
-
-    bool isDtraceBandwidthMode() const { return m_dtraceBandwidthMode; }
 
     uint64_t getDeviceID() {return deviceID;}
     void* getHandle() {return handle;}

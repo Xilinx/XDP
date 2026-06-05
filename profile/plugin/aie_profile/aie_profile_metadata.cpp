@@ -173,119 +173,6 @@ namespace xdp {
                             "XRT", "Finished Parsing AIE Profile Metadata using xrt.ini settings.");
   }
 
-  AieProfileMetadata::AieProfileMetadata(uint64_t deviceID, void* handle,
-                                         aie_dtrace_ini_metadata_tag)
-    : deviceID(deviceID)
-    , handle(handle)
-    , m_dtraceBandwidthMode(true)
-  {
-    xrt_core::message::send(severity_level::info,
-                            "XRT", "Parsing AIE dtrace metadata.");
-    VPDatabase* db = VPDatabase::Instance();
-
-    metadataReader = (db->getStaticInfo()).getAIEmetadataReader(deviceID);
-    if (!metadataReader) {
-      return;
-    }
-
-    auto compilerOptions = metadataReader->getAIECompilerOptions();
-
-    checkDtraceSettings();
-
-    configMetrics.resize(NUM_MODULES);
-
-    clockFreqMhz = (db->getStaticInfo()).getClockRateMHz(deviceID, false);
-
-    // Polling interval and the "start" control always come from xrt.ini.
-    pollingInterval = xrt_core::config::get_aie_dtrace_settings_interval_us();
-
-    setProfileStartControl(compilerOptions.graph_iterator_event, false, nullptr);
-
-    // Metric-set source precedence:
-    //   1. If Debug.profiling_runtime_config carries a control_instrumentation
-    //      section, it wins. Only interface_tile is wired today; aie_tile and
-    //      mem_tile entries are logged for a follow-up.
-    //   2. Otherwise fall back to the legacy AIE_dtrace_settings.* xrt.ini
-    //      options.
-    const bool usingBlob = profiling_runtime_config::has_control_instrumentation();
-    const auto& ci = profiling_runtime_config::control_instrumentation();
-
-    if (usingBlob) {
-      xrt_core::message::send(severity_level::info, "XRT",
-          "AIE dtrace: using control_instrumentation from "
-          "Debug.profiling_runtime_config; AIE_dtrace_settings.* will be ignored "
-          "for metric sets.");
-
-      if (ci.aie_tile.has_value() && !ci.aie_tile->empty()) {
-        xrt_core::message::send(severity_level::info, "XRT",
-            "AIE dtrace: core tile metric '" + *ci.aie_tile
-            + "' from profiling_runtime_config will be supported in a follow-up.");
-      }
-      if (ci.mem_tile.has_value() && !ci.mem_tile->empty()) {
-        xrt_core::message::send(severity_level::info, "XRT",
-            "AIE dtrace: mem tile metric '" + *ci.mem_tile
-            + "' from profiling_runtime_config will be supported in a follow-up.");
-      }
-    }
-
-    for (int module = 0; module < NUM_MODULES; ++module) {
-      if (moduleTypes[module] != module_type::shim)
-        continue;
-
-      std::vector<std::string> metricsSettings;
-      std::vector<std::string> graphMetricsSettings;
-
-      if (usingBlob) {
-        if (ci.interface_tile.has_value() && !ci.interface_tile->empty()) {
-          // Blob carries a bare metric name (e.g. "ddr_bandwidth"). Synthesize
-          // an "all:<metric>" tile-based selection so the existing parser
-          // applies it to every interface tile.
-          metricsSettings = getSettingsVector("all:" + *ci.interface_tile);
-        }
-        // If interface_tile is unset/empty in the blob, the blob wins and
-        // leaves shim tiles unconfigured (no xrt.ini fallback for this knob).
-      }
-      else {
-        metricsSettings =
-            getSettingsVector(xrt_core::config::get_aie_dtrace_settings_tile_based_interface_tile_metrics());
-        graphMetricsSettings =
-            getSettingsVector(xrt_core::config::get_aie_dtrace_settings_graph_based_interface_tile_metrics());
-      }
-
-      getConfigMetricsForInterfaceTiles(module, metricsSettings, graphMetricsSettings);
-    }
-
-    xrt_core::message::send(severity_level::info,
-                            "XRT", "Finished parsing AIE dtrace metadata.");
-  }
-
-  void AieProfileMetadata::checkDtraceSettings()
-  {
-    using boost::property_tree::ptree;
-    // configure_aie_hardware: accepted for xrt.ini compatibility; dtrace VE2 always programs like AIE profile.
-    const std::set<std::string> validSettings {
-      "interval_us",
-      "tile_based_interface_tile_metrics",
-      "graph_based_interface_tile_metrics",
-      "configure_aie_hardware",
-    };
-
-    auto tree = xrt_core::config::detail::get_ptree_value("AIE_dtrace_settings");
-
-    for (ptree::iterator pos = tree.begin(); pos != tree.end(); pos++) {
-      if (validSettings.find(pos->first) == validSettings.end()) {
-        std::stringstream msg;
-        msg << "The setting AIE_dtrace_settings." << pos->first << " is not recognized. "
-            << "Please check the spelling and compare to supported list:";
-
-        for (auto it = validSettings.cbegin(); it != validSettings.cend(); it++)
-          msg << ((it == validSettings.cbegin()) ? " " : ", ") << *it;
-
-        xrt_core::message::send(severity_level::warning, "XRT", msg.str());
-      }
-    }
-  }
- 
   void AieProfileMetadata::processPluginJsonSetting(const PluginJsonSetting& config, 
                                              MetricsCollectionManager& manager)
   {
@@ -1328,15 +1215,6 @@ namespace xdp {
     bool showWarning = true;
     std::vector<tile_type> offTiles;
     auto metricVec = metricStrings.at(module_type::shim);
-    if (m_dtraceBandwidthMode) {
-      static const char* dtraceMetrics[] =
-          {"ddr_bandwidth", "read_bandwidth", "write_bandwidth",
-           "peak_read_bandwidth", "peak_write_bandwidth"};
-      for (const char* m : dtraceMetrics) {
-        if (std::find(metricVec.begin(), metricVec.end(), m) == metricVec.end())
-          metricVec.push_back(m);
-      }
-    }
 
     for (auto& tileMetric : configMetrics[moduleIdx]) {
       // Save list of "off" tiles

@@ -217,7 +217,7 @@ bool AIETraceOffload::initReadTrace()
   }
 
   tranxHandler = std::make_unique<aie::VE2Transaction>();
-  if (!tranxHandler->initializeTransaction(&aieDevInst, "AieTraceOffload"))
+  if (!tranxHandler->initializeTransaction(&aieDevInst, "AieTraceOffload" + std::to_string(deviceId)))
     return false;
 
   for (uint64_t i = 0; i < numStream; ++i) {

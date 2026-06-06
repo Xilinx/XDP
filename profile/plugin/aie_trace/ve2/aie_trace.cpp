@@ -1342,7 +1342,7 @@ namespace xdp {
   bool AieTrace_VE2Impl::configureWindowedEventTrace(void* hwCtxImpl)
   {
     // Start recording the windowed event trace transaction
-    if (!tranxHandler->initializeTransaction(&aieDevInst, "AieTraceWindow")) {
+    if (!tranxHandler->initializeTransaction(&aieDevInst, "AieTraceWindow" + std::to_string(metadata->getDeviceID()))) {
       xrt_core::message::send(severity_level::warning, "XRT", "AIE TRACE: Failed to initialize transaction for Windowed Event Trace.");
       return false;
     }
@@ -1446,7 +1446,7 @@ namespace xdp {
     std::string startType = xrt_core::config::get_aie_trace_settings_start_type();
     unsigned int startLayer = xrt_core::config::get_aie_trace_settings_start_layer();
 
-    std::string tranxName = "AieTraceMetrics";
+    std::string tranxName = "AieTraceMetrics" + std::to_string(deviceId);
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
         "Starting transaction " + tranxName);
     if (!tranxHandler->initializeTransaction(&aieDevInst, tranxName)) {
@@ -1928,7 +1928,7 @@ namespace xdp {
     }
     xrt_core::message::send(severity_level::info, "XRT", "Successfully scheduled AIE Trace.");
 
-    if (!tranxHandler->initializeTransaction(&aieDevInst, "AieTraceFlush")) {
+    if (!tranxHandler->initializeTransaction(&aieDevInst, "AieTraceFlush" + std::to_string(deviceId))) {
       xrt_core::message::send(severity_level::error, "XRT",
         "AIE trace flush transaction initialization failed.");
       return false;

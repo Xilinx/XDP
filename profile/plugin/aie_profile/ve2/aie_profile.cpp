@@ -845,7 +845,7 @@ namespace xdp {
       return false;
     }
 
-    const std::string tranxName = "AieProfileMetrics";
+    const std::string tranxName = "AieProfileMetrics" + std::to_string(deviceId);
     if (!tranxHandler->initializeTransaction(&aieDevInst, tranxName)) {
       xrt_core::message::send(severity_level::warning, "XRT", "Transaction Initialization Failed.");
       return false;
@@ -1178,7 +1178,7 @@ namespace xdp {
   {
     auto context = metadata->getHwContext();
 
-    std::string tranxName = "AieProfilePoll";
+    std::string tranxName = "AieProfilePoll" + std::to_string(metadata->getDeviceID());
     if (!tranxHandler->initializeTransaction(&aieDevInst, tranxName)) {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", 
                               "Unable to initialize transaction for AIE profile polling.");

@@ -13,6 +13,11 @@ and AIE components.
 User controls are through the xrt.ini file.  Support exists for both PCIe
 based platforms and embedded platforms.
 
+Note: XDP is intended to be used as part of the supported AMD software flow
+and platform enablement ecosystem. The repository structure is provided for
+development and distribution purposes and does not imply a change in product
+positioning, support model, or intended usage as a standalone offering.
+
 -------------------------------------------------------------------------------
 
 XRT, and subsequently XDP, is run on a variety of platforms with varying
@@ -68,7 +73,6 @@ Plugins:
 * aie_base : No feature
 * aie_debug : No feature
 * aie_halt : Internal, used with ML Debugger on Client
-* aie_pc : No feature
 * aie_profile : Used on Client, Edge, Alveo, hardware emulation
 * aie_status : Used on Edge, Alveo, hardware emulation
 * aie_trace : Used on Client, Edge, Alveo, hardware emulation
@@ -78,11 +82,9 @@ Plugins:
 * lop : Low-overhead OpenCL trace of host code.  Available on Edge, Alveo, hardware emulation
 * ml_timeline : Available on Client and VE2 (VAIML)
 * native : host trace used on Edge, Alveo, and Client, hardware emulation
-* noc : No feature
 * opencl : OpenCL trace of host code.  Available on Edge, Alveo, hardware emulation
 * pl_deadlock: Detect and interpret PL deadlock.  Available on Edge, Alveo
 * power: Available on Alveo
-* system_compiler : No feature
 * user : Called from user host code.  Available on Edge, Alveo, Client, hardware emulation.
 * vart : No feature
 * vp_base : No feature

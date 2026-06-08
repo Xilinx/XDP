@@ -25,7 +25,6 @@ elseif (XDP_CLIENT_BUILD_CMAKE STREQUAL "yes")
 
   if (WIN32)
     add_subdirectory(aie_halt)
-    add_subdirectory(aie_pc)
   endif()
    
 else()
@@ -52,9 +51,7 @@ add_subdirectory(aie_status)
 add_subdirectory(aie_profile)
 add_subdirectory(aie_trace)
 add_subdirectory(device_offload/hw_emu)
-add_subdirectory(noc)
 add_subdirectory(power)
-add_subdirectory(system_compiler)
 add_subdirectory(vart)
 
 else()

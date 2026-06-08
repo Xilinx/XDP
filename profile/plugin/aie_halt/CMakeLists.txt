@@ -44,7 +44,8 @@ if (XDP_CLIENT_BUILD_CMAKE STREQUAL "yes")
 elseif (XDP_VE2_BUILD_CMAKE STREQUAL "yes")
   add_library(xdp_aie_halt_plugin SHARED ${XDP_AIE_HALT_PLUGIN_FILES})
   add_dependencies(xdp_aie_halt_plugin xdp_core xrt_coreutil)
-
+  
+  # Note: For ve2, a prebuilt elf is loaded so aie-codegen library is not needed
   #target_include_directories(xdp_aie_halt_plugin PRIVATE ${AIERT_DIR}/include)
   #target_link_libraries(xdp_aie_halt_plugin PRIVATE xdp_core xrt_coreutil aie_codegen)
   target_link_libraries(xdp_aie_halt_plugin PRIVATE xdp_core xrt_coreutil)

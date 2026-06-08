@@ -1353,9 +1353,6 @@ namespace xdp {
     uint8_t startCol = 0;
     uint8_t numCols  = static_cast<uint8_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols"));
 
-    std::cout << "!!! startCol: " << startCol << std::endl;
-    std::cout << "!!! numCols: " << numCols << std::endl;
-
     auto metadataReader = (VPDatabase::Instance()->getStaticInfo()).getAIEmetadataReader(metadata->getDeviceID());
     if (!metadataReader) {
       xrt_core::message::send(severity_level::warning, "XRT",

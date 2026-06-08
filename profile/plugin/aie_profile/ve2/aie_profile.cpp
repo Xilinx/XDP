@@ -1227,13 +1227,6 @@ namespace xdp {
     // Get timestamp in milliseconds
     double timestamp = xrt_core::time_ns() / 1.0e6;
 
-    //**************************TODO: Remove this after testing ***************************
-    for (u32 i = 0; i < op_profile_data.size() + 12 * 3; i++) {
-      std::stringstream msg;
-      msg << "Counter address/values: " << output[2 * i] << " - " << output[2 * i + 1];
-      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", msg.str());
-    }
-
     // Process counter values and add to database
     for (u32 i = 0; i < op_profile_data.size(); i++) {
       // Update counter value in outputValues and add to database

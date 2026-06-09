@@ -33,8 +33,13 @@
 #include "xdp/profile/plugin/vp_base/vp_base_plugin.h"
 
 extern "C" {
+#ifdef XDP_USE_AIE_CODEGEN
+#include <aie_codegen.h>
+#include <aie_codegen_inc/xaie_helper.h>
+#else
 #include <xaiengine.h>
-#include "xaiengine/xaie_helper.h"
+#include <xaiengine/xaie_helper.h>
+#endif
 }
 
 namespace xdp {

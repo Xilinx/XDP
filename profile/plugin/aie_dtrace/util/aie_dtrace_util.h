@@ -9,7 +9,7 @@
 #include <vector>
 
 extern "C" {
-#include <xaiengine.h>
+#include <aie_codegen.h>
 }
 
 namespace xdp::aie::dtrace {

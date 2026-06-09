@@ -18,13 +18,31 @@
 #ifndef XDP_PROFILE_AIE_TRACE_OFFLOAD_VE2_H_
 #define XDP_PROFILE_AIE_TRACE_OFFLOAD_VE2_H_
 
-#include "xdp/profile/device/tracedefs.h"
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
 
-extern "C"
-{
-  #include "xaiengine/xaiegbl.h"
+#include "core/include/xrt/xrt_bo.h"
+#include "core/include/xrt/xrt_hw_context.h"
+#include "xdp/profile/device/tracedefs.h"
+#include "xdp/profile/plugin/aie_trace/aie_trace_metadata.h"
+
+extern "C" {
+#if defined(XDP_USE_AIE_CODEGEN)
+  #include <xaiegbl_dynlink.h>
+  #include <aie_codegen.h>
+  #include <aie_codegen_inc/xaiegbl_params.h>
+#else
   #include <xaiengine.h>
+  #include <xaiengine/xaiegbl_params.h>
+#endif
 }
+
+#if defined(XDP_USE_AIE_CODEGEN)
+#include "xdp/profile/device/common/ve2/ve2_transaction.h"
+#endif
 
 namespace xdp {
 
@@ -76,9 +94,13 @@ class AIETraceOffload
                     bool     isPlio,
                     uint64_t totalSize,
                     uint64_t numStrm,
+#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD) // ZOCL build: live devInst pointer
                     XAie_DevInst* devInstance
-                   );
-
+#else // XDNA build: hw_context + metadata
+                    xrt::hw_context ctx,
+                    std::shared_ptr<AieTraceMetadata> md
+#endif
+                    );
     virtual ~AIETraceOffload();
 
 public:
@@ -98,27 +120,33 @@ public:
       return offloadStatus;
     };
 
-    void readTrace(bool final) {mReadTrace(final);};
+    inline void readTrace(bool final) { mReadTrace(final); }
 
 private:
-
     void*           deviceHandle;
     uint64_t        deviceId;
     PLDeviceIntf*   deviceIntf;
     AIETraceLogger* traceLogger;
-    XAie_DevInst*   devInst;
-
     bool isPLIO;
     uint64_t totalSz;
     uint64_t numStream;
+#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD) // ZOCL build: live devInst pointer
+    XAie_DevInst*   devInst;
+    std::vector<AIETraceGmioDMAInst> gmioDMAInsts;
+#else // XDNA build
+    xrt::hw_context context;
+    std::shared_ptr<AieTraceMetadata> metadata;
+    std::vector<xrt::bo> xrt_bos;
+    XAie_DevInst    aieDevInst = {0};
+    std::unique_ptr<xdp::aie::VE2Transaction> tranxHandler;
+#endif
+
     uint64_t bufAllocSz;
     std::vector<AIETraceBufferInfo>  buffers;
 
     //Internal use only
     // Set this for verbose trace offload
     bool m_debug = false;
-    std::vector<AIETraceGmioDMAInst> gmioDMAInsts;
-
 
     // Continuous Trace Offload (For PLIO)
     bool traceContinuous;

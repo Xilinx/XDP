@@ -198,6 +198,15 @@ namespace xdp {
     //  the xdp::HalDevice to communicate with the physical device
     PLDeviceIntf* devInterface = (db->getStaticInfo()).getDeviceIntf(deviceId);
 
+    // In the Full ELF flow (AIE-only, no PL) there is no PL device interface.
+    //  PL device trace/counter offload has nothing to configure, so skip it
+    //  rather than dereferencing a null interface.
+    if (!devInterface) {
+      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+        "No PL device interface available (e.g. AIE-only / Full ELF flow). Skipping PL device trace offload.");
+      return;
+    }
+
     configureDataflow(deviceId, devInterface) ;
     addOffloader(deviceId, devInterface) ;
     configureTraceIP(devInterface) ;

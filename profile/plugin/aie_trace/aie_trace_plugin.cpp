@@ -8,6 +8,7 @@
 #include "core/common/api/device_int.h"
 #include "core/common/api/hw_context_int.h"
 #include "core/common/message.h"
+#include "core/include/xrt/experimental/xrt_elf.h"
 
 #include "xdp/profile/database/database.h"
 #include "xdp/profile/database/events/creator/aie_trace_data_logger.h"
@@ -102,15 +103,6 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
     return;
   }
 
-  if (hw_context_flow) {
-    xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
-    if (xrt_core::hw_context_int::get_elf_flow(ctx)) {
-      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
-          "AIE Event Trace is not yet supported for Full ELF flow.");
-      return;
-    }
-  }
-  
   auto device = util::convertToCoreDevice(handle, hw_context_flow);
 #if ! defined (XRT_X86_BUILD) && ! defined (XDP_CLIENT_BUILD)
   if (1 == device->get_device_id() && xrt_core::config::get_xdp_mode() == "xdna") {  // Device 0 for xdna(ML) and device 1 for zocl(PL)
@@ -137,7 +129,37 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
   AIEData.deviceID = deviceID;
   AIEData.valid = true; // initialize struct
 
-  // Update the static database with information from xclbin
+  // Identify the flow type: a Full ELF flow carries the AIE metadata in an
+  // xrt::elf and has no xclbin, whereas the legacy flow loads an xclbin.
+  xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Identify flow type");
+  bool isFullELFFlow = false;
+  if (hw_context_flow) {
+    xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+    try {
+      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(ctx);
+    } catch (const std::exception& e) {
+      std::stringstream msg;
+      msg << e.what() << " AIE Event Trace cannot be enabled before complete configuration." << std::endl;
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
+      AIEData.valid = false;
+      return;
+    }
+  }
+
+  // Update the static database with information from the ELF or the xclbin
+  if (isFullELFFlow) {
+    xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+    auto elfMap = xrt_core::hw_context_int::get_elf_map(ctx);
+    if (elfMap.empty()) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+        "AIE Event Trace ELF flow: hw_context has no registered ELFs. Skipping ELF flow.");
+      AIEData.valid = false;
+      return;
+    }
+    xrt::elf elf = elfMap.rbegin()->second;
+    (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(deviceID, device, std::move(elf));
+  }
+  else {
 #ifdef XDP_CLIENT_BUILD
   (db->getStaticInfo()).updateDeviceFromCoreDevice(deviceID, device);
   (db->getStaticInfo()).setDeviceName(deviceID, "win_device");  
@@ -147,6 +169,7 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
     else
       (db->getStaticInfo()).updateDeviceFromHandle(deviceID, std::move(std::make_unique<HalDevice>(handle)), handle);
 #endif
+  }
 
   // Metadata depends on static information from the database
   AIEData.metadata = std::make_shared<AieTraceMetadata>(deviceID, handle);

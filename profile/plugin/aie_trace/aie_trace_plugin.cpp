@@ -264,9 +264,7 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
   // uint64_t aieTraceBufSizePLIO = aieTraceBufSize;
   // uint64_t aieTraceBufSizeGMIO = aieTraceBufSize;
   if (isPLIO && !configuredOnePlioPartition) {
-#if defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD)
-    // TODO: if VE2 XDNA flow then we do not have devInst so we do something else
-#else
+#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD) // PLIO flow for VE2 ZOCL build only
     XAie_DevInst* devInst = static_cast<XAie_DevInst*>(AIEData.implementation->setAieDeviceInst(handle, deviceID));
     if(!devInst) {
       xrt_core::message::send(severity_level::warning, "XRT",
@@ -468,8 +466,8 @@ void AieTracePluginUnified::writeAll(bool openNewFiles) {
 
     if (AIEData.valid) {
       AIEData.implementation->flushTraceModules();
-        if (AIEData.offloadManager)
-          AIEData.offloadManager->flushAll(true);
+      if (AIEData.offloadManager)
+        AIEData.offloadManager->flushAll(true);
     }
   }
 

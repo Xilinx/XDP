@@ -1238,14 +1238,19 @@ namespace xdp {
     finishedPoll = true;
   }
 
-  bool AieProfile_VE2Impl::checkAieDevice(const uint64_t deviceId, void* handle) {}
-  uint64_t AieProfile_VE2Impl::getCounterPayload(XAie_DevInst* aieDevInst, const tile_type& tile, const module_type type, uint8_t column, uint8_t row, uint16_t startEvent, const std::string metricSet, const uint8_t channel, uint8_t logicalPortIndex) {}
-  uint64_t AieProfile_VE2Impl::getAdfProfileAPIPayload(const tile_type& tile, const std::string metricSet) {}
-  void AieProfile_VE2Impl::printTileModStats(xaiefal::XAieDev* aieDevice, const tile_type& tile, XAie_ModuleType mod) {}
-  void AieProfile_VE2Impl::startPoll(const uint64_t id) {}
-  void AieProfile_VE2Impl::continuePoll(const uint64_t id) {}
-  void AieProfile_VE2Impl::endPoll() {}  
-  void AieProfile_VE2Impl::freeResources() {}    
+  bool AieProfile_VE2Impl::checkAieDevice(const uint64_t /*deviceId*/, void* /*handle*/) {}
+  uint64_t AieProfile_VE2Impl::getCounterPayload(XAie_DevInst* /*aieDevInst*/,
+      const tile_type& /*tile*/, const module_type /*type*/, uint8_t /*column*/,
+      uint8_t /*row*/, uint16_t /*startEvent*/, const std::string /*metricSet*/,
+      const uint8_t /*channel*/, uint8_t /*logicalPortIndex*/) {}
+  uint64_t AieProfile_VE2Impl::getAdfProfileAPIPayload(const tile_type& /*tile*/,
+      const std::string /*metricSet*/) {}
+  void AieProfile_VE2Impl::printTileModStats(xaiefal::XAieDev* /*aieDevice*/,
+      const tile_type& /*tile*/, XAie_ModuleType /*mod*/) {}
+  void AieProfile_VE2Impl::startPoll(const uint64_t /*id*/) {}
+  void AieProfile_VE2Impl::continuePoll(const uint64_t /*id*/) {}
+  void AieProfile_VE2Impl::endPoll() {}
+  void AieProfile_VE2Impl::freeResources() {}
   void AieProfile_VE2Impl::displayAdfAPIResults() {}
 }
 // END XDNA flow

@@ -34,12 +34,15 @@ extern "C" {
   #include <xaiegbl_dynlink.h>
   #include <aie_codegen.h>
   #include <aie_codegen_inc/xaiegbl_params.h>
-  #include "xdp/profile/device/common/ve2/ve2_transaction.h"
 #else
   #include <xaiengine.h>
   #include <xaiengine/xaiegbl_params.h>
 #endif
 }
+
+#if defined(XDP_USE_AIE_CODEGEN)
+#include "xdp/profile/device/common/ve2/ve2_transaction.h"
+#endif
 
 namespace xdp {
 

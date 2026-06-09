@@ -2527,31 +2527,9 @@ namespace xdp {
                  edgeEventsValue);
   }
 
-  /****************************************************************************
-   * Poll AIE timers (for system timeline only)
-   ***************************************************************************/
-  void AieTrace_VE2Impl::pollTimers(uint64_t index, void* handle)
-  {
-    // TODO: Poll timers (needed for system timeline only)
-    (void)index;
-    (void)handle;
-  }
- 
-  /****************************************************************************
-  * Set AIE device instance
-  ***************************************************************************/
-  void* AieTrace_VE2Impl::setAieDeviceInst(void* handle, uint64_t deviceID)
-  {
-    (void)handle;
-    (void)deviceID;
-    // XDNA has no shim-provided XAie_DevInst for offload; trace uses hw_context
-    // in AIETraceOffloadManager / AIETraceOffload (see aie_trace_offload_ve2).
-    return nullptr;
-  }
-
+  void AieTrace_VE2Impl::pollTimers(uint64_t /*index*/, void* /*handle*/) {}
+  void* AieTrace_VE2Impl::setAieDeviceInst(void* /*handle*/, uint64_t /*deviceID*/) {}
   void AieTrace_VE2Impl::freeResources() {}
-
-
 }  // namespace xdp
 
 #endif

@@ -45,7 +45,7 @@ if (XDP_CLIENT_BUILD_CMAKE STREQUAL "yes")
   add_dependencies(xdp_aie_profile_plugin xdp_core xrt_coreutil)
   target_link_libraries(xdp_aie_profile_plugin PRIVATE xdp_core xrt_coreutil aie_codegen)
   target_compile_definitions(xdp_aie_profile_plugin PRIVATE XDP_CLIENT_BUILD=1 XDP_USE_AIE_CODEGEN=1 -DXAIE_FEATURE_MSVC)
-  target_include_directories(xdp_aie_profile_plugin PRIVATE ${AIERT_DIR}/include)
+  target_include_directories(xdp_aie_profile_plugin PRIVATE ${AIE_CODEGEN_DIR}/include)
   set_target_properties(xdp_aie_profile_plugin PROPERTIES VERSION ${XRT_VERSION_STRING} SOVERSION ${XRT_SOVERSION})
 
   install (TARGETS xdp_aie_profile_plugin
@@ -95,7 +95,7 @@ else()
       ${CMAKE_SOURCE_DIR}/src
       ${AIEFAL_DIR} 
       ${AIEBU_SOURCE_DIR}/src/cpp/include
-      ${AIERT_DIR}/include
+      ${AIE_CODEGEN_DIR}/include
       ${XRT_SOURCE_DIR}/runtime_src/core/common/elf
     )
     set_target_properties(xdp_aie_profile_plugin_xdna PROPERTIES VERSION ${XRT_VERSION_STRING} SOVERSION ${XRT_SOVERSION})

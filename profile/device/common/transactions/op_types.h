@@ -4,7 +4,7 @@
 #define __OP_TYPES_H__
 
 /* Following headers are not needed anymore.
- * Updated aie-rt submodule provides required declarations.
+ * Updated aie-codegen submodule provides required declarations.
  */
 /*
 #include "op_defs.h"
@@ -38,7 +38,7 @@ typedef struct {
 } print_op_t;
 
 /* Following typedef declarations are now available
- * in updated aie-rt submodule
+ * in updated aie-codegen submodule
  */
 /*
 typedef struct {

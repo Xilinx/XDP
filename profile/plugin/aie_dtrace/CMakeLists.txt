@@ -70,7 +70,7 @@ if (XDP_VE2_BUILD_CMAKE STREQUAL "yes")
     ${CMAKE_SOURCE_DIR}/src
     ${AIEFAL_DIR}
     ${AIEBU_SOURCE_DIR}/src/cpp/include
-    ${AIERT_DIR}/include
+    ${AIE_CODEGEN_DIR}/include
     ${XRT_SOURCE_DIR}/runtime_src/core/common/elf
   )
   set_target_properties(xdp_aie_dtrace_plugin_xdna PROPERTIES VERSION ${XRT_VERSION_STRING}

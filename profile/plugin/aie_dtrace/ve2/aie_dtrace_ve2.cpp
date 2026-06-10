@@ -109,17 +109,29 @@ namespace xdp {
     AieDtraceCTWriter ctWriter(db, metadata, deviceID, partitionStartCol);
 
     std::string bandwidthMetricSet = "peak_read_bandwidth";
+    uint8_t bandwidthChannel = 0;
     auto shimConfigMetrics = metadata->getConfigMetricsVec(SHIM_MODULE_IDX);
     if (!shimConfigMetrics.empty()) {
       bandwidthMetricSet = shimConfigMetrics.front().second;
+      // The detailed_ddr_*_bandwidth metric sets carry a DMA channel in their
+      // ":<channel>" suffix (stored in configChannel0). Match by column/row.
+      auto configChannel0 = metadata->getConfigChannel0();
+      const auto& shimTile = shimConfigMetrics.front().first;
+      for (const auto& tc : configChannel0) {
+        if ((tc.first.col == shimTile.col) && (tc.first.row == shimTile.row)) {
+          bandwidthChannel = tc.second;
+          break;
+        }
+      }
       xrt_core::message::send(severity_level::info, "XRT",
-          "AIE dtrace: Using metric set '" + bandwidthMetricSet + "' from configuration");
+          "AIE dtrace: Using metric set '" + bandwidthMetricSet + "' (channel "
+          + std::to_string(bandwidthChannel) + ") from configuration");
     } else {
       xrt_core::message::send(severity_level::info, "XRT",
           "AIE dtrace: No interface tile metrics configured, using default 'peak_read_bandwidth'");
     }
 
-    if (!ctWriter.generateBandwidthCT(outputPath, hwctx, it->second, bandwidthMetricSet))
+    if (!ctWriter.generateBandwidthCT(outputPath, hwctx, it->second, bandwidthMetricSet, bandwidthChannel))
       return;
 
     xrt_core::message::send(severity_level::debug, "XRT",

@@ -55,6 +55,10 @@ class AieDtraceMetadata {
 
     std::vector<std::pair<tile_type, std::string>> getConfigMetricsVec(int module);
 
+    // DMA channel selected by each interface tile metric's ":<channel>" suffix;
+    // used by detailed_ddr_*_bandwidth to pick the MM2S/S2MM channel to monitor.
+    std::map<tile_type, uint8_t> getConfigChannel0() { return configChannel0; }
+
     int getHardwareGen() const {
       return metadataReader == nullptr ? 0 : metadataReader->getHardwareGeneration();
     }

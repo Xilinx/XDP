@@ -379,7 +379,9 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
                 (metricStr != "read_bandwidth") &&
                 (metricStr != "write_bandwidth") &&
                 (metricStr != "peak_read_bandwidth") &&
-                (metricStr != "peak_write_bandwidth"))
+                (metricStr != "peak_write_bandwidth") &&
+                (metricStr != "detailed_ddr_read_bandwidth") &&
+                (metricStr != "detailed_ddr_write_bandwidth"))
                 continue;
         }
 

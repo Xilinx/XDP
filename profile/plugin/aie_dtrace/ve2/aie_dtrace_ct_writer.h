@@ -156,12 +156,15 @@ public:
    * @param hwctx Hardware context handle for partition info access
    * @param opLocations Vector of op_loc from aiebu_assembler::get_op_locations
    * @param metricSet The metric set name (ddr_bandwidth, peak_read_bandwidth, etc.)
+   * @param channel DMA channel (0 or 1) selected by the metric's channel suffix;
+   *                only used by the detailed_ddr_*_bandwidth metric sets
    * @return true if CT file was generated successfully, false otherwise
    */
   bool generateBandwidthCT(const std::string& outputPath,
                            void* hwctx,
                            const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
-                           const std::string& metricSet = "ddr_bandwidth");
+                           const std::string& metricSet = "ddr_bandwidth",
+                           uint8_t channel = 0);
 
 private:
   /**
@@ -260,27 +263,30 @@ private:
    * @brief Generate performance counter configuration for 4 counters per shim tile
    * @param column Shim tile column
    * @param metricSet The metric set name (ddr_bandwidth, peak_read_bandwidth, etc.)
+   * @param channel DMA channel (0 or 1); only used by detailed_ddr_*_bandwidth sets
    * @return Vector of register writes to configure performance counters
    */
   std::vector<CTRegisterWrite> generatePerfCounterConfig(uint8_t column,
-      const std::string& metricSet = "ddr_bandwidth");
+      const std::string& metricSet = "ddr_bandwidth", uint8_t channel = 0);
 
   /**
    * @brief Get bandwidth counter configurations for a shim tile based on metric set
    * @param metricSet The metric set name (ddr_bandwidth, peak_read_bandwidth, etc.)
+   * @param channel DMA channel (0 or 1); only used by detailed_ddr_*_bandwidth sets
    * @return Vector of BandwidthCounterConfig for the 4 counters
    */
   std::vector<BandwidthCounterConfig> getBandwidthCounterConfigs(
-      const std::string& metricSet = "ddr_bandwidth");
+      const std::string& metricSet = "ddr_bandwidth", uint8_t channel = 0);
 
   /**
    * @brief Generate bandwidth counters for all shim tiles in the partition
    * @param shimColumns Vector of shim tile columns
    * @param metricSet The metric set name (ddr_bandwidth, peak_read_bandwidth, etc.)
+   * @param channel DMA channel (0 or 1); only used by detailed_ddr_*_bandwidth sets
    * @return Vector of CTCounterInfo for all bandwidth counters
    */
   std::vector<CTCounterInfo> generateBandwidthCounters(const std::vector<uint8_t>& shimColumns,
-      const std::string& metricSet = "ddr_bandwidth");
+      const std::string& metricSet = "ddr_bandwidth", uint8_t channel = 0);
 
   /**
    * @brief Write the bandwidth CT file content with register configuration

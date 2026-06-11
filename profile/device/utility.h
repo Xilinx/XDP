@@ -21,10 +21,12 @@
 // Functions that can be used in the database, the plugins, and the writers
 
 #include <stdint.h>
+#include <map>
 #include <string>
 #include <memory>
 #include "xdp/config.h"
 #include "xrt/xrt_device.h"
+#include "core/include/xrt/experimental/xrt_elf.h"
 
 namespace xdp::util {
 
@@ -46,6 +48,25 @@ namespace xdp::util {
   XDP_CORE_EXPORT
   std::shared_ptr<xrt_core::device>
   convertToCoreDevice(void* h, bool hw_context_flow);
+
+  // Returns the ELF that carries the AIE metadata (the core design ELF),
+  // identified by a non-empty AIE_TRACE_METADATA custom section.
+  //
+  // In the Full ELF flow a hw_context's ELF map (keyed by kernel name) can
+  // contain multiple ELFs: the core design ELF plus XDP-generated ELFs
+  // (profile metric ELF, etc.) registered by plugins. Only the core design
+  // ELF carries the AIE metadata, so picking an arbitrary entry (e.g. the
+  // last one) can hand a metadata-less ELF to a later plugin.
+  //
+  // If no registered ELF carries the section (e.g. metadata is provided only
+  // on disk as aie_trace_config.json), this logs a warning and returns the
+  // first map entry. The returned ELF is NOT used for its (absent) section in
+  // that case - it only lets ElfBinData be constructed (needs get_cfg_uuid())
+  // so ElfBinData::readAIEMetadata()'s disk-JSON fallback can still run.
+  // Caller guarantees elfMap is non-empty.
+  XDP_CORE_EXPORT
+  xrt::elf
+  getAieMetadataElf(const std::map<std::string, xrt::elf>& elfMap);
 
 
   // At compile time, each monitor inserted in the PL region is given a set 

@@ -1759,17 +1759,10 @@ namespace xdp {
       }
     }
 
-    std::unique_ptr<ElfBinData> bin;
-    try {
-      bin = std::make_unique<ElfBinData>(std::move(elf), std::move(device));
-    }
-    catch (const std::exception& e) {
-      std::string msg = "AIE Profile ELF flow: failed to construct ElfBinData: ";
-      msg += e.what();
-      msg += ". Device static info will not be updated for this ELF.";
-      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg);
-      return;
-    }
+    // elfUuid is an independent local copy taken above, so it is unaffected by
+    //  std::move(elf) regardless of argument evaluation order. The constructor
+    //  only moves its members and is non-throwing, so no guard is needed here.
+    auto bin = std::make_unique<ElfBinData>(std::move(elf), std::move(device), elfUuid);
 
     boost::property_tree::ptree aieTree;
     auto reader = bin->readAIEMetadata(aieTree);

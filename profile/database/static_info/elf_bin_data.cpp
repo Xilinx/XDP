@@ -19,20 +19,13 @@ namespace xdp {
   namespace pt = boost::property_tree;
   using severity_level = xrt_core::message::severity_level;
 
-  ElfBinData::ElfBinData(xrt::elf elf, std::shared_ptr<xrt_core::device> device)
+  ElfBinData::ElfBinData(xrt::elf elf,
+                         std::shared_ptr<xrt_core::device> device,
+                         xrt_core::uuid uuid)
     : m_elf(std::move(elf))
     , m_device(std::move(device))
+    , m_uuid(std::move(uuid))
   {
-    try {
-      setUuid(m_elf.get_cfg_uuid());
-    }
-    catch (const std::exception& e) {
-      std::string msg = "ElfBinData: ELF does not report a config UUID: ";
-      msg += e.what();
-      xrt_core::message::send(severity_level::debug, "XRT", msg);
-      throw;
-    }
-    
     m_aie.valid = true;
   }
 

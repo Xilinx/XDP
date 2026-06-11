@@ -30,7 +30,7 @@
 #include "xdp/profile/database/static_info/aie_constructs.h"
 #include "xdp/profile/database/static_info/pl_aie_info.h"
 #include "xdp/profile/database/static_info/vp_bin_data.h"
-#include "xdp/profile/database/static_info/xclbin_types.h"
+#include "xdp/profile/database/static_info/binary_types.h"
 
 namespace xdp {
 

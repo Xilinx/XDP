@@ -28,7 +28,7 @@
 #include "xdp/config.h"
 #include "xdp/profile/database/static_info/pl_aie_info.h"
 #include "xdp/profile/database/static_info/vp_bin_data.h"
-#include "xdp/profile/database/static_info/xclbin_types.h"
+#include "xdp/profile/database/static_info/binary_types.h"
 
 namespace xdp::aie {
   // Forward declaration; full type is in
@@ -59,8 +59,15 @@ namespace xdp {
   class ElfBinData final : public VPBinData
   {
   public:
+    // The config UUID is supplied by the caller, which has already obtained
+    // and validated it via xrt::elf::get_cfg_uuid() (the static database also
+    // needs it up front for its de-dup check). Injecting it keeps the
+    // constructor non-throwing and avoids re-deriving the UUID here. Identity
+    // can still be changed later through the VPBinData::setUuid() override.
     XDP_CORE_EXPORT
-    ElfBinData(xrt::elf elf, std::shared_ptr<xrt_core::device> device);
+    ElfBinData(xrt::elf elf,
+               std::shared_ptr<xrt_core::device> device,
+               xrt_core::uuid uuid);
     ~ElfBinData() override = default;
 
     // Non-copyable, non-movable: ElfBinData is a unique-resource owner

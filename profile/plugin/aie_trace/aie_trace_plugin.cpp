@@ -156,7 +156,7 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
       AIEData.valid = false;
       return;
     }
-    xrt::elf elf = elfMap.rbegin()->second;
+    xrt::elf elf = util::getAieMetadataElf(elfMap);
     (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(deviceID, device, std::move(elf));
   }
   else {

@@ -14,8 +14,8 @@
  * under the License.
  */
 
-#ifndef XCLBIN_TYPES_H
-#define XCLBIN_TYPES_H
+#ifndef BINARY_TYPES_H
+#define BINARY_TYPES_H
 #include "xdp/config.h"
 
 namespace xdp {

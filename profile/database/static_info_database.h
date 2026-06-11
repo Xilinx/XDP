@@ -20,7 +20,7 @@
 #include "xdp/profile/database/static_info/aie_util.h"
 #include "xdp/profile/database/static_info/aie_constructs.h"
 #include "xdp/profile/database/static_info/app_style.h"
-#include "xdp/profile/database/static_info/xclbin_types.h"
+#include "xdp/profile/database/static_info/binary_types.h"
 #include "xdp/profile/database/static_info/filetypes/base_filetype_impl.h"
 
 #include "xdp/config.h"

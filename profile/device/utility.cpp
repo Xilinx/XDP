@@ -104,5 +104,35 @@ namespace xdp::util {
     return xrt_core::get_userpf_device(handle);
   }
 
+  xrt::elf
+  getAieMetadataElf(const std::map<std::string, xrt::elf>& elfMap)
+  {
+    // The core design ELF is the one carrying the AIE_TRACE_METADATA custom
+    // section. get_custom_section() throws when the section is absent, so we
+    // probe each ELF under a guard. The same ELF can appear under several
+    // kernel-name keys; the first match is correct since only the core design
+    // ELF has the section.
+    for (const auto& entry : elfMap) {
+      const xrt::elf& elf = entry.second;
+      try {
+        auto data = elf.get_custom_section("AIE_TRACE_METADATA");
+        if (data.data() && data.size())
+          return elf;
+      }
+      catch (const std::exception&) {
+        // Section absent in this ELF (e.g. an XDP-generated ELF): skip it.
+      }
+    }
+
+    // No registered ELF carries the embedded metadata. Do not silently re-pick
+    // an arbitrary ELF for its (absent) section; warn so the case is visible,
+    // and return the first entry so ElfBinData can be constructed and its
+    // disk-JSON (aie_trace_config.json) fallback can still supply metadata.
+    xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+      "Full ELF flow: no registered ELF carries an AIE_TRACE_METADATA section; "
+      "will attempt disk-JSON (aie_trace_config.json) fallback for AIE metadata.");
+    return elfMap.begin()->second;
+  }
+
 } // end namespace xdp::util
 

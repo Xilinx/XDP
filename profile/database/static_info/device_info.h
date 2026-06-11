@@ -26,7 +26,7 @@
 #include "core/common/system.h"
 
 #include "xdp/config.h"
-#include "xdp/profile/database/static_info/xclbin_types.h"
+#include "xdp/profile/database/static_info/binary_types.h"
 
 namespace xdp {
 

@@ -50,10 +50,10 @@ namespace xdp {
   std::unique_ptr<aie::BaseFiletypeImpl>
   ElfBinData::readAIEMetadata(pt::ptree& out)
   {
-    // Phase 1: read AIE metadata from the AIE_TRACE_METADATA ELF custom
+    // Phase 1: read AIE metadata from the AIE_METADATA ELF custom
     // section. This is the source of truth for the Full ELF flow.
     try {
-      auto data = m_elf.get_custom_section("AIE_TRACE_METADATA");
+      auto data = m_elf.get_custom_section("AIE_METADATA");
       if (data.data() && data.size()) {
         auto reader = aie::readAIEMetadata(data.data(), data.size(), out);
         if (reader) {

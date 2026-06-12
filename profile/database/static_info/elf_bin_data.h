@@ -107,7 +107,7 @@ namespace xdp {
     buildConfig(DeviceInfo& devInfo) override;
 
     // ELF-specific surface ----------------------------------------------
-    // Acquire AIE metadata. Tries the AIE_TRACE_METADATA custom section
+    // Acquire AIE metadata. Tries the AIE_METADATA custom section
     // embedded in the ELF first, then falls back to disk-JSON
     // (aie_trace_config.json) matching today's 2-arg ELF flow. Returns
     // the produced filetype reader so the caller can register it on the

@@ -50,7 +50,7 @@ namespace xdp::util {
   convertToCoreDevice(void* h, bool hw_context_flow);
 
   // Returns the ELF that carries the AIE metadata (the core design ELF),
-  // identified by a non-empty AIE_TRACE_METADATA custom section.
+  // identified by a non-empty AIE_METADATA custom section.
   //
   // In the Full ELF flow a hw_context's ELF map (keyed by kernel name) can
   // contain multiple ELFs: the core design ELF plus XDP-generated ELFs

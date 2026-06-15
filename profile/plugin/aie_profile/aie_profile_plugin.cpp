@@ -262,9 +262,7 @@ auto time = std::time(nullptr);
       return;
     }
       
-    #ifdef XDP_CLIENT_BUILD
-      implementation->poll(0);
-    #elif defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD)
+    #if defined(XDP_CLIENT_BUILD) || (defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD))
       implementation->poll(implementation->getDeviceID());
     #endif
 
@@ -278,7 +276,7 @@ auto time = std::time(nullptr);
 
     #ifdef XDP_CLIENT_BUILD
       auto& implementation = handleToAIEProfileImpl.begin()->second;
-      implementation->poll(0);
+      implementation->poll(implementation->getDeviceID());
     #elif defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD)
       for (auto& p : handleToAIEProfileImpl) {
         if (!p.second)

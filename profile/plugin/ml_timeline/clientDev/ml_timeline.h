@@ -30,6 +30,7 @@ namespace xdp {
   {
     std::unique_ptr<ResultBOContainer> mResultBOHolder;
     xrt_core::bo_int::use_type mBOType;
+    std::string powerMode;
 
     public :
       MLTimelineClientDevImpl(VPDatabase* dB, uint32_t sz,

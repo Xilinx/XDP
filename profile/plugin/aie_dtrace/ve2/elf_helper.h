@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (C) 2025 Advanced Micro Devices, Inc. All rights reserved
+// Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved
 #ifndef XDP_AIE_DTRACE_VE2_ELF_HELPER_H
 #define XDP_AIE_DTRACE_VE2_ELF_HELPER_H
 

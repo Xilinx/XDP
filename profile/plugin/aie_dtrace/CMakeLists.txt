@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2025 Advanced Micro Devices, Inc.  All rights reserved.
+# Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved
 #
 # Standalone AIE dtrace plugin for VE2/XDNA. Handles bandwidth metric sets only;
 # no dependency on aie_profile sources.

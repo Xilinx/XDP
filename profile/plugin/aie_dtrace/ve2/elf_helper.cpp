@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (C) 2025 Advanced Micro Devices, Inc. All rights reserved
+// Copyright (C) 2026 Advanced Micro Devices, Inc. All rights reserved
 
 // IMPORTANT: elf_int.h (which includes ELFIO) must be included before any
 // system headers that pull in <elf.h>, to avoid macro/constexpr conflicts

@@ -141,14 +141,4 @@ namespace xdp {
     }
   }
 
-  void AieDtrace_VE2Impl::startPoll(const uint64_t /*id*/) {}
-
-  void AieDtrace_VE2Impl::continuePoll(const uint64_t /*id*/) {}
-
-  void AieDtrace_VE2Impl::poll(const uint64_t /*id*/) {}
-
-  void AieDtrace_VE2Impl::endPoll() {}
-
-  void AieDtrace_VE2Impl::freeResources() {}
-
 }

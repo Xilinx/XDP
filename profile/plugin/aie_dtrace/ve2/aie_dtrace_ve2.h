@@ -20,11 +20,6 @@ namespace xdp {
       ~AieDtrace_VE2Impl() override = default;
 
       void updateDevice() override;
-      void startPoll(const uint64_t id) override;
-      void continuePoll(const uint64_t id) override;
-      void poll(const uint64_t id) override;
-      void endPoll() override;
-      void freeResources() override;
 
       void generateCTForRun(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                            const std::string& kernel_name,

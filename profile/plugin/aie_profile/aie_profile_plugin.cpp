@@ -73,11 +73,14 @@ namespace xdp {
     return AieProfilePlugin::live;
   }
 
-  uint64_t AieProfilePlugin::getDeviceIDFromHandle(void* handle)
+  uint64_t AieProfilePlugin::getDeviceIDFromHandle(void* handle, bool isFullELFFlow)
   {
     auto itr = handleToAIEProfileImpl.find(handle);
     if (itr != handleToAIEProfileImpl.end())
       return itr->second->getDeviceID();
+
+    if (isFullELFFlow)
+      return (db->getStaticInfo()).getHwCtxImplUidElf(handle);
 
     return (db->getStaticInfo()).getDeviceContextUniqueId(handle);
   }
@@ -93,7 +96,22 @@ namespace xdp {
     if (!handle)
       return;
 
-    if (!((db->getStaticInfo()).continueXDPConfig(hw_context_flow))) 
+    
+    bool isFullELFFlow = false;
+    xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Identify flow type");
+    if (hw_context_flow) {
+      xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+      try {
+        isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(ctx);
+      } catch (const std::exception& e) {
+        std::stringstream msg;
+        msg << e.what() << " AIE Profile cannot be enabled before complete configuration." << std::endl;
+        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
+        return;
+      }
+    }
+
+    if (!isFullELFFlow && !((db->getStaticInfo()).continueXDPConfig(hw_context_flow)))
       return;
 
     // In a multipartition scenario, if the user wants to profile one specific partition
@@ -120,20 +138,7 @@ namespace xdp {
     }
 #endif
 
-    auto deviceID = getDeviceIDFromHandle(handle);
-    bool isFullELFFlow = false;
-    xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Identify flow type");
-    if (hw_context_flow) {
-      xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
-      try {
-        isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(ctx);
-      } catch (const std::exception& e) {
-        std::stringstream msg;
-        msg << e.what() << " AIE Profile cannot be enabled before complete configuration." << std::endl;
-        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
-        return;
-      }
-    }
+    auto deviceID = getDeviceIDFromHandle(handle, isFullELFFlow);
 
     if (isFullELFFlow)
     {

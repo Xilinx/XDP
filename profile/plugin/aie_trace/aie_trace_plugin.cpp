@@ -76,11 +76,14 @@ AieTracePluginUnified::~AieTracePluginUnified() {
   AieTracePluginUnified::live = false;
 }
 
-uint64_t AieTracePluginUnified::getDeviceIDFromHandle(void *handle) {
+uint64_t AieTracePluginUnified::getDeviceIDFromHandle(void *handle, bool isFullELFFlow) {
   auto itr = handleToAIEData.find(handle);
 
   if (itr != handleToAIEData.end())
     return itr->second.deviceID;
+
+  if (isFullELFFlow)
+    return (db->getStaticInfo()).getHwCtxImplUidElf(handle);
 
   return (db->getStaticInfo()).getDeviceContextUniqueId(handle);
 }
@@ -91,8 +94,22 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
 
   if (!handle)
     return;
-  
-  if (!((db->getStaticInfo()).continueXDPConfig(hw_context_flow)))
+
+  xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Identify flow type");
+  bool isFullELFFlow = false;
+  if (hw_context_flow) {
+    xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+    try {
+      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(ctx);
+    } catch (const std::exception& e) {
+      std::stringstream msg;
+      msg << e.what() << " AIE Event Trace cannot be enabled before complete configuration." << std::endl;
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
+      return;
+    }
+  }
+
+  if (!isFullELFFlow && !((db->getStaticInfo()).continueXDPConfig(hw_context_flow)))
     return;
 
   // In a multipartition scenario, if the user wants to trace one specific partition
@@ -122,29 +139,12 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
   if (handleToAIEData.find(handle) != handleToAIEData.end())
     handleToAIEData.erase(handle);
 
-  auto deviceID = getDeviceIDFromHandle(handle);
+  auto deviceID = getDeviceIDFromHandle(handle, isFullELFFlow);
 
   // Setting up struct
   auto &AIEData = handleToAIEData[handle];
   AIEData.deviceID = deviceID;
   AIEData.valid = true; // initialize struct
-
-  // Identify the flow type: a Full ELF flow carries the AIE metadata in an
-  // xrt::elf and has no xclbin, whereas the legacy flow loads an xclbin.
-  xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Identify flow type");
-  bool isFullELFFlow = false;
-  if (hw_context_flow) {
-    xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
-    try {
-      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(ctx);
-    } catch (const std::exception& e) {
-      std::stringstream msg;
-      msg << e.what() << " AIE Event Trace cannot be enabled before complete configuration." << std::endl;
-      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
-      AIEData.valid = false;
-      return;
-    }
-  }
 
   // Update the static database with information from the ELF or the xclbin
   if (isFullELFFlow) {

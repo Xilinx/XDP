@@ -35,6 +35,8 @@ namespace xdp {
       virtual void updateDevice(void*, uint64_t) = 0;
       virtual void finishflushDevice(void*, uint64_t) = 0;
 
+      virtual void setPowerMode(const std::string &) {}
+
       void setHWContextName(const std::string &nm) {
         mHwCtxName = nm;
       }

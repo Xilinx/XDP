@@ -213,6 +213,15 @@ namespace xdp {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", msg.str());
     }
 
+    try {
+      const auto pmode = xrt_core::device_query<xrt_core::query::performance_mode>(coreDevice);
+      mlImpl->setPowerMode(xrt_core::query::performance_mode::parse_status(pmode));
+    } catch (const xrt_core::query::no_such_key&) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "Failed to retrieve Power Mode");
+    } catch (const std::exception &) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "Failed to retrieve Power Mode");
+    }
+
 #elif defined (XDP_VE2_BUILD)
 
     if (mMultiImpl.find(hwCtxImpl) != mMultiImpl.end()) {

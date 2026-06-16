@@ -39,6 +39,10 @@ namespace xdp {
 
       virtual void updateDevice(void* hwCtxImpl, uint64_t devId = 0);
       virtual void finishflushDevice(void* hwCtxImpl, uint64_t implId = 0);
+
+      virtual void setPowerMode(const std::string &pMode) {
+        powerMode = pMode;
+      }
   };
 
 }

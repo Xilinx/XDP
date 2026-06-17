@@ -92,7 +92,7 @@ namespace xdp {
     //  when called and we don't want to actually do anything
   }
 
-  void OpenCLDeviceInfoPlugin::writeAll(bool openNewFiles)
+  void OpenCLDeviceInfoPlugin::writeAll(bool /*openNewFiles*/)
   {
     // Intentionally left blank so we don't call the base class function
     //  when called and we don't want to actually do anything
@@ -101,14 +101,14 @@ namespace xdp {
   // This function will only be called if an active device is going to
   //  be reprogrammed.  We can assume the device is good before the call
   //  and bad after this call (until the next update device)
-  void OpenCLDeviceInfoPlugin::flushDevice(void* d)
+  void OpenCLDeviceInfoPlugin::flushDevice(void* /*d*/)
   {
     // Intentionally left blank so we don't call the base class function.
     //  This plugin no longer communicates with the actual device so
     //  there is no information to be flushed.
   }
 
-  void OpenCLDeviceInfoPlugin::updateDevice(void* d, bool hw_context_flow)
+  void OpenCLDeviceInfoPlugin::updateDevice(void* d, bool /*hw_context_flow*/)
   {
     if (getFlowMode() == SW_EMU){
       updateSWEmulationGuidance() ;
@@ -145,7 +145,7 @@ namespace xdp {
     (db->getStaticInfo()).setDeviceName(deviceId, device->getName()) ;
   }
 
-  void OpenCLDeviceInfoPlugin::updateOpenCLInfo(uint64_t deviceId)
+  void OpenCLDeviceInfoPlugin::updateOpenCLInfo(uint64_t /*deviceId*/)
   {
     // The argument list is now available due to the parsing of the
     // SYSTEM_METADATA section, so we don't need to update it based off of

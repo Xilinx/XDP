@@ -10,7 +10,15 @@
 #include <vector>
 
 #include "aiebu/aiebu_assembler.h"
+#include "core/edge/common/aie_parser.h"
 #include "xdp/profile/plugin/aie_dtrace/aie_dtrace_impl.h"
+#include "xdp/profile/plugin/aie_dtrace/util/aie_dtrace_util.h"
+#include "xaiefal/xaiefal.hpp"
+
+extern "C" {
+#include <aie_codegen.h>
+#include <aie_codegen_inc/xaiegbl_params.h>
+}
 
 namespace xdp {
 

@@ -6,10 +6,12 @@
 #include<regex>
 #include<string>
 #include<cassert>
+#include<sstream>
 
 #include "core/common/device.h"
 #include "core/common/message.h"
 #include "core/common/api/hw_context_int.h"
+#include "core/include/xrt/experimental/xrt_elf.h"
 
 #include "xdp/profile/plugin/aie_halt/aie_halt_plugin.h"
 #include "xdp/profile/plugin/vp_base/info.h"
@@ -57,49 +59,58 @@ namespace xdp {
 
   void AIEHaltPlugin::updateDevice(void* hwCtxImpl)
   {
-#ifdef XDP_CLIENT_BUILD
+#if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
     if (mHwCtxImpl) {
-      // For client device flow, only 1 device and xclbin is supported now.
+      // Only 1 device and xclbin is supported now.
       return;
     }
     mHwCtxImpl = hwCtxImpl;
 
-    xrt::hw_context hwContext = xrt_core::hw_context_int::create_hw_context_from_implementation(mHwCtxImpl);
-    if (xrt_core::hw_context_int::get_elf_flow(hwContext)) {
-      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
-          "AIE Halt Plugin is not yet supported for Full ELF flow.");
-      return;
-    }
-    std::shared_ptr<xrt_core::device> coreDevice = xrt_core::hw_context_int::get_core_device(hwContext);
-
-    // Only one device for Client Device flow
-    uint64_t deviceId = db->addDevice("win_device");
-    (db->getStaticInfo()).updateDeviceFromCoreDevice(deviceId, coreDevice, false);
-    (db->getStaticInfo()).setDeviceName(deviceId, "win_device");
-
-    DeviceDataEntry.valid = true;
-    DeviceDataEntry.implementation = std::make_unique<AIEHaltClientDevImpl>(db);
-    DeviceDataEntry.implementation->setHwContext(hwContext);
-    DeviceDataEntry.implementation->updateDevice(mHwCtxImpl);
-
-#elif defined (XDP_VE2_BUILD)
-    if (mHwCtxImpl) {
-      // For VE2 device flow, only 1 device and xclbin is supported now.
-      return;
-    }
-    mHwCtxImpl = hwCtxImpl;
+#if defined(XDP_VE2_BUILD)
+    const std::string deviceName = "ve2_device";
+#else
+    const std::string deviceName = "win_device";
+#endif
 
     xrt::hw_context hwContext = xrt_core::hw_context_int::create_hw_context_from_implementation(mHwCtxImpl);
     std::shared_ptr<xrt_core::device> coreDevice = xrt_core::hw_context_int::get_core_device(hwContext);
-    
-    // Only one device for VE2 Device flow
-    uint64_t deviceId = db->addDevice("ve2_device");
-    // TODO: should we use updateDeviceFromCoreDeviceHwCtxFlow or updateDeviceFromCoreDevice
-    (db->getStaticInfo()).updateDeviceFromCoreDevice(deviceId, coreDevice, false);
-    (db->getStaticInfo()).setDeviceName(deviceId, "ve2_device");
+
+    // Identify the flow type: a Full ELF flow carries the AIE metadata in an
+    // xrt::elf and has no xclbin, whereas the legacy flow loads an xclbin.
+    bool isFullELFFlow = false;
+    try {
+      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
+    } catch (const std::exception& e) {
+      std::stringstream msg;
+      msg << e.what() << " AIE Halt cannot be enabled before complete configuration.";
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
+      return;
+    }
+
+    uint64_t deviceId = 0;
+    if (isFullELFFlow) {
+      deviceId = (db->getStaticInfo()).getHwCtxImplUidElf(mHwCtxImpl);
+      auto elfMap = xrt_core::hw_context_int::get_elf_map(hwContext);
+      if (elfMap.empty()) {
+        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+          "AIE Halt ELF flow: hw_context has no registered ELFs. Skipping.");
+        return;
+      }
+      xrt::elf elf = util::getAieMetadataElf(elfMap);
+      (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(deviceId, coreDevice, std::move(elf));
+    } else {
+      // Only one device for the Client/VE2 device flow
+      deviceId = db->addDevice(deviceName);
+      (db->getStaticInfo()).updateDeviceFromCoreDevice(deviceId, coreDevice, false);
+    }
+    (db->getStaticInfo()).setDeviceName(deviceId, deviceName);
 
     DeviceDataEntry.valid = true;
+#if defined(XDP_VE2_BUILD)
     DeviceDataEntry.implementation = std::make_unique<AIEHaltVE2Impl>(db);
+#else
+    DeviceDataEntry.implementation = std::make_unique<AIEHaltClientDevImpl>(db);
+#endif
     DeviceDataEntry.implementation->setHwContext(hwContext);
     DeviceDataEntry.implementation->updateDevice(mHwCtxImpl);
 #endif

@@ -30,6 +30,7 @@ namespace xdp {
   {
     std::unique_ptr<ResultBOContainer> mResultBOHolder;
     xrt_core::bo_int::use_type mBOType;
+    std::string powerMode;
 
     public :
       MLTimelineClientDevImpl(VPDatabase* dB, uint32_t sz,
@@ -39,6 +40,10 @@ namespace xdp {
 
       virtual void updateDevice(void* hwCtxImpl, uint64_t devId = 0);
       virtual void finishflushDevice(void* hwCtxImpl, uint64_t implId = 0);
+
+      virtual void setPowerMode(const std::string &pMode) {
+        powerMode = pMode;
+      }
   };
 
 }

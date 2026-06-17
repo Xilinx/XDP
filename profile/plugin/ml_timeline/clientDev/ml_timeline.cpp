@@ -192,7 +192,9 @@ namespace xdp {
     ptSchema.put("patch", "0");
     ptHeader.add_child("schema_version", ptSchema);
     ptHeader.put("device", "Client");
-    ptHeader.put("clock_freq_MHz", 1000);
+    if (!powerMode.empty()) {
+      ptHeader.put("power_mode", powerMode);
+    }
     ptHeader.put("id_size", sizeof(uint32_t));
     ptHeader.put("cycle_size", 2*sizeof(uint32_t));
     ptHeader.put("buffer_size", mBufSz);

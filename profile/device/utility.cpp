@@ -104,34 +104,29 @@ namespace xdp::util {
     return xrt_core::get_userpf_device(handle);
   }
 
-  xrt::elf
+  std::optional<xrt::elf>
   getAieMetadataElf(const std::map<std::string, xrt::elf>& elfMap)
   {
-    // The core design ELF is the one carrying the AIE_METADATA custom
-    // section. get_custom_section() throws when the section is absent, so we
-    // probe each ELF under a guard. The same ELF can appear under several
-    // kernel-name keys; the first match is correct since only the core design
-    // ELF has the section.
+    // The core design (control) ELF is the one NOT submitted by XDP itself.
+    // XDP's own ELFs are registered under "XDP_KERNEL"-prefixed kernel names
+    // (xdp::isXdpInternalKernel). With multiple plugins active the map also
+    // holds these XDP-generated ELFs, so we deterministically pick the entry
+    // whose kernel-name key is not XDP-internal. The same design ELF may map
+    // under several kernel-name keys; returning the first non-internal one is
+    // correct since they all reference the same ELF.
     for (const auto& entry : elfMap) {
-      const xrt::elf& elf = entry.second;
-      try {
-        auto data = elf.get_custom_section("AIE_METADATA");
-        if (data.data() && data.size())
-          return elf;
-      }
-      catch (const std::exception&) {
-        // Section absent in this ELF (e.g. an XDP-generated ELF): skip it.
-      }
+      if (isXdpInternalKernel(entry.first))
+        continue;
+      return entry.second;
     }
 
-    // No registered ELF carries the embedded metadata. Do not silently re-pick
-    // an arbitrary ELF for its (absent) section; warn so the case is visible,
-    // and return the first entry so ElfBinData can be constructed and its
-    // disk-JSON (aie_trace_config.json) fallback can still supply metadata.
+    // No non-XDP design ELF found. Do not silently pick an arbitrary
+    // (XDP-generated) ELF; warn so the case is visible and let the caller skip
+    // the ELF-based AIE metadata update.
     xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
-      "Full ELF flow: no registered ELF carries an AIE_METADATA section; "
-      "will attempt disk-JSON (aie_trace_config.json) fallback for AIE metadata.");
-    return elfMap.begin()->second;
+      "Full ELF flow: no non-XDP (control) ELF found in hw_context; "
+      "skipping ELF-based AIE metadata update.");
+    return std::nullopt;
   }
 
 } // end namespace xdp::util

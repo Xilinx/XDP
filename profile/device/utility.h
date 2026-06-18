@@ -22,6 +22,7 @@
 
 #include <stdint.h>
 #include <map>
+#include <optional>
 #include <string>
 #include <memory>
 #include "xdp/config.h"
@@ -49,23 +50,22 @@ namespace xdp::util {
   std::shared_ptr<xrt_core::device>
   convertToCoreDevice(void* h, bool hw_context_flow);
 
-  // Returns the ELF that carries the AIE metadata (the core design ELF),
-  // identified by a non-empty AIE_METADATA custom section.
+  // Returns the core design (control) ELF from a hw_context's ELF map, i.e.
+  // the ELF to read AIE metadata from.
   //
   // In the Full ELF flow a hw_context's ELF map (keyed by kernel name) can
   // contain multiple ELFs: the core design ELF plus XDP-generated ELFs
-  // (profile metric ELF, etc.) registered by plugins. Only the core design
-  // ELF carries the AIE metadata, so picking an arbitrary entry (e.g. the
-  // last one) can hand a metadata-less ELF to a later plugin.
+  // (profile metric ELF, etc.) submitted by plugins. XDP's own ELFs are
+  // registered under "XDP_KERNEL"-prefixed kernel names (xdp::isXdpInternalKernel),
+  // so the design ELF is identified as the entry whose kernel-name key is NOT
+  // XDP-internal. This is deterministic regardless of map ordering or how many
+  // plugins have run.
   //
-  // If no registered ELF carries the section (e.g. metadata is provided only
-  // on disk as aie_trace_config.json), this logs a warning and returns the
-  // first map entry. The returned ELF is NOT used for its (absent) section in
-  // that case - it only lets ElfBinData be constructed (needs get_cfg_uuid())
-  // so ElfBinData::readAIEMetadata()'s disk-JSON fallback can still run.
-  // Caller guarantees elfMap is non-empty.
+  // Returns std::nullopt (after a warning) when no non-XDP design ELF is found.
+  // Callers must skip the ELF-based update in that case rather than fall back
+  // to an arbitrary ELF.
   XDP_CORE_EXPORT
-  xrt::elf
+  std::optional<xrt::elf>
   getAieMetadataElf(const std::map<std::string, xrt::elf>& elfMap);
 
 

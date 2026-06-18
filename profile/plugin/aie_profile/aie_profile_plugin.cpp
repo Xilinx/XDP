@@ -150,8 +150,10 @@ namespace xdp {
           "Skipping ELF flow.");
         return;
       }
-      xrt::elf elf = util::getAieMetadataElf(elfMap);
-      (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(deviceID, device, std::move(elf));
+      auto elf = util::getAieMetadataElf(elfMap);
+      if (!elf)
+        return;
+      (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(deviceID, device, std::move(*elf));
     }
     else {
 #ifdef XDP_CLIENT_BUILD

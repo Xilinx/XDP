@@ -47,16 +47,15 @@ namespace {
     for (auto device : infos) {
       auto& loadedConfigs = device->getLoadedConfigs();
       for (const auto& cfg : loadedConfigs) {
-        for (auto xclbin : cfg->currentBinaries) {
-          // Skip ELF binaries (no PL data; getPl() would throw) and xclbins
-          //  whose PL slot is invalid.
-          if (!xclbin->isXclbin() || !xclbin->getPl().valid)
-            continue;
-          for (auto aim : xclbin->getPl().aims) {
-            // A CU index of -1 is a floating AIM not attached to a compute unit
-            if (aim->cuIndex != -1)
-              return true;
-          }
+        // getPlBinary() returns the single valid PL binary (never an ELF) or
+        //  nullptr, so we don't have to filter the binaries ourselves.
+        auto* xclbin = cfg->getPlBinary();
+        if (!xclbin)
+          continue;
+        for (auto aim : xclbin->getPl().aims) {
+          // A CU index of -1 is a floating AIM not attached to a compute unit
+          if (aim->cuIndex != -1)
+            return true;
         }
       }
     }
@@ -544,25 +543,22 @@ namespace xdp {
 	      xdp::CounterResults values =
           db->getDynamicInfo().getCounterResults(deviceId, cfg->getConfigUuid());
 
-        for (auto xclbin : cfg->currentBinaries) {
-          // Skip ELF binaries (no PL data; getPl() would throw) and xclbins
-          //  whose PL slot is invalid.
-          if (!xclbin->isXclbin() || !xclbin->getPl().valid)
-            continue;
-          for (const auto& cuInfo : xclbin->getPl().cus) {
-            auto cu = cuInfo.second;
-            uint64_t amSlotID =
-              static_cast<uint64_t>(cu->getAccelMon());
+        // getPlBinary() returns the single valid PL binary (never an ELF) or
+        //  nullptr, so we don't have to filter the binaries ourselves.
+        auto* xclbin = cfg->getPlBinary();
+        if (!xclbin)
+          continue;
+        for (const auto& cuInfo : xclbin->getPl().cus) {
+          auto cu = cuInfo.second;
+          uint64_t amSlotID =
+            static_cast<uint64_t>(cu->getAccelMon());
 
-            // Stats don't make sense if runtime or executions = 0
-            if ((values.CuBusyCycles[amSlotID] != 0) ||
-                (values.CuExecCount[amSlotID] != 0)) {
-              outputTable = true;
-              break;
-            }
-          }
-          if (outputTable)
+          // Stats don't make sense if runtime or executions = 0
+          if ((values.CuBusyCycles[amSlotID] != 0) ||
+              (values.CuExecCount[amSlotID] != 0)) {
+            outputTable = true;
             break;
+          }
         }
         if (outputTable)
           break;
@@ -703,24 +699,23 @@ namespace xdp {
       {
         xdp::CounterResults values = (db->getDynamicInfo()).getCounterResults(device->deviceId, cfg->getConfigUuid()) ;
         
-        for (auto xclbin : cfg->currentBinaries) {
-          // Skip ELF binaries (no PL data; getPl() would throw) and xclbins
-          //  whose PL slot is invalid.
-          if (!xclbin->isXclbin() || !xclbin->getPl().valid)
-            continue;
-          uint64_t j = 0 ;      
-          for (const auto& cu : (xclbin->getPl().cus))
-          {
-            double deviceCyclesMsec = static_cast<double>(((cu.second)->getClockFrequency()) * one_thousand);
+        // getPlBinary() returns the single valid PL binary (never an ELF) or
+        //  nullptr, so we don't have to filter the binaries ourselves.
+        auto* xclbin = cfg->getPlBinary();
+        if (!xclbin)
+          continue;
+        uint64_t j = 0 ;      
+        for (const auto& cu : (xclbin->getPl().cus))
+        {
+          double deviceCyclesMsec = static_cast<double>(((cu.second)->getClockFrequency()) * one_thousand);
 
-            fout << (cu.second)->getName()     << "," 
-                << values.CuExecCount[j]      << ","
-                << (values.CuExecCycles[j] / deviceCyclesMsec)     << ","
-                << (values.CuStallIntCycles[j] / deviceCyclesMsec) << ","
-                << (values.CuStallExtCycles[j] / deviceCyclesMsec) << ","
-                << (values.CuStallStrCycles[j] / deviceCyclesMsec) << std::endl ;
-            ++j ;
-          }
+          fout << (cu.second)->getName()     << "," 
+              << values.CuExecCount[j]      << ","
+              << (values.CuExecCycles[j] / deviceCyclesMsec)     << ","
+              << (values.CuStallIntCycles[j] / deviceCyclesMsec) << ","
+              << (values.CuStallExtCycles[j] / deviceCyclesMsec) << ","
+              << (values.CuStallStrCycles[j] / deviceCyclesMsec) << std::endl ;
+          ++j ;
         }
       }
     }

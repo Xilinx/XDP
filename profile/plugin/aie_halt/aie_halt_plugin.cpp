@@ -96,8 +96,10 @@ namespace xdp {
           "AIE Halt ELF flow: hw_context has no registered ELFs. Skipping.");
         return;
       }
-      xrt::elf elf = util::getAieMetadataElf(elfMap);
-      (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(deviceId, coreDevice, std::move(elf));
+      auto elf = util::getAieMetadataElf(elfMap);
+      if (!elf)
+        return;
+      (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(deviceId, coreDevice, std::move(*elf));
     } else {
       // Only one device for the Client/VE2 device flow
       deviceId = db->addDevice(deviceName);

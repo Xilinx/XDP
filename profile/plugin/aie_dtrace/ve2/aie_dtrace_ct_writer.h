@@ -254,10 +254,11 @@ private:
    * @brief Generate stream switch port configuration for DMA channels per shim tile
    * @param column Shim tile column
    * @param metricSet The metric set name (ddr_bandwidth, peak_read_bandwidth, etc.)
+   * @param channel DMA channel (0 or 1); only used by detailed_ddr_*_bandwidth sets
    * @return Vector of register writes to configure stream switch ports
    */
   std::vector<CTRegisterWrite> generateStreamSwitchPortConfig(uint8_t column,
-      const std::string& metricSet = "ddr_bandwidth");
+      const std::string& metricSet = "ddr_bandwidth", uint8_t channel = 0);
 
   /**
    * @brief Generate performance counter configuration for 4 counters per shim tile

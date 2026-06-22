@@ -716,11 +716,16 @@ std::vector<BandwidthCounterConfig> AieDtraceCTWriter::getBandwidthCounterConfig
     //   MM2S ch0 slave  South3 => 5, MM2S ch1 slave  South7 => 9
     uint8_t runPortIndex = isWrite ? ((ch == 0) ? 3 : 5)
                                    : ((ch == 0) ? 5 : 9);
+    // Starvation/backpressure are memory- vs stream-side depending on direction:
+    //   MM2S (read):  memory_starvation, stream_backpressure
+    //   S2MM (write): stream_starvation, memory_backpressure
+    std::string starvationType   = isWrite ? "stream_starvation"   : "memory_starvation";
+    std::string backpressureType = isWrite ? "memory_backpressure" : "stream_backpressure";
     return {
-      {0, ch, runPortIndex, isMaster, dir, "running"},  // Counter 0: PORT_RUNNING (stream-switch port)
-      {1, ch, 0, isMaster, dir, "lock"},                // Counter 1: stalled_lock
-      {2, ch, 0, isMaster, dir, "starvation"},          // Counter 2: starvation
-      {3, ch, 0, isMaster, dir, "backpressure"}         // Counter 3: backpressure
+      {0, ch, runPortIndex, isMaster, dir, "running"},      // Counter 0: PORT_RUNNING (stream-switch port)
+      {1, ch, 0, isMaster, dir, "lock"},                    // Counter 1: stalled_lock
+      {2, ch, 0, isMaster, dir, starvationType},            // Counter 2: starvation (memory/stream)
+      {3, ch, 0, isMaster, dir, backpressureType}           // Counter 3: backpressure (memory/stream)
     };
   }
 

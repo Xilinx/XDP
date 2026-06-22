@@ -75,8 +75,7 @@ namespace xdp {
     xrt::hw_context hwContext = xrt_core::hw_context_int::create_hw_context_from_implementation(mHwCtxImpl);
     std::shared_ptr<xrt_core::device> coreDevice = xrt_core::hw_context_int::get_core_device(hwContext);
 
-    // Identify the flow type: a Full ELF flow carries the AIE metadata in an
-    // xrt::elf and has no xclbin, whereas the legacy flow loads an xclbin.
+    // Full ELF flow carries AIE metadata in an xrt::elf (no xclbin).
     bool isFullELFFlow = false;
     try {
       isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);

@@ -89,13 +89,8 @@ namespace xdp {
     ~DeviceInfo() ;
 
     // ****** Functions for Device ConfigInfo ******
-    // createConfig wraps a single VPBinData (XclbinBinData or ElfBinData)
-    //  into a fresh ConfigInfo and appends it to loadedConfigInfos. The
-    //  source-specific shape is decided by VPBinData::buildConfig:
-    //   - XclbinBinData may merge a partial-load sibling from
-    //     loadedConfigInfos (CONFIG_AIE_PL / CONFIG_AIE_PL_FORMED /
-    //     CONFIG_AIE_ONLY / CONFIG_PL_ONLY).
-    //   - ElfBinData is self-complete (CONFIG_ELF_AIE_ONLY).
+    // createConfig wraps a single VPBinData into a fresh ConfigInfo (shape
+    //  decided by VPBinData::buildConfig) and appends it to loadedConfigInfos.
     XDP_CORE_EXPORT void createConfig(VPBinData* binary) ;
     XDP_CORE_EXPORT void createEmptyConfig() ;
     

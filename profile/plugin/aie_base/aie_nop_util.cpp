@@ -32,22 +32,11 @@ namespace xdp::aie {
       return false;
     }
 
-    // The two flows expect the nop ELF to be plumbed into the hw_context
-    // in different ways:
-    //
-    //   * Full-ELF flow: the hw_context was created with a partition_size
-    //     and gets its kernels resolved from the ELFs registered via
-    //     xrt::hw_context::add_config(elf). The ext::kernel name-only
-    //     constructor looks the kernel up in that registered set.
-    //
-    //   * xclbin flow: the hw_context already has its kernels resolved
-    //     from the xclbin's metadata. Pushing a nop.elf through
-    //     add_config() makes XRT try to parse xrt configuration notes
-    //     (partition_size, etc.) out of the nop ELF, which it does not
-    //     carry - that surfaces as "ELF is missing xrt configuration
-    //     info". Use the explicit xrt::module + ext::kernel(ctx, mod,
-    //     name) construction instead so the nop ELF is only attached as
-    //     an executable module without being treated as a full ELF.
+    // Each flow attaches the nop ELF differently. The Full-ELF flow registers
+    // it via add_config() so the name-only ext::kernel constructor resolves it.
+    // The xclbin flow uses an explicit xrt::module instead: routing nop.elf
+    // through add_config() would make XRT try to parse xrt configuration notes
+    // it does not carry ("ELF is missing xrt configuration info").
     xrt::kernel krnl;
     try {
       if (xrt_core::hw_context_int::get_elf_flow(hwContext)) {

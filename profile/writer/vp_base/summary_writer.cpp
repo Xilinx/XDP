@@ -47,8 +47,7 @@ namespace {
     for (auto device : infos) {
       auto& loadedConfigs = device->getLoadedConfigs();
       for (const auto& cfg : loadedConfigs) {
-        // getPlBinary() returns the single valid PL binary (never an ELF) or
-        //  nullptr, so we don't have to filter the binaries ourselves.
+        // getPlBinary() returns the PL binary (never an ELF) or nullptr.
         auto* xclbin = cfg->getPlBinary();
         if (!xclbin)
           continue;
@@ -543,8 +542,7 @@ namespace xdp {
 	      xdp::CounterResults values =
           db->getDynamicInfo().getCounterResults(deviceId, cfg->getConfigUuid());
 
-        // getPlBinary() returns the single valid PL binary (never an ELF) or
-        //  nullptr, so we don't have to filter the binaries ourselves.
+        // getPlBinary() returns the PL binary (never an ELF) or nullptr.
         auto* xclbin = cfg->getPlBinary();
         if (!xclbin)
           continue;
@@ -699,8 +697,7 @@ namespace xdp {
       {
         xdp::CounterResults values = (db->getDynamicInfo()).getCounterResults(device->deviceId, cfg->getConfigUuid()) ;
         
-        // getPlBinary() returns the single valid PL binary (never an ELF) or
-        //  nullptr, so we don't have to filter the binaries ourselves.
+        // getPlBinary() returns the PL binary (never an ELF) or nullptr.
         auto* xclbin = cfg->getPlBinary();
         if (!xclbin)
           continue;

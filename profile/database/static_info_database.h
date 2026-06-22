@@ -343,10 +343,8 @@ namespace xdp {
     void updateDeviceFromCoreDeviceElf(uint64_t deviceId,
                                     std::shared_ptr<xrt_core::device> device);
 
-    // Full ELF flow overload (VE2): construct an ElfBinData from the
-    //  xrt::elf, register the AIE metadata reader on the device's side
-    //  map, and push the ElfBinData through DeviceInfo::createConfig so
-    //  it lands in loadedConfigInfos as a CONFIG_ELF_AIE_ONLY entry.
+    // Full ELF flow overload: build an ElfBinData from the xrt::elf and push
+    //  it through DeviceInfo::createConfig as a CONFIG_ELF_AIE_ONLY entry.
     XDP_CORE_EXPORT
     void updateDeviceFromCoreDeviceElf(uint64_t deviceId,
                                        std::shared_ptr<xrt_core::device> device,

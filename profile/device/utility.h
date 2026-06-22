@@ -50,20 +50,13 @@ namespace xdp::util {
   std::shared_ptr<xrt_core::device>
   convertToCoreDevice(void* h, bool hw_context_flow);
 
-  // Returns the core design (control) ELF from a hw_context's ELF map, i.e.
-  // the ELF to read AIE metadata from.
+  // Returns the design ELF to read AIE metadata from, given a
+  // hw_context's kernel-name-keyed ELF map.
   //
-  // In the Full ELF flow a hw_context's ELF map (keyed by kernel name) can
-  // contain multiple ELFs: the core design ELF plus XDP-generated ELFs
-  // (profile metric ELF, etc.) submitted by plugins. XDP's own ELFs are
-  // registered under "XDP_KERNEL"-prefixed kernel names (xdp::isXdpInternalKernel),
-  // so the design ELF is identified as the entry whose kernel-name key is NOT
-  // XDP-internal. This is deterministic regardless of map ordering or how many
-  // plugins have run.
-  //
-  // Returns std::nullopt (after a warning) when no non-XDP design ELF is found.
-  // Callers must skip the ELF-based update in that case rather than fall back
-  // to an arbitrary ELF.
+  // In the Full ELF flow the map can also hold XDP-generated ELFs submitted by
+  // plugins; those use "XDP_KERNEL"-prefixed keys (isXdpInternalKernel), so the
+  // design ELF is the first non-XDP-internal entry. Returns std::nullopt (after
+  // a warning) when none is found; callers must then skip the ELF-based update.
   XDP_CORE_EXPORT
   std::optional<xrt::elf>
   getAieMetadataElf(const std::map<std::string, xrt::elf>& elfMap);

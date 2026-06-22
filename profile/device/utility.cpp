@@ -107,22 +107,16 @@ namespace xdp::util {
   std::optional<xrt::elf>
   getAieMetadataElf(const std::map<std::string, xrt::elf>& elfMap)
   {
-    // The core design (control) ELF is the one NOT submitted by XDP itself.
-    // XDP's own ELFs are registered under "XDP_KERNEL"-prefixed kernel names
-    // (xdp::isXdpInternalKernel). With multiple plugins active the map also
-    // holds these XDP-generated ELFs, so we deterministically pick the entry
-    // whose kernel-name key is not XDP-internal. The same design ELF may map
-    // under several kernel-name keys; returning the first non-internal one is
-    // correct since they all reference the same ELF.
+    // The design ELF is the entry not submitted by XDP itself.
+    // XDP's own ELFs use "XDP_KERNEL"-prefixed kernel-name keys
+    // (isXdpInternalKernel), so pick the first non-internal entry.
     for (const auto& entry : elfMap) {
       if (isXdpInternalKernel(entry.first))
         continue;
       return entry.second;
     }
 
-    // No non-XDP design ELF found. Do not silently pick an arbitrary
-    // (XDP-generated) ELF; warn so the case is visible and let the caller skip
-    // the ELF-based AIE metadata update.
+    // No design ELF found; warn rather than pick an arbitrary XDP ELF.
     xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
       "Full ELF flow: no non-XDP (control) ELF found in hw_context; "
       "skipping ELF-based AIE metadata update.");

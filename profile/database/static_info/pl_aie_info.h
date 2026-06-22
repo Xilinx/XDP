@@ -18,10 +18,9 @@
 #ifndef PL_AIE_INFO_DOT_H
 #define PL_AIE_INFO_DOT_H
 
-// Neutral leaf header that owns the two binary-source-agnostic data
-//  aggregates (PLInfo, AIEInfo). Both XclbinBinData (xclbin_info.h) and
-//  ElfBinData (elf_bin_data.h) hold these by value, so factoring them out
-//  here breaks the otherwise-mutual include between those two headers.
+// Leaf header for the PLInfo/AIEInfo aggregates. Both XclbinBinData and
+//  ElfBinData hold these by value; factoring them out here breaks the
+//  otherwise-mutual include between those two headers.
 
 #include <cstdint>
 #include <map>

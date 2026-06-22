@@ -141,10 +141,9 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
 
   auto deviceID = getDeviceIDFromHandle(handle, isFullELFFlow);
 
-  // Setting up struct
   auto &AIEData = handleToAIEData[handle];
   AIEData.deviceID = deviceID;
-  AIEData.valid = true; // initialize struct
+  AIEData.valid = true;
 
   // Update the static database with information from the ELF or the xclbin
   if (isFullELFFlow) {
@@ -189,7 +188,7 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
                             AIE_TRACE_TILES_UNAVAILABLE);
     return;
   }
-  AIEData.valid = true; // initialize struct
+  AIEData.valid = true;
 
   // If there are tiles configured for this xclbin, then we have configured the first matching xclbin and will not configure any upcoming ones
   if ((xrt_core::config::get_aie_trace_settings_config_one_partition()) && !(AIEData.metadata->configMetricsEmpty()))

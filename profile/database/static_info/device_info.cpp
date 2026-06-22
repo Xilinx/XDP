@@ -47,11 +47,7 @@ namespace xdp {
   void DeviceInfo::createConfig(VPBinData* binary)
   {
     // Source-specific config construction lives on the binary itself
-    //  (VPBinData::buildConfig). XclbinBinData performs the partial-load
-    //  merge by consulting loadedConfigInfos via XclbinBinData::fromLastConfig;
-    //  ElfBinData produces a self-complete CONFIG_ELF_AIE_ONLY. DeviceInfo
-    //  no longer switches on getType() and never calls the partial-load
-    //  factory directly.
+    //  (VPBinData::buildConfig).
     loadedConfigInfos.push_back(binary->buildConfig(*this));
   }
 

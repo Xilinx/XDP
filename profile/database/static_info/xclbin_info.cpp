@@ -286,10 +286,8 @@ namespace xdp {
   {
     for (auto bin : currentBinaries)
     {
-      // ELF binaries carry no PL data and their getPl() throws by design.
-      //  Skip them so getPlBinary() returns nullptr for ELF-only configs
-      //  (downstream PL clock / PL info lookups then fall through to their
-      //   default-value branches).
+      // ELF binaries carry no PL data (getPl() throws); skip them so
+      //  ELF-only configs return nullptr here.
       if (!bin->isXclbin())
         continue;
       if (bin->getPl().valid)
@@ -731,7 +729,7 @@ namespace xdp {
     bool ConfigInfo::hasAIMNamed(const std::string& name)
     {
       for (auto bin : currentBinaries) {
-        // ELF binaries have no PL data; their getPl() throws by design.
+        // ELF binaries have no PL data (getPl() throws); skip them.
         if (!bin->isXclbin())
           continue;
         for (auto aim : bin->getPl().aims) {
@@ -742,15 +740,9 @@ namespace xdp {
       return false ;
     }
 
-    // ----------------------------------------------------------------------
-    //  XclbinBinData::buildConfig and fromLastConfig
-    //
-    //  Together these own the xclbin-flow specifics that previously lived
-    //  inside DeviceInfo: the partial-load merge (AIE_ONLY paired with a
-    //  later PL_ONLY xclbin, or vice versa) and the resulting ConfigInfo
-    //  shape. DeviceInfo no longer switches on source type; it just calls
-    //  binary->buildConfig(*this) polymorphically.
-    // ----------------------------------------------------------------------
+    // buildConfig/fromLastConfig own the xclbin partial-load merge (AIE_ONLY
+    //  paired with a later PL_ONLY xclbin, or vice versa) and the resulting
+    //  ConfigInfo shape. DeviceInfo just calls binary->buildConfig(*this).
     std::unique_ptr<ConfigInfo>
     XclbinBinData::buildConfig(DeviceInfo& devInfo)
     {
@@ -764,9 +756,8 @@ namespace xdp {
       if (currentBinaryType == XCLBIN_AIE_PL)
         return config;
 
-      // Partial xclbin: search devInfo's last config for the missing
-      //  half. Mark this binary's missing side invalid, exactly as
-      //  DeviceInfo::createConfig used to.
+      // Partial xclbin: search devInfo's last config for the missing half
+      //  and mark this binary's missing side invalid.
       VPBinData* missingBinary = nullptr;
       if (currentBinaryType == XCLBIN_AIE_ONLY) {
         getPl().valid = false;
@@ -824,9 +815,6 @@ namespace xdp {
         if (bin->getType() != xclbinQueryType && bin->getType() != XCLBIN_AIE_PL)
           continue;
 
-        // The partial-load pattern only ever pairs xclbin halves; ELF
-        //  binaries get filtered out by the type check above (their
-        //  getType() is ELF_AIE_ONLY).
         auto* requiredBinary = new XclbinBinData(xclbinQueryType);
 
         if (xclbinQueryType == XCLBIN_AIE_ONLY) {

@@ -1674,13 +1674,8 @@ namespace xdp {
   updateDeviceFromCoreDeviceElf(uint64_t deviceId,
                                 std::shared_ptr<xrt_core::device> /*device*/)
   {
-    // Legacy 2-arg ELF stub kept for non-VE2 builds and the original
-    //  disk-only "register the reader, no binary" flow.
-    //
-    // The Full ELF flow (VE2) uses the 3-arg overload below, which builds
-    // an ElfBinData (derived from VPBinData) and pushes it into a
-    // CONFIG_ELF_AIE_ONLY ConfigInfo via DeviceInfo, mirroring how
-    // XclbinBinData is built in updateDevice() for the xclbin path.
+    // 2-arg ELF overload: the disk-only "register the reader, no binary" flow.
+    // The Full ELF flow uses the 3-arg overload below.
     DeviceInfo* devInfo = nullptr ;
     auto itr = deviceInfo.find(deviceId);
     if (itr == deviceInfo.end()) {
@@ -1709,14 +1704,11 @@ namespace xdp {
     return;  
   }
 
-  // Full ELF flow (VE2): the source (xrt::elf) carries the AIE metadata
-  // directly. Construct an ElfBinData, populate its AIEInfo from the
-  // metadata reader, register the reader on the device's side map, and
-  // push the binary through DeviceInfo::createConfig so it appears in
-  // loadedConfigInfos as a CONFIG_ELF_AIE_ONLY entry. From here on,
-  // every downstream lookup (clock rate, isAIECounterRead, AIE counter
-  // list, ...) traverses the same VPBinData accessors used by the xclbin
-  // path - no devInfo->elfBin sidecar branching is needed.
+  // Full ELF flow: the xrt::elf carries the AIE metadata directly. Construct
+  // an ElfBinData, populate its AIEInfo from the metadata reader, register the
+  // reader, and push the binary through DeviceInfo::createConfig as a
+  // CONFIG_ELF_AIE_ONLY entry. Downstream lookups then use the same VPBinData
+  // accessors as the xclbin path.
   void
   VPStaticDatabase::
   updateDeviceFromCoreDeviceElf(uint64_t deviceId,

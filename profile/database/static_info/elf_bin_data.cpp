@@ -50,8 +50,8 @@ namespace xdp {
   std::unique_ptr<aie::BaseFiletypeImpl>
   ElfBinData::readAIEMetadata(pt::ptree& out)
   {
-    // Phase 1: read AIE metadata from the AIE_METADATA ELF custom
-    // section. This is the source of truth for the Full ELF flow.
+    // Prefer the AIE_METADATA ELF custom section: the source of truth
+    // for the Full ELF flow.
     try {
       auto data = m_elf.get_custom_section("AIE_METADATA");
       if (data.data() && data.size()) {
@@ -67,10 +67,9 @@ namespace xdp {
       std::string msg = "AIE metadata ELF custom section unavailable: ";
       msg += e.what();
       xrt_core::message::send(severity_level::debug, "XRT", msg);
-      // Fall through to disk fallback.
     }
 
-    // Phase 2: disk-JSON fallback, mirroring today's 2-arg ELF overload.
+    // Disk-JSON fallback.
     auto reader = aie::readAIEMetadata("aie_trace_config.json", out);
     if (reader) {
       xrt_core::message::send(severity_level::debug, "XRT",
@@ -97,8 +96,6 @@ namespace xdp {
   std::unique_ptr<ConfigInfo>
   ElfBinData::buildConfig(DeviceInfo& /*devInfo*/)
   {
-    // ELF binaries are self-complete: no partial-load sibling lookup,
-    //  no inspection of prior configs. Just wrap and tag.
     auto config = std::make_unique<ConfigInfo>();
     config->addBinary(this);
     config->type = CONFIG_ELF_AIE_ONLY;

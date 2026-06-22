@@ -39,44 +39,25 @@ namespace xdp::aie {
 
 namespace xdp {
 
-  // ElfBinData is the ELF-backed implementation of VPBinData. An application
-  // running the Full ELF flow loads a single xrt::elf containing AIE control
-  // code + AIE metadata, and no xclbin. The static database represents that
-  // device configuration as a CONFIG_ELF_AIE_ONLY ConfigInfo holding a single
-  // ElfBinData.
+  // ElfBinData is the ELF-backed implementation of VPBinData for the Full ELF
+  // flow: a single xrt::elf carrying AIE control code + AIE metadata, no
+  // xclbin. AIE state is stored on the inherited AIEInfo aggregate, so writers
+  // and database lookups speak through VPBinData uniformly for both sources.
   //
-  // AIE state (clock rate, isAIEcounterRead flag, AIECounter list, etc.) is
-  // stored on the inherited AIEInfo aggregate, exactly as XclbinBinData does
-  // for the xclbin path. This lets writers and database lookups speak through
-  // the VPBinData interface uniformly across both binary sources, with no
-  // ELF-specific early-return branches.
-  //
-  // ELF carries no PL data by construction. Calling getPl() on an ElfBinData
-  // is a programming error: it throws std::logic_error so the mistake surfaces
-  // in test rather than silently returning a permanently-invalid PLInfo&. All
-  // happy-path call sites either guard with isXclbin()/source() == XCLBIN, or
-  // go through ConfigInfo::getPlBinary() which never returns an ELF binary.
+  // ELF carries no PL data, so getPl() throws std::logic_error. Callers must
+  // guard with isXclbin() or go through ConfigInfo::getPlBinary(), which never
+  // returns an ELF binary.
   class ElfBinData final : public VPBinData
   {
   public:
-    // The config UUID is supplied by the caller, which has already obtained
-    // and validated it via xrt::elf::get_cfg_uuid() (the static database also
-    // needs it up front for its de-dup check). Injecting it keeps the
-    // constructor non-throwing and avoids re-deriving the UUID here. Identity
-    // can still be changed later through the VPBinData::setUuid() override.
+    // The config UUID is supplied by the caller, which has already derived and
+    // validated it via xrt::elf::get_cfg_uuid()
     XDP_CORE_EXPORT
     ElfBinData(xrt::elf elf,
                std::shared_ptr<xrt_core::device> device,
                xrt_core::uuid uuid);
     ~ElfBinData() override = default;
 
-    // Non-copyable, non-movable: ElfBinData is a unique-resource owner
-    // (xrt::elf + shared device handle + cached AIEInfo). Its lifecycle
-    // is "construct via make_unique, transfer via raw pointer to
-    // ConfigInfo, deleted polymorphically through VPBinData*"; copying
-    // would silently duplicate state and bump shared-device refcounts.
-    // Move operations are already implicitly suppressed by the
-    // user-declared destructor above.
     ElfBinData(const ElfBinData&)            = delete;
     ElfBinData& operator=(const ElfBinData&) = delete;
 
@@ -86,9 +67,7 @@ namespace xdp {
     BinaryInfoType        getType() const override { return m_type; }
     BinDataSource         source()  const override { return BinDataSource::ELF; }
 
-    // VPBinData identity setters. setType is exposed for interface
-    // symmetry; the ELF flow currently uses only ELF_AIE_ONLY, which
-    // is the default-initialized value of m_type.
+    // Identity setters
     void setUuid(const xrt_core::uuid& value) override { m_uuid = value; }
     void setName(const std::string& value)    override { m_name = value; }
     void setType(BinaryInfoType value)        override { m_type = value; }
@@ -99,27 +78,19 @@ namespace xdp {
     AIEInfo&       getAie()       override { return m_aie; }
     const AIEInfo& getAie() const override { return m_aie; }
 
-    // ELF binaries are self-complete (AIE-only by construction, never
-    //  paired with a PL piece). buildConfig produces a single-binary
-    //  CONFIG_ELF_AIE_ONLY ConfigInfo and ignores devInfo entirely; the
-    //  partial-load merge that XclbinBinData performs does not apply.
+    // ELF binaries are self-complete: produces a single-binary
+    // CONFIG_ELF_AIE_ONLY ConfigInfo and ignores devInfo.
     std::unique_ptr<ConfigInfo>
     buildConfig(DeviceInfo& devInfo) override;
 
-    // ELF-specific surface ----------------------------------------------
-    // Acquire AIE metadata. Tries the AIE_METADATA custom section
-    // embedded in the ELF first, then falls back to disk-JSON
-    // (aie_trace_config.json) matching today's 2-arg ELF flow. Returns
-    // the produced filetype reader so the caller can register it on the
-    // database's metadata-reader side map; nullptr if neither source is
-    // available.
+    // Acquire AIE metadata: tries the AIE_METADATA ELF custom section first,
+    // then falls back to disk-JSON (aie_trace_config.json). Returns the
+    // filetype reader the caller registers, or nullptr if neither is available.
     XDP_CORE_EXPORT
     std::unique_ptr<aie::BaseFiletypeImpl>
     readAIEMetadata(boost::property_tree::ptree& out);
 
-    // Cache the AIE state derivable from a metadata reader on m_aie so
-    // subsequent database lookups (clock rate, hw gen) can answer without
-    // re-parsing.
+    // Cache AIE state from a metadata reader onto m_aie for later lookups.
     XDP_CORE_EXPORT
     void populateFromReader(const aie::BaseFiletypeImpl& reader);
 
@@ -131,10 +102,6 @@ namespace xdp {
     std::string    m_name = "elf";
     BinaryInfoType m_type = ELF_AIE_ONLY;
 
-    // The AIE side of the inherited VPBinData state. valid=true is set
-    // by the constructor body so writers/database can rely on the same
-    // "valid PLInfo or valid AIEInfo per binary" invariant XclbinBinData
-    // honors. AIEInfo is defined in pl_aie_info.h (included above).
     AIEInfo m_aie;
   };
 

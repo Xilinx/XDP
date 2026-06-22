@@ -42,8 +42,7 @@ namespace xdp {
   //  PL-specific information and AIE-specific information.
   //
   //  This class is the xclbin-backed implementation of the neutral
-  //  VPBinData interface (see vp_bin_data.h). A future ElfBinData
-  //  implementation will provide AIE-only data parsed from ELF metadata.
+  //  VPBinData interface (see vp_bin_data.h).
   class XclbinBinData final : public VPBinData
   {
   public:
@@ -71,9 +70,7 @@ namespace xdp {
 
     // Synthesize a "missing piece" XclbinBinData by deep-copying the
     //  matching half from the device's most-recent config. Returns
-    //  nullptr when no compatible binary is available. Always produces
-    //  XclbinBinData (never ElfBinData), since the partial-load pattern
-    //  is xclbin-only by construction.
+    //  nullptr when no compatible binary is available.
     XDP_CORE_EXPORT static XclbinBinData*
     fromLastConfig(DeviceInfo& devInfo, BinaryInfoType xclbinQueryType);
 
@@ -94,17 +91,12 @@ namespace xdp {
     AIEInfo m_aie ;
   } ;
 
-  // Compatibility alias kept during the VPBinData migration. Plugin and
-  //  writer call sites that still spell the xclbin-typed pointer as
-  //  XclbinInfo* continue to compile while they are migrated to VPBinData*
-  //  in Part 2. Once every caller speaks VPBinData* / XclbinBinData* this
-  //  alias can be removed entirely.
+  // Compatibility alias for call sites that still spell the xclbin-typed
+  //  pointer as XclbinInfo*.
   using XclbinInfo = XclbinBinData;
 
-  // The config struct stores multiple binaries (xclbin and/or ELF). It is
-  //  a VPBinData aggregator: it does not care whether each entry is an
-  //  XclbinBinData or an ElfBinData, only that it exposes the VPBinData
-  //  interface.
+  // The config struct aggregates the binaries (xclbin and/or ELF) loaded on
+  //  a device through the VPBinData interface.
   struct ConfigInfo {
     // This defines what kind of binaries are loaded on the device.
     ConfigInfoType type {CONFIG_AIE_PL} ;

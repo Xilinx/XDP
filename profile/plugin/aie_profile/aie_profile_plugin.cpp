@@ -98,14 +98,13 @@ namespace xdp {
 
     
     bool isFullELFFlow = false;
-    xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Identify flow type");
     if (hw_context_flow) {
       xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
       try {
         isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(ctx);
       } catch (const std::exception& e) {
         std::stringstream msg;
-        msg << e.what() << " AIE Profile cannot be enabled before complete configuration." << std::endl;
+        msg << e.what() << " AIE Profile cannot be enabled before complete configuration.";
         xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
         return;
       }

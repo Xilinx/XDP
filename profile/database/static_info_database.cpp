@@ -1765,7 +1765,7 @@ namespace xdp {
     }
     else {
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
-        "AIE Profile ELF flow: no AIE metadata available; "
+        "AIE ELF flow: no AIE metadata available; "
         "downstream stages may have nothing to configure.");
     }
 

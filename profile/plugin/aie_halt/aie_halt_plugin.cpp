@@ -92,7 +92,7 @@ namespace xdp {
       auto elfMap = xrt_core::hw_context_int::get_elf_map(hwContext);
       if (elfMap.empty()) {
         xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
-          "AIE Halt ELF flow: hw_context has no registered ELFs. Skipping.");
+          "AIE Halt ELF flow: hw_context has no registered ELFs. Skipping ELF flow.");
         return;
       }
       auto elf = util::getAieMetadataElf(elfMap);

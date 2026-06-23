@@ -27,6 +27,16 @@ namespace xdp {
 
 namespace {
 
+// detailed_ddr_read_bandwidth / detailed_ddr_write_bandwidth program 4 shim
+// performance counters with direct NoC0 DMA events (task/lock/starvation/
+// backpressure) for a single DMA channel, instead of stream-switch port events.
+bool
+isDetailedBandwidth(const std::string& metricSet)
+{
+  return (metricSet == "detailed_ddr_read_bandwidth") ||
+         (metricSet == "detailed_ddr_write_bandwidth");
+}
+
 // Order UCs by aiebu min column; each UC's width is [colStart, nextUcStart - 1] (last UC ends at opLocMaxCol).
 void
 applyUcSpansFromOpLoc(std::vector<ASMFileInfo>& asmFileInfoList)
@@ -690,8 +700,35 @@ std::vector<uint8_t> AieDtraceCTWriter::getShimTileColumns(void* hwctx)
 }
 
 std::vector<BandwidthCounterConfig> AieDtraceCTWriter::getBandwidthCounterConfigs(
-    const std::string& metricSet)
+    const std::string& metricSet, uint8_t channel)
 {
+  // detailed_ddr_read_bandwidth / detailed_ddr_write_bandwidth: 4 counters all on
+  // the same DMA channel, each measuring a different aspect via direct NoC0 DMA
+  // events. dmaPortIndex is unused (no stream-switch port monitoring).
+  if (isDetailedBandwidth(metricSet)) {
+    bool isWrite     = (metricSet == "detailed_ddr_write_bandwidth");
+    bool isMaster    = isWrite;                       // S2MM=master/output, MM2S=slave/input
+    std::string dir  = isWrite ? "output" : "input";
+    uint8_t ch       = (channel <= 1) ? channel : 0;
+    // Counter 0 monitors PORT_RUNNING on the stream-switch port that connects to
+    // the selected DMA channel (same VE2 port mapping as ddr_bandwidth):
+    //   S2MM ch0 master South1 => 3, S2MM ch1 master South3 => 5
+    //   MM2S ch0 slave  South3 => 5, MM2S ch1 slave  South7 => 9
+    uint8_t runPortIndex = isWrite ? ((ch == 0) ? 3 : 5)
+                                   : ((ch == 0) ? 5 : 9);
+    // Starvation/backpressure are memory- vs stream-side depending on direction:
+    //   MM2S (read):  memory_starvation, stream_backpressure
+    //   S2MM (write): stream_starvation, memory_backpressure
+    std::string starvationType   = isWrite ? "stream_starvation"   : "memory_starvation";
+    std::string backpressureType = isWrite ? "memory_backpressure" : "stream_backpressure";
+    return {
+      {0, ch, runPortIndex, isMaster, dir, "running"},      // Counter 0: PORT_RUNNING (stream-switch port)
+      {1, ch, 0, isMaster, dir, "lock"},                    // Counter 1: stalled_lock
+      {2, ch, 0, isMaster, dir, starvationType},            // Counter 2: starvation (memory/stream)
+      {3, ch, 0, isMaster, dir, backpressureType}           // Counter 3: backpressure (memory/stream)
+    };
+  }
+
   // VE2 shim tile DMA port indices for stream switch event monitoring
   // These port indices are architecture-specific and map to the physical
   // stream switch ports that connect to the DMA channels.
@@ -747,7 +784,7 @@ std::vector<BandwidthCounterConfig> AieDtraceCTWriter::getBandwidthCounterConfig
 }
 
 std::vector<CTRegisterWrite> AieDtraceCTWriter::generateStreamSwitchPortConfig(
-    uint8_t column, const std::string& metricSet)
+    uint8_t column, const std::string& metricSet, uint8_t channel)
 {
   std::vector<CTRegisterWrite> writes;
 
@@ -755,7 +792,7 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateStreamSwitchPortConfig(
                          (static_cast<uint64_t>(SHIM_ROW) << rowShift);
   uint64_t regAddr = tileAddress + STREAM_SWITCH_EVENT_PORT_SEL_OFFSET;
 
-  auto configs = getBandwidthCounterConfigs(metricSet);
+  auto configs = getBandwidthCounterConfigs(metricSet, channel);
 
   // Build the per-counter list into the SS event-port slots that the perf
   // counter events actually reference. Each Port_Running_N / Port_Stalled_N
@@ -773,7 +810,12 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateStreamSwitchPortConfig(
   //   sits at configs[2] in the per-counter list) goes into slot 1; slots 2
   //   and 3 are not consumed by any event and are left zero.
   std::vector<BandwidthCounterConfig> slotConfigs;
-  if (metricSet == "peak_read_bandwidth" || metricSet == "peak_write_bandwidth") {
+  if (isDetailedBandwidth(metricSet)) {
+    // Only counter 0 (PORT_RUNNING_0) reads a stream-switch port; counters 1-3
+    // use direct DMA events. Route logical SS port 0 to the channel's DMA port.
+    if (!configs.empty())
+      slotConfigs.push_back(configs[0]);
+  } else if (metricSet == "peak_read_bandwidth" || metricSet == "peak_write_bandwidth") {
     if (configs.size() >= 3) {
       slotConfigs.push_back(configs[0]);
       slotConfigs.push_back(configs[2]);
@@ -801,6 +843,9 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateStreamSwitchPortConfig(
     comment << " (MM2S ch0,ch1 x2 for running+stall)";
   else if (metricSet == "peak_write_bandwidth")
     comment << " (S2MM ch0,ch1 x2 for running+stall)";
+  else if (isDetailedBandwidth(metricSet))
+    comment << " (" << ((metricSet == "detailed_ddr_read_bandwidth") ? "mm2s" : "s2mm")
+            << " ch" << static_cast<int>((channel <= 1) ? channel : 0) << " port_running)";
   else
     comment << " (MM2S ch0,ch1; S2MM ch0,ch1)";
 
@@ -814,7 +859,7 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateStreamSwitchPortConfig(
 }
 
 std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePerfCounterConfig(
-    uint8_t column, const std::string& metricSet)
+    uint8_t column, const std::string& metricSet, uint8_t channel)
 {
   std::vector<CTRegisterWrite> writes;
 
@@ -839,6 +884,72 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePerfCounterConfig(
   // Performance_Ctrl2: 0x0003100C - Counters 2,3 start/stop events
   constexpr uint64_t PERF_CTRL0_OFFSET = 0x00031000;
   constexpr uint64_t PERF_CTRL2_OFFSET = 0x0003100C;
+
+  // detailed_ddr_read_bandwidth (MM2S) / detailed_ddr_write_bandwidth (S2MM):
+  // 4 counters on a single DMA channel. Counter 0 measures PORT_RUNNING on the
+  // channel's stream-switch port (routed via generateStreamSwitchPortConfig);
+  // the rest use direct NoC0 PL-tile DMA events (XAIE2PS_EVENTS_PL_NOC0_DMA_*).
+  // Channel selects ch0/ch1 of MM2S or S2MM.
+  //   PC0: start = stop = PORT_RUNNING_0
+  //   PC1: start = stop = STALLED_LOCK
+  //   PC2: start = stop = STARVATION  (MM2S: memory, S2MM: stream)
+  //   PC3: start = stop = BACKPRESSURE (MM2S: stream, S2MM: memory)
+  if (isDetailedBandwidth(metricSet)) {
+    // Counter 0 reads stream-switch logical port 0 (PORT_RUNNING_0_PL).
+    constexpr uint8_t PORT_RUNNING_0_PL_EVENT = 0x86;  // 134
+
+    uint8_t ch = (channel <= 1) ? channel : 0;
+    uint8_t stalledLock, starvation, backpressure;
+
+    if (metricSet == "detailed_ddr_read_bandwidth") {
+      // MM2S channel ch
+      stalledLock  = (ch == 0) ? 28 : 29;  // PL_NOC0_DMA_MM2S_{0,1}_STALLED_LOCK
+      starvation   = (ch == 0) ? 36 : 37;  // PL_NOC0_DMA_MM2S_{0,1}_MEMORY_STARVATION
+      backpressure = (ch == 0) ? 32 : 33;  // PL_NOC0_DMA_MM2S_{0,1}_STREAM_BACKPRESSURE
+    }
+    else {
+      // detailed_ddr_write_bandwidth: S2MM channel ch
+      stalledLock  = (ch == 0) ? 26 : 27;  // PL_NOC0_DMA_S2MM_{0,1}_STALLED_LOCK
+      starvation   = (ch == 0) ? 30 : 31;  // PL_NOC0_DMA_S2MM_{0,1}_STREAM_STARVATION
+      backpressure = (ch == 0) ? 34 : 35;  // PL_NOC0_DMA_S2MM_{0,1}_MEMORY_BACKPRESSURE
+    }
+
+    std::string dir = (metricSet == "detailed_ddr_read_bandwidth") ? "mm2s" : "s2mm";
+
+    // PerfCtrl0: [7:0]=Cnt0_Start, [15:8]=Cnt0_Stop, [23:16]=Cnt1_Start, [31:24]=Cnt1_Stop
+    {
+      uint32_t regValue = 0;
+      regValue |= (static_cast<uint32_t>(PORT_RUNNING_0_PL_EVENT) & 0xFF) << 0;   // Cnt0 start = port_running_0
+      regValue |= (static_cast<uint32_t>(PORT_RUNNING_0_PL_EVENT) & 0xFF) << 8;   // Cnt0 stop  = port_running_0
+      regValue |= (static_cast<uint32_t>(stalledLock)  & 0xFF) << 16;  // Cnt1 start = stalled_lock
+      regValue |= (static_cast<uint32_t>(stalledLock)  & 0xFF) << 24;  // Cnt1 stop  = stalled_lock
+
+      CTRegisterWrite write;
+      write.address = tileAddress + PERF_CTRL0_OFFSET;
+      write.value = regValue;
+      write.comment = "PerfCtrl0 @ col " + std::to_string(column) + " (" + dir + " ch"
+                    + std::to_string(ch) + ": port_running,lock)";
+      writes.push_back(write);
+    }
+
+    // PerfCtrl2: [7:0]=Cnt2_Start, [15:8]=Cnt2_Stop, [23:16]=Cnt3_Start, [31:24]=Cnt3_Stop
+    {
+      uint32_t regValue = 0;
+      regValue |= (static_cast<uint32_t>(starvation)   & 0xFF) << 0;   // Cnt2 start = starvation
+      regValue |= (static_cast<uint32_t>(starvation)   & 0xFF) << 8;   // Cnt2 stop  = starvation
+      regValue |= (static_cast<uint32_t>(backpressure) & 0xFF) << 16;  // Cnt3 start = backpressure
+      regValue |= (static_cast<uint32_t>(backpressure) & 0xFF) << 24;  // Cnt3 stop  = backpressure
+
+      CTRegisterWrite write;
+      write.address = tileAddress + PERF_CTRL2_OFFSET;
+      write.value = regValue;
+      write.comment = "PerfCtrl2 @ col " + std::to_string(column) + " (" + dir + " ch"
+                    + std::to_string(ch) + ": starvation,backpressure)";
+      writes.push_back(write);
+    }
+
+    return writes;
+  }
 
   // PORT_RUNNING and PORT_STALLED events for aie2ps shim tile
   // Port_Running_N events: 134, 138, 142, 146 (decimal)
@@ -904,10 +1015,10 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePerfCounterConfig(
 }
 
 std::vector<CTCounterInfo> AieDtraceCTWriter::generateBandwidthCounters(
-    const std::vector<uint8_t>& shimColumns, const std::string& metricSet)
+    const std::vector<uint8_t>& shimColumns, const std::string& metricSet, uint8_t channel)
 {
   std::vector<CTCounterInfo> counters;
-  auto configs = getBandwidthCounterConfigs(metricSet);
+  auto configs = getBandwidthCounterConfigs(metricSet, channel);
 
   for (uint8_t column : shimColumns) {
     for (const auto& cfg : configs) {
@@ -1072,7 +1183,8 @@ bool AieDtraceCTWriter::generateBandwidthCT(
     const std::string& outputPath,
     void* hwctx,
     const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
-    const std::string& metricSet)
+    const std::string& metricSet,
+    uint8_t channel)
 {
   if (opLocations.empty()) {
     xrt_core::message::send(severity_level::debug, "XRT",
@@ -1133,7 +1245,7 @@ bool AieDtraceCTWriter::generateBandwidthCT(
 
   applyUcSpansFromOpLoc(asmFileInfoList);
 
-  auto allCounters = generateBandwidthCounters(shimColumns, metricSet);
+  auto allCounters = generateBandwidthCounters(shimColumns, metricSet, channel);
   if (allCounters.empty()) {
     xrt_core::message::send(severity_level::warning, "XRT",
         "AIE dtrace: No bandwidth counters generated");
@@ -1148,10 +1260,12 @@ bool AieDtraceCTWriter::generateBandwidthCT(
 
   std::vector<CTRegisterWrite> beginBlockWrites;
   for (uint8_t column : shimColumns) {
-    auto ssWrites = generateStreamSwitchPortConfig(column, metricSet);
+    // For detailed sets, counter 0 monitors PORT_RUNNING on the channel's
+    // stream-switch port, so the SS event port selection must be programmed.
+    auto ssWrites = generateStreamSwitchPortConfig(column, metricSet, channel);
     beginBlockWrites.insert(beginBlockWrites.end(), ssWrites.begin(), ssWrites.end());
 
-    auto pcWrites = generatePerfCounterConfig(column, metricSet);
+    auto pcWrites = generatePerfCounterConfig(column, metricSet, channel);
     beginBlockWrites.insert(beginBlockWrites.end(), pcWrites.begin(), pcWrites.end());
   }
 

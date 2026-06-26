@@ -505,13 +505,6 @@ namespace xdp {
    ***************************************************************************/
   void AIEStatusPlugin::endPollforDevice(void* handle)
   {
-    // Last chance at writing status reports 
-    for (auto w : writers) {
-      mtxWriterThread.lock();
-      w->write(false, handle);      
-      mtxWriterThread.unlock();
-    }
-
     // When ending polling for a device, if we are on edge we must instead
     // shut down all of the threads and not just a single one in order
     // to avoid race conditions between the zynq driver destructor and our own.
@@ -519,7 +512,19 @@ namespace xdp {
     // Currently, Edge is the only supported type of platform so we can
     // safely end all threads here, but this must be revisited if we extend
     // AIE status functionality to other types of platforms.
+    //
+    // Stop background threads before the final write. pollDeadlock reads AIE
+    // registers while write() queries sysfs via get_info; running both during
+    // teardown can hang the driver.
     endPoll();
+
+    // Last chance at writing status reports
+    for (auto w : writers) {
+      //mtxWriterThread.lock();
+      std::lock_guard<std::mutex> lock(mtxWriterThread);
+      w->write(false, handle);
+      //mtxWriterThread.unlock();
+    }
   }
 
   /****************************************************************************

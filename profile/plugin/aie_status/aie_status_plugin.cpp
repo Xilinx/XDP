@@ -520,9 +520,10 @@ namespace xdp {
 
     // Last chance at writing status reports
     for (auto w : writers) {
-      mtxWriterThread.lock();
+      //mtxWriterThread.lock();
+      std::lock_guard<std::mutex> lock(mtxWriterThread);
       w->write(false, handle);
-      mtxWriterThread.unlock();
+      //mtxWriterThread.unlock();
     }
   }
 

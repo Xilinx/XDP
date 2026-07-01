@@ -195,6 +195,7 @@ namespace xdp {
     if (!powerMode.empty()) {
       ptHeader.put("power_mode", powerMode);
     }
+    ptHeader.put("clock_freq_MHz", "");
     ptHeader.put("id_size", sizeof(uint32_t));
     ptHeader.put("cycle_size", 2*sizeof(uint32_t));
     ptHeader.put("buffer_size", mBufSz);

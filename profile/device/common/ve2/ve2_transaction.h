@@ -39,10 +39,7 @@ namespace xdp::aie {
       void setTransactionName(std::string newTransactionName) {m_transactionName = newTransactionName;}
       std::string getAsmFileName() { return m_transactionName + ".asm"; }
       std::string getElfFileName() { return m_transactionName + ".elf"; }
-      int getGroupID(int id, xrt::hw_context hwContext) {
-        xrt::kernel kernel = xrt::kernel(hwContext, "XDP_KERNEL"); 
-        return kernel.group_id(id); 
-      }
+      int getGroupID(int id, xrt::hw_context hwContext);
 
       // Below functions are required for AIE Trace only
       // AIE Trace requires a flush ELF to force trace packets out of the tiles at end-of-run.  
@@ -55,6 +52,14 @@ namespace xdp::aie {
       bool runFlushKernel();
 
     private:
+      // Full-ELF helpers.
+      // Multiple XDP ELFs are add_config'd to the same hw_context, so the kernel
+      // name must be unique per ELF to avoid a kernel-name collision.
+      static std::string fullElfKernelName(const std::string& instanceId);
+      static std::string fullElfKernelHandle(const std::string& instanceId);
+      static std::vector<char> loadXdpKernelFullElfConfig(const std::string& asmFileName,
+                                                          const std::string& instanceId);
+
       std::string m_transactionName;
       std::vector<uint8_t> m_columns;
       std::vector<uint8_t> m_rows;

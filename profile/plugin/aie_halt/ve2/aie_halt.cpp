@@ -179,10 +179,26 @@ namespace xdp {
       return;
     }
 
-    xrt::module mod{haltElf};
+    // Full-ELF flow registers the ELF via add_config() and opens the kernel by
+    // name; the xclbin flow uses an explicit xrt::module.
+    bool isFullELFFlow = false;
+    try {
+      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
+    } catch (const std::exception& e) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+                std::string("Failed to query ELF flow for AIE halt, assuming xclbin flow: ") + e.what());
+    }
+
     xrt::kernel krnl;
     try {
-      krnl = xrt::ext::kernel{hwContext, mod, "XDP_KERNEL:{IPUV1CNN}"};
+      if (isFullELFFlow) {
+        hwContext.add_config(haltElf);
+        krnl = xrt::ext::kernel{hwContext, "XDP_KERNEL:IPUV1CNN"};
+      }
+      else {
+        xrt::module mod{haltElf};
+        krnl = xrt::ext::kernel{hwContext, mod, "XDP_KERNEL:{IPUV1CNN}"};
+      }
     } catch (...) {
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
                 "XDP_KERNEL not found in HW Context. Cannot configure AIE to halt.");

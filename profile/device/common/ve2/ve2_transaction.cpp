@@ -19,32 +19,21 @@
 namespace xdp::aie {
     using severity_level = xrt_core::message::severity_level;
 
-    //----------------------------------------------------------------------
-    // VE2Transaction::fullElfKernelName
-    // Return the unique kernel name for this transaction's full ELF. Multiple
-    // XDP ELFs are add_config'd to the same hw_context, so the name must be
-    // unique per ELF to avoid a kernel-name collision. The "XDP_KERNEL" prefix
-    // keeps the name recognized by the XDP run-lifecycle hooks.
-    //----------------------------------------------------------------------
+    // Kernel name must be unique per ELF since multiple XDP ELFs are
+    // add_config'd to the same hw_context. The "XDP_KERNEL" prefix keeps it
+    // recognized by the XDP run-lifecycle hooks.
     std::string VE2Transaction::fullElfKernelName(const std::string& instanceId)
     {
       return std::string("XDP_KERNEL_") + instanceId;
     }
 
-    //----------------------------------------------------------------------
-    // VE2Transaction::fullElfKernelHandle
-    // Return the name/handle of the full ELF kernel (kernelName:instanceName).
-    //----------------------------------------------------------------------
     std::string VE2Transaction::fullElfKernelHandle(const std::string& instanceId)
     {
       return fullElfKernelName(instanceId) + ":" + instanceId;
     }
 
-    //----------------------------------------------------------------------
-    // VE2Transaction::loadXdpKernelFullElfConfig
-    // Build the xdp_kernel_full_elf config JSON in memory for AIEBU aie2ps_config.
-    // Sets instance id -> instanceId, ctrl_code_file -> ./<asmBasename>.
-    //----------------------------------------------------------------------
+    // Build the AIEBU aie2ps_config config JSON in memory, pointing the kernel
+    // instance at the ASM control-code file.
     std::vector<char> VE2Transaction::loadXdpKernelFullElfConfig(const std::string& asmFileName,
                                                                  const std::string& instanceId)
     {
@@ -116,9 +105,9 @@ namespace xdp::aie {
     bool VE2Transaction::generateELF()
     {
         //
-        // 2. Run AIEBU aie2ps_config to produce a full config ELF from the ASM
-        //    control code + an in-memory config JSON. The config names the kernel
-        //    (uniquely per transaction) and points its instance at the ASM file.
+        // 2. Convert the ASM control code into an ELF.
+        //    Full-ELF flow : AIEBU aie2ps_config -> self-describing config ELF.
+        //    xclbin flow   : AIEBU asm_aie2ps -> partial (control-code-only) ELF.
         //
         try {
             const std::string asmFileName = getAsmFileName();
@@ -128,29 +117,48 @@ namespace xdp::aie {
             xrt_core::message::send(severity_level::debug, "XRT",
                 "AIEBU control ASM: " + asmFileName);
 
-            const std::vector<char> configJson =
-                loadXdpKernelFullElfConfig(asmFileName, m_transactionName);
+            std::vector<char> elfBytes;
+            if (m_fullElfFlow) {
+                const std::vector<char> configJson =
+                    loadXdpKernelFullElfConfig(asmFileName, m_transactionName);
 
-            // The ASM file name may be relative with no directory component
-            // (e.g. "AieProfileMetrics1.asm"), in which case parent_path() is
-            // empty. std::filesystem::absolute("") throws, so fall back to the
-            // current working directory for the absolute lib path.
-            const std::filesystem::path asmPath{asmFileName};
-            const std::filesystem::path asmParent =
-                asmPath.has_parent_path() ? asmPath.parent_path()
-                                          : std::filesystem::current_path();
-            const std::string asmDir =
-                std::filesystem::absolute(asmParent).generic_string();
-            const std::vector<std::string> libPaths{std::string("."), asmDir};
-            const std::vector<std::string> aiebuFlags{"disabledump"};
-            const std::vector<char> emptyCodeBuf;
-            const aiebu::aiebu_assembler assembler(aiebu::aiebu_assembler::buffer_type::aie2ps_config,
-                                                   emptyCodeBuf,
-                                                   aiebuFlags,
-                                                   libPaths,
-                                                   configJson);
+                // ASM name may be relative with no directory (parent_path()
+                // empty); absolute("") throws, so fall back to the cwd.
+                const std::filesystem::path asmPath{asmFileName};
+                const std::filesystem::path asmParent =
+                    asmPath.has_parent_path() ? asmPath.parent_path()
+                                              : std::filesystem::current_path();
+                const std::string asmDir =
+                    std::filesystem::absolute(asmParent).generic_string();
+                const std::vector<std::string> libPaths{std::string("."), asmDir};
+                const std::vector<std::string> aiebuFlags{"disabledump"};
+                const std::vector<char> emptyCodeBuf;
+                const aiebu::aiebu_assembler assembler(aiebu::aiebu_assembler::buffer_type::aie2ps_config,
+                                                       emptyCodeBuf,
+                                                       aiebuFlags,
+                                                       libPaths,
+                                                       configJson);
+                elfBytes = assembler.get_elf();
+            }
+            else {
+                std::vector<char> controlCodeBuf;
+                const auto fileSize = std::filesystem::file_size(asmFileName);
+                controlCodeBuf.resize(static_cast<std::size_t>(fileSize));
 
-            const auto elfBytes = assembler.get_elf();
+                std::ifstream inAsm(asmFileName, std::ios::in | std::ios::binary);
+                inAsm.read(controlCodeBuf.data(), static_cast<std::streamsize>(fileSize));
+                const std::streamsize bytesRead = inAsm.gcount();
+                if (static_cast<std::size_t>(bytesRead) != static_cast<std::size_t>(fileSize))
+                    controlCodeBuf.resize(static_cast<std::size_t>(bytesRead)); // keep only read bytes
+
+                const std::vector<std::string> libPaths{std::string("./")};
+                const aiebu::aiebu_assembler assembler(aiebu::aiebu_assembler::buffer_type::asm_aie2ps,
+                                                       controlCodeBuf,
+                                                       std::vector<std::string>{},
+                                                       libPaths);
+                elfBytes = assembler.get_elf();
+            }
+
             xrt_core::message::send(severity_level::debug, "XRT",
                 "AIEBU output ELF bytes: " + std::to_string(elfBytes.size()));
 
@@ -191,8 +199,18 @@ namespace xdp::aie {
         xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "Elf Object Created");
         xrt::kernel kernel;
         try {
-            hwContext.add_config(profileElf);
-            kernel = xrt::ext::kernel{hwContext, fullElfKernelHandle(m_transactionName)};
+            if (m_fullElfFlow) {
+                // Full-ELF flow: register the config ELF on the hw_context and
+                // open the kernel by its (unique) name.
+                hwContext.add_config(profileElf);
+                kernel = xrt::ext::kernel{hwContext, fullElfKernelHandle(m_transactionName)};
+            }
+            else {
+                // xclbin flow: wrap the partial ELF in a module and open the
+                // XDP_KERNEL from it.
+                xrt::module mod{profileElf};
+                kernel = xrt::ext::kernel{hwContext, mod, "XDP_KERNEL:{IPUV1CNN}"};
+            }
         } catch (const std::exception& e) {
             xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
             std::string("Failed to register ") + getElfFileName() + " with HW Context: " + e.what());
@@ -225,7 +243,11 @@ namespace xdp::aie {
 
     int VE2Transaction::getGroupID(int id, xrt::hw_context hwContext)
     {
-        xrt::kernel kernel = xrt::ext::kernel(hwContext, fullElfKernelHandle(m_transactionName));
+        if (m_fullElfFlow) {
+            xrt::kernel kernel = xrt::ext::kernel(hwContext, fullElfKernelHandle(m_transactionName));
+            return kernel.group_id(id);
+        }
+        xrt::kernel kernel = xrt::kernel(hwContext, "XDP_KERNEL");
         return kernel.group_id(id);
     }
 
@@ -242,8 +264,14 @@ namespace xdp::aie {
             "Preparing flush kernel from ELF: " + getElfFileName());
         try {
             xrt::elf flushElf(getElfFileName());
-            hwContext.add_config(flushElf);
-            m_flushKernel = xrt::ext::kernel{hwContext, fullElfKernelHandle(m_transactionName)};
+            if (m_fullElfFlow) {
+                hwContext.add_config(flushElf);
+                m_flushKernel = xrt::ext::kernel{hwContext, fullElfKernelHandle(m_transactionName)};
+            }
+            else {
+                xrt::module mod{flushElf};
+                m_flushKernel = xrt::ext::kernel{hwContext, mod, "XDP_KERNEL:{IPUV1CNN}"};
+            }
             m_flushKernelReady = true;
             xrt_core::message::send(severity_level::info, "XRT",
                 "Flush kernel prepared successfully.");

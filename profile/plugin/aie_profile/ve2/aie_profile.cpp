@@ -825,21 +825,28 @@ namespace xdp {
 
     xdp::aie::driver_config meta_config = metadata->getAIEConfigMetadata();
 
-    // The control code generated for this transaction is assembled into a full
-    // ELF that is registered on the hw_context via add_config(). add_config()
-    // rejects an ELF whose partition column count differs from the one the
-    // hw_context was created with. The AIE metadata's num_columns describes the
-    // full array geometry, which can be larger than the partition the runtime
-    // actually allocated, so initialize the codegen with the hw_context's
-    // partition width when it can be queried (the profiled tiles are
-    // partition-relative and unaffected by the partition width).
+    // Determine the control-code submission flow for this hw_context.
+    bool isFullELFFlow = false;
     uint8_t numColumns = meta_config.num_columns;
     {
       xrt::hw_context context =
         xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
-      size_t partitionSize = xrt_core::hw_context_int::get_partition_size(context);
-      if (partitionSize > 0) {
-        numColumns = static_cast<uint8_t>(partitionSize);
+      try {
+        isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(context);
+      } catch (const std::exception& e) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            std::string("Failed to query ELF flow, assuming xclbin flow: ") + e.what());
+      }
+
+      // Full-ELF add_config() rejects an ELF whose partition column count
+      // differs from the hw_context's, so use the actual partition width instead
+      // of metadata num_columns (profiled tiles are partition-relative). The
+      // xclbin flow does not enforce this and keeps num_columns.
+      if (isFullELFFlow) {
+        size_t partitionSize = xrt_core::hw_context_int::get_partition_size(context);
+        if (partitionSize > 0) {
+          numColumns = static_cast<uint8_t>(partitionSize);
+        }
       }
     }
 
@@ -869,6 +876,7 @@ namespace xdp {
       xrt_core::message::send(severity_level::warning, "XRT", "Transaction Initialization Failed.");
       return false;
     }
+    tranxHandler->setElfFlow(isFullELFFlow);
 
     auto hwGen = metadata->getHardwareGen();
     auto configChannel0 = metadata->getConfigChannel0();
@@ -1202,6 +1210,13 @@ namespace xdp {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", 
                               "Unable to initialize transaction for AIE profile polling.");
       return;
+    }
+    try {
+      tranxHandler->setElfFlow(xrt_core::hw_context_int::get_elf_flow(context));
+    } catch (const std::exception& e) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+          std::string("Failed to query ELF flow for poll ELF, assuming xclbin flow: ") + e.what());
+      tranxHandler->setElfFlow(false);
     }
     for (u32 i = 0; i < op_profile_data.size(); i++) {
       XAie_SaveRegister(&aieDevInst, op_profile_data[i], i);

@@ -220,6 +220,16 @@ bool AIETraceOffload::initReadTrace()
   if (!tranxHandler->initializeTransaction(&aieDevInst, "AieTraceOffload" + std::to_string(deviceId)))
     return false;
 
+  // Select the flow so getGroupID()/submitTransaction() open the kernel via the
+  // matching path (add_config vs xrt::module).
+  try {
+    tranxHandler->setElfFlow(xrt_core::hw_context_int::get_elf_flow(context));
+  } catch (const std::exception& e) {
+    xrt_core::message::send(severity_level::warning, "XRT",
+        std::string("Failed to query ELF flow for AIE trace offload, assuming xclbin flow: ") + e.what());
+    tranxHandler->setElfFlow(false);
+  }
+
   for (uint64_t i = 0; i < numStream; ++i) {
     VPDatabase* db = VPDatabase::Instance();
     TraceGMIO* traceGMIO = (db->getStaticInfo()).getTraceGMIO(deviceId, i);

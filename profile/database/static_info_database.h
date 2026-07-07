@@ -51,7 +51,6 @@ namespace xdp {
   struct ConfigInfo;
   class  VPBinData;
   class  XclbinBinData;
-  using  XclbinInfo = XclbinBinData;
   class  IpMetadata;
 
   //Forward declaration of XDP's device structure
@@ -150,14 +149,14 @@ namespace xdp {
     bool resetDeviceInfo(uint64_t deviceId, xdp::Device* xdpDevice, xrt_core::uuid new_xclbin_uuid);
 
     // Functions that create the overall structure of the Xclbin's PL region
-    void createComputeUnits(XclbinInfo*, const ip_layout*,const char*,size_t);
-    void createMemories(XclbinInfo*, const mem_topology*);
-    void createConnections(XclbinInfo*, const ip_layout*, const mem_topology*,
+    void createComputeUnits(XclbinBinData*, const ip_layout*,const char*,size_t);
+    void createMemories(XclbinBinData*, const mem_topology*);
+    void createConnections(XclbinBinData*, const ip_layout*, const mem_topology*,
                            const connectivity*);
-    void annotateWorkgroupSize(XclbinInfo*, const char*, size_t);
-    void setXclbinName(XclbinInfo*, const char*, size_t);
+    void annotateWorkgroupSize(XclbinBinData*, const char*, size_t);
+    void setXclbinName(XclbinBinData*, const char*, size_t);
     void updateSystemDiagram(const char*, size_t);
-    void addPortInfo(XclbinInfo*, const char*, size_t);
+    void addPortInfo(XclbinBinData*, const char*, size_t);
 
     // Functions that initialize the structure of the debug/profiling IP
     void initializeAM(DeviceInfo* devInfo, const std::string& name,
@@ -175,7 +174,7 @@ namespace xdp {
     void setDeviceNameFromXclbin(uint64_t deviceId, xrt::xclbin xrtXclbin);
     void setAIEGeneration(uint64_t deviceId);
     void setAIEClockRateMHz(uint64_t deviceId);
-    bool initializeStructure(XclbinInfo*, xrt::xclbin);
+    bool initializeStructure(XclbinBinData*, xrt::xclbin);
     bool initializeProfileMonitors(DeviceInfo*, xrt::xclbin);
     double findClockRate(xrt::xclbin);
 

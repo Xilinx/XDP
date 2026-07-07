@@ -53,13 +53,9 @@ namespace xdp {
     virtual void setType(BinaryInfoType value)        = 0;
 
     bool isXclbin() const { return source() == BinDataSource::XCLBIN; }
-    bool isElf()    const { return source() == BinDataSource::ELF;    }
 
-    virtual PLInfo&        getPl()       = 0;
-    virtual const PLInfo&  getPl() const = 0;
-
-    virtual AIEInfo&       getAie()       = 0;
-    virtual const AIEInfo& getAie() const = 0;
+    virtual PLInfo&  getPl()  = 0;
+    virtual AIEInfo& getAie() = 0;
 
     // Build a ConfigInfo wrapping this binary. The returned ConfigInfo takes
     // ownership of 'this' and deletes it through VPBinData* in ~ConfigInfo().

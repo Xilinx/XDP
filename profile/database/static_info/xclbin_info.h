@@ -55,11 +55,8 @@ namespace xdp {
     BinaryInfoType        getType() const override { return m_type; }
     BinDataSource         source()  const override { return BinDataSource::XCLBIN; }
 
-    PLInfo&       getPl()        override { return m_pl; }
-    const PLInfo& getPl()  const override { return m_pl; }
-
-    AIEInfo&       getAie()       override { return m_aie; }
-    const AIEInfo& getAie() const override { return m_aie; }
+    PLInfo&  getPl()  override { return m_pl; }
+    AIEInfo& getAie() override { return m_aie; }
 
     // Build a CONFIG_AIE_PL / CONFIG_AIE_PL_FORMED / CONFIG_AIE_ONLY /
     //  CONFIG_PL_ONLY ConfigInfo. For partial xclbins (AIE_ONLY or
@@ -90,10 +87,6 @@ namespace xdp {
     // The configuration of the AIE portion of the design (if applicable)
     AIEInfo m_aie ;
   } ;
-
-  // Compatibility alias for call sites that still spell the xclbin-typed
-  //  pointer as XclbinInfo*.
-  using XclbinInfo = XclbinBinData;
 
   // The config struct aggregates the binaries (xclbin and/or ELF) loaded on
   //  a device through the VPBinData interface.

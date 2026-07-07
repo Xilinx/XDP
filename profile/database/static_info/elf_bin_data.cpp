@@ -38,15 +38,6 @@ namespace xdp {
       "ConfigInfo::getPlBinary() which never returns an ELF binary.");
   }
 
-  const PLInfo&
-  ElfBinData::getPl() const
-  {
-    throw std::logic_error(
-      "xdp::ElfBinData::getPl() const: the ELF flow carries no PL data; "
-      "callers must guard with VPBinData::isXclbin() or use "
-      "ConfigInfo::getPlBinary() which never returns an ELF binary.");
-  }
-
   std::unique_ptr<aie::BaseFiletypeImpl>
   ElfBinData::readAIEMetadata(pt::ptree& out)
   {

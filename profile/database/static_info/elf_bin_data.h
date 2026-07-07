@@ -72,11 +72,8 @@ namespace xdp {
     void setName(const std::string& value)    override { m_name = value; }
     void setType(BinaryInfoType value)        override { m_type = value; }
 
-    PLInfo&       getPl()       override;
-    const PLInfo& getPl() const override;
-
-    AIEInfo&       getAie()       override { return m_aie; }
-    const AIEInfo& getAie() const override { return m_aie; }
+    PLInfo&  getPl()  override;
+    AIEInfo& getAie() override { return m_aie; }
 
     // ELF binaries are self-complete: produces a single-binary
     // CONFIG_ELF_AIE_ONLY ConfigInfo and ignores devInfo.

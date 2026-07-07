@@ -339,10 +339,10 @@ namespace xdp {
       return xclbin->getPl().clockRatePLMHz ;
     }
     else {
-      VPBinData* xclbin = config->getAieBinary();
-      if (!xclbin)
+      VPBinData* binary = config->getAieBinary();
+      if (!binary)
         return 1000.0 ;
-      return xclbin->getAie().clockRateAIEMHz ;
+      return binary->getAie().clockRateAIEMHz ;
     }
   }
 
@@ -821,10 +821,10 @@ namespace xdp {
       return false ;
 
     for (const auto& config : deviceInfo[deviceId]->getLoadedConfigs()) {
-      VPBinData* xclbin = config->getAieBinary();
-      if (!xclbin)
+      VPBinData* binary = config->getAieBinary();
+      if (!binary)
         continue ;
-      if (xclbin->getAie().isAIEcounterRead)
+      if (binary->getAie().isAIEcounterRead)
         return true ;
     }
     return false ;
@@ -840,11 +840,11 @@ namespace xdp {
     if (!config)
       return ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return ;
 
-    xclbin->getAie().isAIEcounterRead = val ;
+    binary->getAie().isAIEcounterRead = val ;
   }
 
   void VPStaticDatabase::setIsGMIORead(uint64_t deviceId, bool val)
@@ -857,11 +857,11 @@ namespace xdp {
     if (!config)
       return ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return ;
 
-    xclbin->getAie().isGMIORead = val ;
+    binary->getAie().isGMIORead = val ;
   }
 
   bool VPStaticDatabase::isGMIORead(uint64_t deviceId)
@@ -875,11 +875,11 @@ namespace xdp {
     if (!config)
       return false ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return false;
 
-    return xclbin->getAie().isGMIORead ;
+    return binary->getAie().isGMIORead ;
   }
 
   uint64_t VPStaticDatabase::getNumAIECounter(uint64_t deviceId)
@@ -893,11 +893,11 @@ namespace xdp {
     if (!config)
       return 0 ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return 0;
 
-    return xclbin->getAie().aieList.size() ;
+    return binary->getAie().aieList.size() ;
   }
 
   uint64_t VPStaticDatabase::getNumTraceGMIO(uint64_t deviceId)
@@ -911,11 +911,11 @@ namespace xdp {
     if (!config)
       return 0 ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return 0;
 
-    return xclbin->getAie().gmioList.size() ;
+    return binary->getAie().gmioList.size() ;
   }
 
   AIECounter* VPStaticDatabase::getAIECounter(uint64_t deviceId, uint64_t idx)
@@ -929,12 +929,12 @@ namespace xdp {
     if (!config)
       return nullptr ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return nullptr;
 
-    if (xclbin->getAie().aieList.size()>0)
-        return xclbin->getAie().aieList[idx] ;
+    if (binary->getAie().aieList.size()>0)
+        return binary->getAie().aieList[idx] ;
     return nullptr;
   }
 
@@ -950,11 +950,11 @@ namespace xdp {
     if (!config)
       return nullptr ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return nullptr;
 
-    return &(xclbin->getAie().aieCoreCountersMap) ;
+    return &(binary->getAie().aieCoreCountersMap) ;
   }
 
   std::map<uint32_t, uint32_t>*
@@ -969,11 +969,11 @@ namespace xdp {
     if (!config)
       return nullptr ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return nullptr;
 
-    return &(xclbin->getAie().aieMemoryCountersMap) ;
+    return &(binary->getAie().aieMemoryCountersMap) ;
   }
 
   std::map<uint32_t, uint32_t>*
@@ -988,11 +988,11 @@ namespace xdp {
     if (!config)
       return nullptr ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return nullptr;
 
-    return &(xclbin->getAie().aieShimCountersMap) ;
+    return &(binary->getAie().aieShimCountersMap) ;
   }
 
   std::map<uint32_t, uint32_t>*
@@ -1007,11 +1007,11 @@ namespace xdp {
     if (!config)
       return nullptr ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return nullptr;
 
-    return &(xclbin->getAie().aieMemTileCountersMap) ;
+    return &(binary->getAie().aieMemTileCountersMap) ;
   }
 
   std::map<uint32_t, uint32_t>*
@@ -1026,11 +1026,11 @@ namespace xdp {
     if (!config)
       return nullptr ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return nullptr;
 
-    return &(xclbin->getAie().aieCoreEventsMap) ;
+    return &(binary->getAie().aieCoreEventsMap) ;
   }
 
   std::map<uint32_t, uint32_t>*
@@ -1045,11 +1045,11 @@ namespace xdp {
     if (!config)
       return nullptr ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return nullptr;
 
-    return &(xclbin->getAie().aieMemoryEventsMap) ;
+    return &(binary->getAie().aieMemoryEventsMap) ;
   }
 
   std::map<uint32_t, uint32_t>*
@@ -1064,11 +1064,11 @@ namespace xdp {
     if (!config)
       return nullptr ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return nullptr;
 
-    return &(xclbin->getAie().aieShimEventsMap) ;
+    return &(binary->getAie().aieShimEventsMap) ;
   }
 
   std::map<uint32_t, uint32_t>*
@@ -1083,11 +1083,11 @@ namespace xdp {
     if (!config)
       return nullptr ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return nullptr;
 
-    return &(xclbin->getAie().aieMemTileEventsMap) ;
+    return &(binary->getAie().aieMemTileEventsMap) ;
   }
 
   std::vector<std::unique_ptr<aie_cfg_tile>>*
@@ -1102,11 +1102,11 @@ namespace xdp {
     if (!config)
       return nullptr ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return nullptr;
 
-    return &(xclbin->getAie().aieCfgList) ;
+    return &(binary->getAie().aieCfgList) ;
   }
 
   TraceGMIO* VPStaticDatabase::getTraceGMIO(uint64_t deviceId, uint64_t idx)
@@ -1120,12 +1120,12 @@ namespace xdp {
     if (!config)
       return nullptr ;
 
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return nullptr;
 
-    if (idx < xclbin->getAie().gmioList.size())
-        return xclbin->getAie().gmioList[idx] ;
+    if (idx < binary->getAie().gmioList.size())
+        return binary->getAie().gmioList[idx] ;
     return nullptr;
   }
 
@@ -1240,9 +1240,9 @@ namespace xdp {
     if (!config)
       return 0 ;
 
-    // check for aieXclbin
-    if (VPBinData* aieXclbin = config->getAieBinary()) {
-      return aieXclbin->getAie().numTracePLIO;
+    // check for aie binary
+    if (VPBinData* aieBinary = config->getAieBinary()) {
+      return aieBinary->getAie().numTracePLIO;
     }
     // if aieXclbin is null, check for plXclbin
     if (VPBinData* plXclbin = config->getPlBinary()) {
@@ -2613,8 +2613,8 @@ namespace xdp {
     if (!config)
       return ;
 
-    VPBinData* xclbin = config->getAieBinary() ;
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary() ;
+    if (!binary)
       return;
 
     uint64_t index = static_cast<uint64_t>(debugIpData->m_index_lowbyte) |
@@ -2624,7 +2624,7 @@ namespace xdp {
 
     NoCNode* noc = new NoCNode(index, debugIpData->m_name, readTrafficClass,
                                writeTrafficClass) ;
-    xclbin->getAie().nocList.push_back(noc) ;
+    binary->getAie().nocList.push_back(noc) ;
     // nocList in xdp::PLDeviceIntf is sorted; Is that required here?
   }
 
@@ -2635,16 +2635,16 @@ namespace xdp {
     if (!config)
       return ;
 
-    VPBinData* xclbin = config->getAieBinary() ;
-    if (!xclbin)
-      xclbin = config->getPlBinary() ;
+    VPBinData* binary = config->getAieBinary() ;
+    if (!binary)
+      binary = config->getPlBinary() ;
 
     // TS2MM IP for either AIE PLIO or PL trace offload
     if (debugIpData->m_properties & 0x1) {
-      xclbin->getAie().numTracePLIO++ ;
+      binary->getAie().numTracePLIO++ ;
     }
     else {
-      xclbin->getPl().usesTs2mm = true ;
+      binary->getPl().usesTs2mm = true ;
     }
   }
 
@@ -2916,8 +2916,8 @@ namespace xdp {
     ConfigInfo* config = deviceInfo[deviceId]->currentConfig() ;
     if (!config)
       return;
-    VPBinData* xclbin = config->getAieBinary();
-    if (!xclbin)
+    VPBinData* binary = config->getAieBinary();
+    if (!binary)
       return;
 
     auto metadataReader = getAIEmetadataReader(deviceId);
@@ -2925,9 +2925,9 @@ namespace xdp {
       return;
 
     try {
-      xclbin->getAie().clockRateAIEMHz = metadataReader->getAIEClockFreqMHz();
+      binary->getAie().clockRateAIEMHz = metadataReader->getAIEClockFreqMHz();
       xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "read clockRateAIEMHz: "
-                                                        + std::to_string(xclbin->getAie().clockRateAIEMHz));
+                                                        + std::to_string(binary->getAie().clockRateAIEMHz));
     } catch(...) {
       return;
     }

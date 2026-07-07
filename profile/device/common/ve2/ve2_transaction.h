@@ -44,6 +44,7 @@ namespace xdp::aie {
       // Select submission flow: true -> full-ELF add_config, false -> xclbin
       // (partial ELF via xrt::module).
       void setElfFlow(bool fullElf) { m_fullElfFlow = fullElf; }
+      bool getElfFlow() const { return m_fullElfFlow; }
 
       // Below functions are required for AIE Trace only
       // AIE Trace requires a flush ELF to force trace packets out of the tiles at end-of-run.  

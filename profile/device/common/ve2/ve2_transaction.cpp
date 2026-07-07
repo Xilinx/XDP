@@ -243,10 +243,6 @@ namespace xdp::aie {
 
     int VE2Transaction::getGroupID(int id, xrt::hw_context hwContext)
     {
-        if (m_fullElfFlow) {
-            xrt::kernel kernel = xrt::ext::kernel(hwContext, fullElfKernelHandle(m_transactionName));
-            return kernel.group_id(id);
-        }
         xrt::kernel kernel = xrt::kernel(hwContext, "XDP_KERNEL");
         return kernel.group_id(id);
     }

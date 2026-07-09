@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved
+// Copyright (C) 2022-2026 Advanced Micro Devices, Inc. All rights reserved
 
 #define XDP_PLUGIN_SOURCE
 
@@ -698,7 +698,8 @@ namespace xdp::aie::trace {
     XAie_Events bcastEvent2_PL =  (XAie_Events) (XAIE_EVENT_BROADCAST_A_0_PL + broadcastId2);
     XAie_EventBroadcast(aieDevInst, XAie_TileLoc(startCol, 0), XAIE_PL_MOD, broadcastId2, event);
 
-    for(uint8_t col = startCol; col < startCol + numCols; col++) {
+    auto endCol = static_cast<uint8_t>(startCol + numCols);
+    for(uint8_t col = startCol; col < endCol; col++) {
       for(uint8_t row = 0; row < numRows; row++) {
         module_type tileType = aie::getModuleType(row, metadata->getRowOffset());
         auto loc = XAie_TileLoc(col, row);
@@ -758,7 +759,8 @@ namespace xdp::aie::trace {
 
     XAie_EventBroadcastReset(aieDevInst, XAie_TileLoc(startCol, 0), XAIE_PL_MOD, broadcastId2);
 
-    for(uint8_t col = startCol; col < startCol + numCols; col++) {
+    auto endCol = static_cast<uint8_t>(startCol + numCols);
+    for(uint8_t col = startCol; col < endCol; col++) {
       for(uint8_t row = 0; row < numRows; row++) {
         module_type tileType = aie::getModuleType(row, metadata->getRowOffset());
         auto loc = XAie_TileLoc(col, row);

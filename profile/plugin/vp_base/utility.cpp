@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2016-2022 Xilinx, Inc
-// Copyright (C) 2022-2025 Advanced Micro Devices, Inc. All rights reserved
+// Copyright (C) 2022-2026 Advanced Micro Devices, Inc. All rights reserved
 
 #define XDP_CORE_SOURCE
 
@@ -10,6 +10,7 @@
 #include <ctime>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 
 #include "core/common/message.h"
@@ -30,13 +31,17 @@ namespace xdp {
     auto time = std::chrono::system_clock::to_time_t(
         std::chrono::system_clock::now());
 
-    struct tm *p_tstruct = std::localtime(&time);
-    if(p_tstruct) {
-        char buf[80] = {0};
-        strftime(buf, sizeof(buf), "%Y-%m-%d %X", p_tstruct);
-        return std::string(buf);
-    }
-    return std::string("0000-00-00 0000");
+    std::tm tm{};
+#if defined(_WIN32) || defined(_MSC_VER)
+    localtime_s(&tm, &time);
+#else
+    localtime_r(&time, &tm);
+#endif
+
+    std::stringstream formatted;
+
+    formatted << std::put_time(&tm, "%Y-%m-%d %X");
+    return formatted.str();
   }
 
   std::string getMsecSinceEpoch() 

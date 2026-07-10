@@ -54,15 +54,15 @@ install(TARGETS xdp_core
 
 # Build aie_codegen + fal for XDP consumers only
 if (XDP_CLIENT_BUILD_CMAKE STREQUAL "yes" OR XDP_VE2_BUILD_CMAKE STREQUAL "yes")
-  set(AIE_CODEGEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/aie-codegen/src)
+  set(AIE_CODEGEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/../aie-codegen/src)
   set(AIE_CODEGEN_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 
-  xrt_add_subdirectory_disable_install_target(../aie-codegen/src ${CMAKE_CURRENT_BINARY_DIR}/aie-codegen/src)
+  xrt_add_subdirectory_disable_install_target(../aie-codegen/src ${CMAKE_CURRENT_BINARY_DIR}/../aie-codegen/src)
 
   if (XDP_VE2_BUILD_CMAKE STREQUAL "yes")
     set(AIEBU_SOURCE_DIR ${XRT_SOURCE_DIR}/runtime_src/core/common/aiebu)
-    xrt_add_subdirectory_disable_install_target(../aie-codegen/fal ${CMAKE_CURRENT_BINARY_DIR}/aie-codegen/fal)
-    set(AIEFAL_DIR ${CMAKE_CURRENT_BINARY_DIR}/aie-codegen/fal/src/include)
+    xrt_add_subdirectory_disable_install_target(../aie-codegen/fal ${CMAKE_CURRENT_BINARY_DIR}/../aie-codegen/fal)
+    set(AIEFAL_DIR ${CMAKE_CURRENT_BINARY_DIR}/../aie-codegen/fal/src/include)
   endif()
 endif()
 

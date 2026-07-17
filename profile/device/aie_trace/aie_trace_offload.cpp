@@ -415,8 +415,9 @@ uint64_t AIETraceOffload::syncAndLog(uint64_t index)
     bd.offloadDone = true;
   }
 
-  // Log nBytes of trace
-  traceLogger->addAIETraceData(index, hostBuf, nBytes, mEnCircularBuf);
+  // Log nBytes of trace. Always copy: syncTraceBuf() unmaps the BO before returning.
+  traceLogger->addAIETraceData(index, hostBuf, nBytes, true);
+
   return nBytes;
 }
 

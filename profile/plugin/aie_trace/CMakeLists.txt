@@ -125,8 +125,15 @@ else()
   endif()
     
   if (DEFINED XRT_AIE_BUILD AND XRT_EDGE)
-    set(IMPL_DIR "${PROFILE_DIR}/plugin/aie_trace/edge")
-    set(OFFLOAD_DIR "${PROFILE_DIR}/device/aie_trace")
+    if (XDP_VE2_BUILD_CMAKE STREQUAL "yes")
+      # VE2 ZOCL: compile the ve2 impl so AieTrace_VE2Impl (selected by the shared
+      # plugin under XDP_VE2_BUILD) is actually defined; edge dir only has EdgeImpl.
+      set(IMPL_DIR "${PROFILE_DIR}/plugin/aie_trace/ve2")
+      set(OFFLOAD_DIR "${PROFILE_DIR}/device/aie_trace/ve2")
+    else()
+      set(IMPL_DIR "${PROFILE_DIR}/plugin/aie_trace/edge")
+      set(OFFLOAD_DIR "${PROFILE_DIR}/device/aie_trace")
+    endif()
     set(DEVICE_DIR "${PROFILE_DIR}/device/hal_device")
 
     file(GLOB AIE_TRACE_COMPONENT_FILES

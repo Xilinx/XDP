@@ -241,12 +241,6 @@ namespace xdp::aie {
         return true;
     }
 
-    int VE2Transaction::getGroupID(int id, xrt::hw_context hwContext)
-    {
-        xrt::kernel kernel = xrt::kernel(hwContext, "XDP_KERNEL");
-        return kernel.group_id(id);
-    }
-
     // Below functions are required for AIE Trace only
     // AIE Trace requires a flush ELF to force trace packets out of the tiles at end-of-run.  
     //

@@ -39,7 +39,6 @@ namespace xdp::aie {
       void setTransactionName(std::string newTransactionName) {m_transactionName = newTransactionName;}
       std::string getAsmFileName() { return m_transactionName + ".asm"; }
       std::string getElfFileName() { return m_transactionName + ".elf"; }
-      int getGroupID(int id, xrt::hw_context hwContext);
 
       // Select submission flow: true -> full-ELF add_config, false -> xclbin
       // (partial ELF via xrt::module).

@@ -220,7 +220,7 @@ bool AIETraceOffload::initReadTrace()
   if (!tranxHandler->initializeTransaction(&aieDevInst, "AieTraceOffload" + std::to_string(deviceId)))
     return false;
 
-  // Select the flow so getGroupID()/submitTransaction() open the kernel via the
+  // Select the flow so submitTransaction() opens the kernel via the
   // matching path (add_config vs xrt::module).
   try {
     tranxHandler->setElfFlow(xrt_core::hw_context_int::get_elf_flow(context));
@@ -240,8 +240,7 @@ bool AIETraceOffload::initReadTrace()
 
     try {
       xrt_bos.emplace_back(xrt::bo(context.get_device(), bufAllocSz,
-                           XRT_BO_FLAGS_HOST_ONLY,
-                           tranxHandler->getGroupID(0, context)));
+                           XRT_BO_FLAGS_HOST_ONLY, 0));
     } catch (const std::exception& ex) {
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
           std::string("AIE trace BO allocation failed: ") + ex.what());

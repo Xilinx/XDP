@@ -264,15 +264,18 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
   // uint64_t aieTraceBufSizePLIO = aieTraceBufSize;
   // uint64_t aieTraceBufSizeGMIO = aieTraceBufSize;
   if (isPLIO && !configuredOnePlioPartition) {
-#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD) // PLIO flow for VE2 ZOCL build only
+#if defined(XDP_CLIENT_BUILD) || (defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD))
+    // PLIO not supported on client/XDNA builds
+#else
     XAie_DevInst* devInst = static_cast<XAie_DevInst*>(AIEData.implementation->setAieDeviceInst(handle, deviceID));
     if(!devInst) {
       xrt_core::message::send(severity_level::warning, "XRT",
         "Unable to get AIE device instance. AIE event trace will not be available.");
       return;
     }
-    AIEData.offloadManager->configureAndInitPLIO(handle, deviceIntf, aieTraceBufSize,
-                                      AIEData.metadata->getNumStreamsPLIO(), devInst);
+    if (!AIEData.offloadManager->configureAndInitPLIO(handle, deviceIntf, aieTraceBufSize,
+                                      AIEData.metadata->getNumStreamsPLIO(), devInst))
+      return;
 #endif
     configuredOnePlioPartition = true;
   }

@@ -26,6 +26,8 @@
 #include "core/common/config_reader.h"
 #include "core/common/device.h"
 #include "core/common/message.h"
+#include "core/common/utils.h"
+
 #include "xdp/profile/database/database.h"
 #include "xdp/profile/plugin/vp_base/profiling_runtime_config.h"
 #include "xdp/profile/plugin/vp_base/vp_base_plugin.h"

@@ -166,6 +166,52 @@ public:
                            const std::string& metricSet = "ddr_bandwidth",
                            uint8_t channel = 0);
 
+  /**
+   * @brief Generate a self-contained CT file for the compute_io_bound metric
+   *
+   * Configures a single core (aie) tile at the first column / first core row
+   * with two PC-range events and two core performance counters:
+   *   - Counter 0 (Compute):      PC in [wpc, PROG_MEM_END]  via PC_Range_0-1
+   *   - Counter 1 (IO + Compute): PC in [0,   PROG_MEM_END]  via PC_Range_2-3
+   *
+   * @param outputPath Full path for the generated CT file
+   * @param hwctx Hardware context handle for partition info access
+   * @param opLocations Vector of op_loc from aiebu_assembler::get_op_locations
+   * @param wpc Wrapper PC (reloadable ELF entry PC) from AIE metadata
+   * @return true if CT file was generated successfully, false otherwise
+   */
+  bool generateComputeIoBoundCT(const std::string& outputPath,
+                                void* hwctx,
+                                const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
+                                uint32_t wpc);
+
+  /**
+   * @brief Generate a self-contained CT file combining bandwidth and/or
+   *        compute_io_bound metrics into a single begin block + counter reads.
+   *
+   * Either family can be enabled independently; when both are enabled the shim
+   * bandwidth counters and the core compute_io_bound counters are emitted into
+   * the same CT file.
+   *
+   * @param outputPath Full path for the generated CT file
+   * @param hwctx Hardware context handle for partition info access
+   * @param opLocations Vector of op_loc from aiebu_assembler::get_op_locations
+   * @param includeBandwidth Emit interface-tile bandwidth counters
+   * @param bandwidthMetricSet Bandwidth metric set (used when includeBandwidth)
+   * @param bandwidthChannel DMA channel for detailed_ddr_*_bandwidth sets
+   * @param includeComputeIoBound Emit the single core-tile compute_io_bound counters
+   * @param wpc Wrapper PC (used when includeComputeIoBound)
+   * @return true if CT file was generated successfully, false otherwise
+   */
+  bool generateCT(const std::string& outputPath,
+                  void* hwctx,
+                  const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
+                  bool includeBandwidth,
+                  const std::string& bandwidthMetricSet,
+                  uint8_t bandwidthChannel,
+                  bool includeComputeIoBound,
+                  uint32_t wpc);
+
 private:
   /**
    * @brief Read ASM file information from CSV file
@@ -290,17 +336,60 @@ private:
       const std::string& metricSet = "ddr_bandwidth", uint8_t channel = 0);
 
   /**
-   * @brief Write the bandwidth CT file content with register configuration
+   * @brief Build the ASM file/timestamp info list from op_locations
+   * @param opLocations Vector of op_loc from aiebu_assembler::get_op_locations
+   * @return Vector of ASMFileInfo (UC spans applied); empty if none found
+   */
+  std::vector<ASMFileInfo> buildAsmFileInfoList(
+      const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations);
+
+  /**
+   * @brief Append interface-tile bandwidth counters and begin-block writes
+   * @param hwctx Hardware context handle for shim column discovery
+   * @param metricSet Bandwidth metric set
+   * @param channel DMA channel for detailed_ddr_*_bandwidth sets
+   * @param counters [in,out] Accumulated counter list
+   * @param beginWrites [in,out] Accumulated begin-block register writes
+   * @return true if bandwidth config was appended
+   */
+  bool appendBandwidthConfig(void* hwctx, const std::string& metricSet, uint8_t channel,
+      std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites);
+
+  /**
+   * @brief Append the single core-tile compute_io_bound counters and begin-block writes
+   * @param wpc Wrapper PC used as the lower bound of the Compute range
+   * @param counters [in,out] Accumulated counter list
+   * @param beginWrites [in,out] Accumulated begin-block register writes
+   */
+  void appendComputeIoBoundConfig(uint32_t wpc,
+      std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites);
+
+  /**
+   * @brief Generate PC-range + performance counter config for a single core tile
+   *
+   * Programs PC_Event0-3 (with the Valid bit), resets performance counters 0/1,
+   * and configures Performance_Ctrl0 so counter 0 counts PC_Range_0-1 (Compute)
+   * and counter 1 counts PC_Range_2-3 (IO + Compute).
+   *
+   * @param column Partition-relative core tile column
+   * @param row Core tile row (absolute; first core row = 3)
+   * @param wpc Wrapper PC used as the lower bound of the Compute range
+   * @return Vector of register writes for the begin block
+   */
+  std::vector<CTRegisterWrite> generatePcRangeCoreConfig(uint8_t column, uint8_t row, uint32_t wpc);
+
+  /**
+   * @brief Write a self-contained counter CT file with begin-block register writes
    * @param asmFileInfoList Vector of ASMFileInfo with timestamps
    * @param allCounters Vector of all CTCounterInfo for metadata
    * @param beginBlockWrites Vector of register writes for begin block
    * @param outputPath Full path for the output CT file
    * @return true if file was written successfully
    */
-  bool writeBandwidthCTFile(const std::vector<ASMFileInfo>& asmFileInfoList,
-                            const std::vector<CTCounterInfo>& allCounters,
-                            const std::vector<CTRegisterWrite>& beginBlockWrites,
-                            const std::string& outputPath);
+  bool writeCounterCTFile(const std::vector<ASMFileInfo>& asmFileInfoList,
+                          const std::vector<CTCounterInfo>& allCounters,
+                          const std::vector<CTRegisterWrite>& beginBlockWrites,
+                          const std::string& outputPath);
 
 private:
   VPDatabase* db;
@@ -321,6 +410,21 @@ private:
   // Stream switch and performance counter configuration offsets
   static constexpr uint64_t STREAM_SWITCH_EVENT_PORT_SEL_OFFSET = 0x0003FF00;
   static constexpr uint64_t PERF_CTRL_OFFSET = 0x00031000;
+
+  // Core (aie) module offsets for the compute_io_bound metric (aie2ps)
+  static constexpr uint64_t CM_PERF_CTRL0     = 0x00037500;  // Counters 0,1 start/stop events
+  static constexpr uint64_t CM_PERF_COUNTER0  = 0x00037520;  // Counter 0 (Counter 1 at +4)
+  static constexpr uint64_t CM_PC_EVENT0      = 0x00038020;  // PC_Event0 (1..3 at +4 each)
+  static constexpr uint32_t PC_EVENT_VALID    = 0x80000000;  // PC_Event Valid bit (bit 31)
+  static constexpr uint32_t PC_ADDRESS_MASK   = 0x00003FFF;  // PC_Address field (bits 13:0)
+  static constexpr uint32_t PROG_MEM_END      = 0x00003FFF;  // End of 16KB program memory
+  static constexpr uint8_t  PC_RANGE_0_1_EVENT = 20;         // XAIE2PS_EVENTS_CORE_PC_RANGE_0_1
+  static constexpr uint8_t  PC_RANGE_2_3_EVENT = 21;         // XAIE2PS_EVENTS_CORE_PC_RANGE_2_3
+
+  // compute_io_bound configures a single core tile at the first column / first
+  // core row (partition-relative col 0, row 3).
+  static constexpr uint8_t COMPUTE_IO_CORE_COL = 0;
+  static constexpr uint8_t COMPUTE_IO_CORE_ROW = 3;
 
   // Bandwidth monitoring constants
   static constexpr uint8_t NUM_BANDWIDTH_COUNTERS = 4;

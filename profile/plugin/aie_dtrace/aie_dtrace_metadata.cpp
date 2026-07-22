@@ -29,6 +29,12 @@ namespace xdp {
     return metrics;
   }
 
+  static const std::set<std::string>& coreMetricSets()
+  {
+    static const std::set<std::string> metrics = {"compute_io_bound", "off"};
+    return metrics;
+  }
+
   AieDtraceMetadata::AieDtraceMetadata(uint64_t deviceID, void* handle)
     : deviceID(deviceID)
     , handle(handle)
@@ -48,17 +54,29 @@ namespace xdp {
     const auto& ci = profiling_runtime_config::control_instrumentation();
 
     if (usingBlob) {
-      if (ci.aie_tile.has_value() && !ci.aie_tile->empty()) {
-        xrt_core::message::send(severity_level::info, "XRT",
-            "AIE dtrace: core tile metric '" + *ci.aie_tile
-            + "' from profiling_runtime_config will be supported in a follow-up.");
-      }
       if (ci.mem_tile.has_value() && !ci.mem_tile->empty()) {
         xrt_core::message::send(severity_level::info, "XRT",
             "AIE dtrace: mem tile metric '" + *ci.mem_tile
             + "' from profiling_runtime_config will be supported in a follow-up.");
       }
     }
+
+    // Core (aie) tile metrics (e.g. compute_io_bound). Only used to enable the
+    // metric; the tile itself is fixed to the first column / first core row.
+    std::vector<std::string> aieMetricsSettings;
+    if (usingBlob && ci.aie_tile.has_value() && !ci.aie_tile->empty()) {
+      xrt_core::message::send(severity_level::info, "XRT",
+          "AIE dtrace: using aie_tile metric '" + *ci.aie_tile
+          + "' from Debug.profiling_runtime_config.");
+      aieMetricsSettings = getSettingsVector("all:" + *ci.aie_tile);
+    }
+    else {
+      const std::string tileBasedAie =
+          xrt_core::config::get_aie_dtrace_settings_tile_based_aie_metrics();
+      if (!tileBasedAie.empty())
+        aieMetricsSettings = getSettingsVector(tileBasedAie);
+    }
+    getConfigMetricsForAIETiles(CORE_MODULE_IDX, aieMetricsSettings);
 
     std::vector<std::string> metricsSettings;
     if (usingBlob && ci.interface_tile.has_value() && !ci.interface_tile->empty()) {
@@ -86,6 +104,7 @@ namespace xdp {
     using boost::property_tree::ptree;
     const std::set<std::string> validSettings {
       "tile_based_interface_tile_metrics",
+      "tile_based_aie_metrics",
       "configure_aie_hardware",
       "config_one_partition",
     };
@@ -120,6 +139,55 @@ namespace xdp {
   bool AieDtraceMetadata::isBandwidthMetricSet(const std::string& metricSet) const
   {
     return bandwidthMetricSets().count(metricSet) > 0;
+  }
+
+  bool AieDtraceMetadata::isCoreMetricSet(const std::string& metricSet) const
+  {
+    return coreMetricSets().count(metricSet) > 0;
+  }
+
+  void AieDtraceMetadata::getConfigMetricsForAIETiles(int moduleIdx,
+      const std::vector<std::string>& metricsSettings)
+  {
+    if (metricsSettings.empty())
+      return;
+
+    // These settings only enable/disable the metric. The tile itself is fixed
+    // to the first column / first core row; only a single core tile is ever
+    // configured for compute_io_bound.
+    std::string metricSet;
+    for (const auto& setting : metricsSettings) {
+      std::vector<std::string> parts;
+      boost::split(parts, setting, boost::is_any_of(":"));
+      // Accept "all:<metric>", "<col>:<metric>", or bare "<metric>".
+      const std::string& candidate = parts.back();
+      if (isCoreMetricSet(candidate)) {
+        metricSet = candidate;
+        break;
+      }
+    }
+
+    if (metricSet.empty()) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+          "AIE dtrace: no valid core (aie) tile metric set found in "
+          "tile_based_aie_metrics. Supported: compute_io_bound, off.");
+      return;
+    }
+
+    if (metricSet == "off")
+      return;
+
+    tile_type tile;
+    tile.col = COMPUTE_IO_CORE_COL;
+    tile.row = COMPUTE_IO_CORE_ROW;
+    tile.active_core = true;
+    configMetrics[moduleIdx][tile] = metricSet;
+
+    xrt_core::message::send(severity_level::info, "XRT",
+        "AIE dtrace: configured core tile (col "
+        + std::to_string(static_cast<int>(COMPUTE_IO_CORE_COL)) + ", row "
+        + std::to_string(static_cast<int>(COMPUTE_IO_CORE_ROW))
+        + ") with metric set '" + metricSet + "'.");
   }
 
   void AieDtraceMetadata::getConfigMetricsForInterfaceTiles(int moduleIdx,

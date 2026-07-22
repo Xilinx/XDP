@@ -5,6 +5,8 @@
 #define BASE_FILETYPE_DOT_H
 
 #include <boost/property_tree/ptree.hpp>
+#include <cstdint>
+#include <optional>
 #include "xdp/profile/database/static_info/aie_constructs.h"
 
 namespace xdp::aie {
@@ -16,6 +18,42 @@ class BaseFiletypeImpl {
         BaseFiletypeImpl(boost::property_tree::ptree& aie_project) : aie_meta(aie_project) {}
         BaseFiletypeImpl() = delete; 
         virtual ~BaseFiletypeImpl() {};
+
+        // Returns the wrapper PC (reloadable ELF entry PC) for the core tile at
+        // column 0, row 0 from the top-level "elfs_metadata" section. All
+        // "reloadable_elfs" values in that entry must be identical; otherwise
+        // (or if the entry is missing/empty) std::nullopt is returned and the
+        // caller must skip configuration.
+        std::optional<uint32_t>
+        getReloadableElfEntryPC() const
+        {
+            auto elfsMetadata = aie_meta.get_child_optional("elfs_metadata");
+            if (!elfsMetadata)
+                return std::nullopt;
+
+            for (const auto& entry : elfsMetadata.get()) {
+                auto column = entry.second.get_optional<int>("column");
+                auto row = entry.second.get_optional<int>("row");
+                if (!column || !row || *column != 0 || *row != 0)
+                    continue;
+
+                auto reloadableElfs = entry.second.get_child_optional("reloadable_elfs");
+                if (!reloadableElfs)
+                    return std::nullopt;
+
+                std::optional<uint32_t> commonPC;
+                for (const auto& elf : reloadableElfs.get()) {
+                    auto pc = static_cast<uint32_t>(elf.second.get_value<uint64_t>());
+                    if (!commonPC)
+                        commonPC = pc;
+                    else if (*commonPC != pc)
+                        return std::nullopt;
+                }
+                return commonPC;
+            }
+
+            return std::nullopt;
+        }
 
         // Top level interface used for both file type formats
         

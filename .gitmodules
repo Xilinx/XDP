@@ -1,0 +1,4 @@
+[submodule "aie-codegen"]
+	path = aie-codegen
+	url = https://github.com/Xilinx/aie-codegen.git
+	branch = main

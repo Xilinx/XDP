@@ -64,14 +64,14 @@
 
 #endif
 
-#ifndef _WINDOWS
+#ifndef _WIN32
 // TODO: Windows build support
 // unistd.h is linux only header file
 // it is included for read, write, close, lseek64
 #include <unistd.h>
 #endif
 
-#ifdef _WINDOWS
+#ifdef _WIN32
 #define __func__ __FUNCTION__
 #endif
 

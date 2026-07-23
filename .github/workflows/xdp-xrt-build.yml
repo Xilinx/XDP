@@ -2,122 +2,375 @@ name: XDP Build
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
-    branches: [ master ]
-    
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    branches: [master]
+  # Fork testing: push to this branch runs VE2 build + CSR board test.
+  push:
+    branches: [ci/xdp-multi-platform-builds]
+  workflow_dispatch:
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  group: xdp-build-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-  
+
 jobs:
   build-xrt-alveo:
-    if: github.event_name == 'pull_request'
+    if: |
+      github.event_name == 'pull_request' && (
+        contains(github.event.pull_request.labels.*.name, 'build-xrt-alveo') ||
+        (
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-alveo') &&
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-edge') &&
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-ve2') &&
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-client')
+        )
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    
+    concurrency:
+      group: xdp-alveo-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
+
     steps:
-    - name: Checkout XDP PR
-      uses: actions/checkout@v4
-      with:
-        path: xdp-pr
-        fetch-depth: 0
-        
-    - name: Clone XRT Repository
-      run: |
-        git clone https://github.com/Xilinx/XRT.git XRT
-        cd XRT
-        git submodule update --init --recursive
-        
-    - name: Apply XDP PR Changes to XRT
-      run: |
-        rm -rf XRT/src/runtime_src/xdp
-        cp -r xdp-pr XRT/src/runtime_src/xdp
-        
-    - name: Setup Build Environment Using XRT Scripts
-      run: |
-        cd XRT/src/runtime_src/tools/scripts
-        chmod +x xrtdeps.sh
-        sudo ./xrtdeps.sh
-        # Install cross-compilation tools for edge builds
-        sudo apt-get update
-        sudo apt-get install -y \
-          gcc-aarch64-linux-gnu \
-          g++-aarch64-linux-gnu \
-          crossbuild-essential-arm64
-        
-    - name: Build XRT for Alveo
-      run: |
-        cd XRT/build
-        chmod +x build.sh
-        ./build.sh -noinit -noert
-        
-    - name: Validate build
-      run: |
-        if ls XRT/build/Release/opt/xilinx/xrt/lib/libxrt_core.so* 1> /dev/null 2>&1; then
-          echo "✓ XRT Build successful"
-        else
-          echo "✗ XRT Build failed"
-          exit 1
-        fi
-        
-        if ls XRT/build/Release/opt/xilinx/xrt/lib/libxdp_core.so* 1> /dev/null 2>&1; then
-          echo "✓ XDP Build successful"
-        else
-          echo "✗ XDP Build failed"
-          exit 1
-        fi
-        
-    - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: xrt-alveo-build-PR-${{ github.event.pull_request.number }}
-        path: |
-          XRT/build/Release/opt/xilinx/xrt/lib/libxrt*.so*
-          XRT/build/Release/opt/xilinx/xrt/lib/libxdp*.so*
-          XRT/build/Release/opt/xilinx/xrt/lib/xrt/module/*.so*
-        retention-days: 1
-        if-no-files-found: warn
+      - name: Checkout XDP
+        uses: actions/checkout@v4
+        with:
+          path: xdp-pr
+          fetch-depth: 0
 
-    - name: Generate Build Summary
-      if: always()
-      run: |
-        echo "## XDP Build Summary" >> $GITHUB_STEP_SUMMARY
-        echo "- Build Date: $(date)" >> $GITHUB_STEP_SUMMARY
-        echo "- XDP Source: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+      - name: Clone XRT
+        run: |
+          git clone https://github.com/Xilinx/XRT.git XRT
+          git -C XRT submodule update --init --recursive
 
-        if ls XRT/build/Release/opt/xilinx/xrt/lib/libxrt_core.so* 1> /dev/null 2>&1; then
-          echo "- XRT Build: ✅ Success" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "- XRT Build: ❌ Failed" >> $GITHUB_STEP_SUMMARY
-        fi
+      - name: Overlay XDP
+        run: |
+          rm -rf XRT/src/runtime_src/xdp
+          cp -r xdp-pr XRT/src/runtime_src/xdp
 
-        if ls XRT/build/Release/opt/xilinx/xrt/lib/libxdp_core.so* 1> /dev/null 2>&1; then
-          echo "- XDP Build: ✅ Success" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "- XDP Build: ❌ Failed" >> $GITHUB_STEP_SUMMARY
-        fi
-            
-  # Future job for edge builds
+      - name: Setup build environment
+        run: |
+          cd XRT/src/runtime_src/tools/scripts
+          chmod +x xrtdeps.sh
+          sudo ./xrtdeps.sh
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            crossbuild-essential-arm64
+
+      - name: Build XRT for Alveo
+        run: |
+          cd XRT/build
+          chmod +x build.sh
+          ./build.sh -noinit -noert
+
+      - name: Validate build outputs
+        run: |
+          set -euo pipefail
+          XRT_ROOT="XRT/build/Release/opt/xilinx/xrt"
+
+          echo "Built shared libraries under ${XRT_ROOT}:"
+          find "${XRT_ROOT}" -name '*.so*' | sort || true
+
+          XRT_CORE="$(find "${XRT_ROOT}" -name 'libxrt_core.so*' -type f | head -1)"
+          XDP_CORE="$(find "${XRT_ROOT}" -name 'libxdp_core.so*' -type f | head -1)"
+
+          test -n "${XRT_CORE}" || { echo "libxrt_core not found under ${XRT_ROOT}"; exit 1; }
+          test -n "${XDP_CORE}" || { echo "libxdp_core not found under ${XRT_ROOT}"; exit 1; }
+          echo "Validated ${XRT_CORE}"
+          echo "Validated ${XDP_CORE}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xrt-alveo-build-${{ github.event.pull_request.number || github.run_id }}
+          path: |
+            XRT/build/Release/opt/xilinx/xrt/**/libxrt*.so*
+            XRT/build/Release/opt/xilinx/xrt/**/libxdp*.so*
+            XRT/build/Release/opt/xilinx/xrt/**/xrt/module/*.so*
+          retention-days: 1
+
+      - name: Build summary
+        if: always()
+        run: |
+          XRT_ROOT="XRT/build/Release/opt/xilinx/xrt"
+          echo "## XDP Alveo Build" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR: #${{ github.event.pull_request.number }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Platform: Alveo (native)" >> "$GITHUB_STEP_SUMMARY"
+          if find "${XRT_ROOT}" -name 'libxrt_core.so*' -type f 2>/dev/null | grep -q . && \
+             find "${XRT_ROOT}" -name 'libxdp_core.so*' -type f 2>/dev/null | grep -q .; then
+            echo "- Result: success" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Result: failed" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   build-xrt-edge:
-    if: contains(github.event.pull_request.labels.*.name, 'build-edge')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Placeholder for edge build
-        run: echo "Edge build would go here"
-        
-  # Future job for client builds
-  build-xrt-client:
-    if: contains(github.event.pull_request.labels.*.name, 'build-client')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Placeholder for client build
-        run: echo "Client build would go here"
+    if: |
+      github.event_name == 'pull_request' && (
+        contains(github.event.pull_request.labels.*.name, 'build-xrt-edge') ||
+        (
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-alveo') &&
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-edge') &&
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-ve2') &&
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-client')
+        )
+      )
+    runs-on: [self-hosted, Ubuntu-22.04]
+    timeout-minutes: 360
+    concurrency:
+      group: xdp-edge-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
+    env:
+      SUDO: /tools/aecg-sudo/sudo/bin/sudo
 
-  # Future job for ve2 builds  
+    steps:
+      - name: Checkout XDP
+        uses: actions/checkout@v4
+        with:
+          path: xdp-pr
+          fetch-depth: 0
+
+      - name: Clone XRT
+        run: |
+          rm -rf XRT
+          git clone https://github.com/Xilinx/XRT.git XRT
+          git -C XRT submodule update --init --recursive
+
+      - name: Overlay XDP
+        run: |
+          rm -rf XRT/src/runtime_src/xdp
+          cp -r xdp-pr XRT/src/runtime_src/xdp
+
+      - name: Setup build environment
+        run: |
+          cd XRT/src/runtime_src/tools/scripts
+          chmod +x xrtdeps.sh
+          $SUDO ./xrtdeps.sh
+
+      - name: Build XRT for Edge
+        run: |
+          cd XRT/build
+          chmod +x build_edge.sh
+          ./build_edge.sh -aarch versal -noinit
+
+      - name: Validate build outputs
+        run: |
+          ls XRT/build/versal/rpms/xrt*.rpm
+          ls XRT/build/versal/rpms/zocl*.rpm
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xrt-edge-build-${{ github.event.pull_request.number || github.run_id }}
+          path: |
+            XRT/build/versal/rpms/*.rpm
+            XRT/build/versal/install_xrt.sh
+            XRT/build/versal/reinstall_xrt.sh
+            XRT/build/versal/rpm.txt
+          retention-days: 1
+
+      - name: Build summary
+        if: always()
+        run: |
+          echo "## XDP Edge Build" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR: #${{ github.event.pull_request.number }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Platform: Edge (versal aarch)" >> "$GITHUB_STEP_SUMMARY"
+          if ls XRT/build/versal/rpms/xrt*.rpm 2>/dev/null | grep -q . && \
+             ls XRT/build/versal/rpms/zocl*.rpm 2>/dev/null | grep -q .; then
+            echo "- Result: success" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Result: failed" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   build-xrt-ve2:
-    if: contains(github.event.pull_request.labels.*.name, 'build-ve2')
+    if: |
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'build-xrt-ve2') ||
+      (
+        !contains(github.event.pull_request.labels.*.name, 'build-xrt-alveo') &&
+        !contains(github.event.pull_request.labels.*.name, 'build-xrt-edge') &&
+        !contains(github.event.pull_request.labels.*.name, 'build-xrt-ve2') &&
+        !contains(github.event.pull_request.labels.*.name, 'build-xrt-client')
+      )
+    runs-on: [self-hosted, Ubuntu-22.04]
+    timeout-minutes: 480
+    concurrency:
+      group: xdp-ve2-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
+    env:
+      # Self-hosted runner paths for VE2 Yocto cache (Telluride rev-b / vek385).
+      VE2_YOCTO_CACHE_ROOT: /scratch/snigupta/ve2_yocto_cache
+      VE2_YOCTO_CACHE_TTL_DAYS: '7'
+      VE2_MACHINE: amd-cortexa78-mali-common
+      VE2_YOCTO_DIR: /scratch/snigupta/ve2_yocto_cache/Vitis-AI-Telluride/versal_2ve/reference_design/vek385/rev-b/sw/yocto
+
+    steps:
+      - name: Checkout XDP
+        uses: actions/checkout@v4
+        with:
+          path: xdp-pr
+          fetch-depth: 0
+
+      - name: Ensure Yocto workspace cache
+        run: |
+          chmod +x xdp-pr/ci/ve2/ensure_yocto_cache.sh
+          xdp-pr/ci/ve2/ensure_yocto_cache.sh
+
+      - name: Build XRT RPMs with XDP overlay
+        env:
+          YOCTO_DIR: ${{ env.VE2_YOCTO_DIR }}
+          MACHINE: ${{ env.VE2_MACHINE }}
+        run: |
+          cd "${YOCTO_DIR}"
+          source edf-init-build-env
+
+          if [ ! -d build/workspace/sources/xrt ]; then
+            MACHINE="${MACHINE}" devtool modify xrt
+          fi
+
+          XDP_TARGET="build/workspace/sources/xrt/xrt/src/runtime_src/xdp"
+          rm -rf "${XDP_TARGET}"
+          mkdir -p "$(dirname "${XDP_TARGET}")"
+          cp -r "${{ github.workspace }}/xdp-pr" "${XDP_TARGET}"
+
+          MACHINE="${MACHINE}" bitbake xrt -c cleanall
+          MACHINE="${MACHINE}" bitbake xrt -c package_write_rpm -f
+
+      - name: Validate build outputs
+        env:
+          YOCTO_DIR: ${{ env.VE2_YOCTO_DIR }}
+        run: |
+          RPM_DIR="${YOCTO_DIR}/build/tmp/deploy/rpm"
+          find "${RPM_DIR}"/cortexa* -name 'xrt*.rpm' | tee /tmp/ve2-rpms.txt
+          test -s /tmp/ve2-rpms.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xrt-ve2-build-${{ github.event.pull_request.number || github.run_id }}
+          path: ${{ env.VE2_YOCTO_DIR }}/build/tmp/deploy/rpm/cortexa*/xrt*.rpm
+          retention-days: 1
+
+      - name: Build summary
+        if: always()
+        env:
+          YOCTO_DIR: ${{ env.VE2_YOCTO_DIR }}
+        run: |
+          RPM_DIR="${YOCTO_DIR}/build/tmp/deploy/rpm"
+          echo "## XDP VE2 Build" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR: #${{ github.event.pull_request.number }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Platform: VE2 (Yocto RPM)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Machine: ${{ env.VE2_MACHINE }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Yocto cache: ${{ env.VE2_YOCTO_CACHE_ROOT }}" >> "$GITHUB_STEP_SUMMARY"
+          if find "${RPM_DIR}"/cortexa* -name 'xrt*.rpm' 2>/dev/null | grep -q .; then
+            echo "- Result: success" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Result: failed" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  build-xrt-client:
+    if: |
+      github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'build-xrt-client')
     runs-on: ubuntu-latest
     steps:
-      - name: Placeholder for ve2 build
-        run: echo "VE2 build would go here"
+      - run: echo "Client build not implemented"
 
+      - name: Build summary
+        if: always()
+        run: |
+          echo "## XDP Client Build" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR: #${{ github.event.pull_request.number }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Platform: Client" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Result: skipped (not implemented)" >> "$GITHUB_STEP_SUMMARY"
+
+  board-test-ve2:
+    if: |
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'board-test-ve2')
+    needs: build-xrt-ve2
+    runs-on: [self-hosted, Ubuntu-22.04]
+    timeout-minutes: 720
+    concurrency:
+      group: xdp-board-ve2-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
+    env:
+      VE2_YOCTO_CACHE_ROOT: /scratch/snigupta/ve2_yocto_cache
+      VE2_YOCTO_DIR: /scratch/snigupta/ve2_yocto_cache/Vitis-AI-Telluride/versal_2ve/reference_design/vek385/rev-b/sw/yocto
+      CSR_ROOT: /wrk/csr/snigupta/xdp_ci
+      XDP_CSR_SUBMIT_MODE: local
+      XDP_CSR_SINGLE_TEST: ResNet18_MLTimeline
+      XDP_CSR_USE_DOCKER: "0"
+      JENKINS_USER: ${{ secrets.JENKINS_USER }}
+      JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
+
+    steps:
+      - name: Checkout XDP
+        uses: actions/checkout@v4
+
+      - name: Run VE2 CSR board test
+        env:
+          XDP_CSR_DESCRIPTION: >-
+            XDP ${{ github.event_name }} ${{ github.ref_name }} @ ${{ github.sha }}
+        run: |
+          bash ci/csr/run_ve2_board_test.sh \
+            --run-id '${{ github.event.pull_request.number || github.run_id }}-${{ github.run_id }}'
+
+      - name: Board test summary
+        if: always()
+        run: |
+          RUN_ID='${{ github.event.pull_request.number || github.run_id }}-${{ github.run_id }}'
+          echo "## XDP VE2 Board Test (CSR)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Trigger: ${{ github.event_name }} (${{ github.ref_name }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Suite: VE2_XDP (hw), single test: ResNet18_MLTimeline" >> "$GITHUB_STEP_SUMMARY"
+          echo "- vaiml compile: native FlexML (XDP_CSR_USE_DOCKER=0)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- CSR workspace: ${CSR_ROOT}/pr-${RUN_ID}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Submit mode: local RDI (set XDP_CSR_SUBMIT_MODE=jenkins when Job/Build granted)" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "- Result: success" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Result: failed" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  ci-required:
+    if: always() && github.event_name == 'pull_request'
+    needs: [build-xrt-alveo, build-xrt-edge, build-xrt-ve2, build-xrt-client]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all scheduled builds to pass
+        run: |
+          check_result() {
+            local job="$1"
+            local result="$2"
+            if [ "${result}" = "skipped" ]; then
+              echo "${job}: skipped"
+              return 0
+            fi
+            if [ "${result}" = "success" ]; then
+              echo "${job}: success"
+              return 0
+            fi
+            echo "${job}: ${result}"
+            return 1
+          }
+
+          failed=0
+          check_result build-xrt-alveo "${{ needs.build-xrt-alveo.result }}" || failed=1
+          check_result build-xrt-edge "${{ needs.build-xrt-edge.result }}" || failed=1
+          check_result build-xrt-ve2 "${{ needs.build-xrt-ve2.result }}" || failed=1
+          check_result build-xrt-client "${{ needs.build-xrt-client.result }}" || failed=1
+
+          if [ "${failed}" -ne 0 ]; then
+            echo "One or more XDP builds failed"
+            exit 1
+          fi
+
+          echo "All scheduled XDP builds passed"

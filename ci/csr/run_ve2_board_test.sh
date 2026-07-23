@@ -15,7 +15,8 @@ Environment:
   VE2_YOCTO_DIR            Yocto workspace used by build-xrt-ve2
   JENKINS_USER             Required for Jenkins submission
   JENKINS_API_TOKEN        Required for Jenkins submission
-  XDP_CSR_SKIP_JENKINS=1   Generate CSR only; do not submit to Jenkins
+  XDP_CSR_SKIP_JENKINS=1   Generate CSR only; do not submit
+  XDP_CSR_SUBMIT_MODE      local (default) or jenkins
 EOF
 }
 
@@ -78,9 +79,23 @@ if [ "${XDP_CSR_SKIP_JENKINS:-0}" = "1" ]; then
   exit 0
 fi
 
-echo "== Submit CSR run to Jenkins =="
-bash "${SCRIPT_DIR}/submit_csr_jenkins.sh" \
-  --sprite-dir "${SPRITE_DIR}" \
-  --description "${DESCRIPTION}"
+SUBMIT_MODE="${XDP_CSR_SUBMIT_MODE:-local}"
+case "${SUBMIT_MODE}" in
+  jenkins)
+    echo "== Submit CSR run to Jenkins =="
+    bash "${SCRIPT_DIR}/submit_csr_jenkins.sh" \
+      --sprite-dir "${SPRITE_DIR}" \
+      --description "${DESCRIPTION}"
+    ;;
+  local)
+    echo "== Submit CSR run locally (RDI) =="
+    bash "${SCRIPT_DIR}/submit_csr_local.sh" \
+      --sprite-dir "${SPRITE_DIR}"
+    ;;
+  *)
+    echo "Unknown XDP_CSR_SUBMIT_MODE=${SUBMIT_MODE} (use local or jenkins)" >&2
+    exit 1
+    ;;
+esac
 
 echo "VE2 CSR board test completed for run ${RUN_ID}"

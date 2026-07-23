@@ -305,6 +305,7 @@ jobs:
       VE2_YOCTO_CACHE_ROOT: /scratch/snigupta/ve2_yocto_cache
       VE2_YOCTO_DIR: /scratch/snigupta/ve2_yocto_cache/Vitis-AI-Telluride/versal_2ve/reference_design/vek385/rev-b/sw/yocto
       CSR_ROOT: /wrk/csr/snigupta/xdp_ci
+      XDP_CSR_SUBMIT_MODE: local
       JENKINS_USER: ${{ secrets.JENKINS_USER }}
       JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
 
@@ -329,7 +330,7 @@ jobs:
           echo "- Trigger: ${{ github.event_name }} (${{ github.ref_name }})" >> "$GITHUB_STEP_SUMMARY"
           echo "- Suite: VE2_XDP (hw)" >> "$GITHUB_STEP_SUMMARY"
           echo "- CSR workspace: ${CSR_ROOT}/pr-${RUN_ID}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Jenkins job: csr_submit_job (BOARD_SELECT_RESOURCE=VE2)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Submit mode: local RDI (set XDP_CSR_SUBMIT_MODE=jenkins when Job/Build granted)" >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ job.status }}" = "success" ]; then
             echo "- Result: success" >> "$GITHUB_STEP_SUMMARY"
           else

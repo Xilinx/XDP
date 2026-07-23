@@ -1261,14 +1261,15 @@ void AieDtraceCTWriter::appendComputeIoBoundConfig(
     uint32_t wpc,
     std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites)
 {
-  // Single core tile: two counters (compute and io+compute).
+  // Single core tile: two counters (compute and io+compute) using
+  // performance counters 2 and 3.
   CTCounterInfo compute;
   compute.column = COMPUTE_IO_CORE_COL;
   compute.row = COMPUTE_IO_CORE_ROW;
-  compute.counterNumber = 0;
+  compute.counterNumber = 2;
   compute.channel = 0;
   compute.module = "aie";
-  compute.address = calculateCounterAddress(COMPUTE_IO_CORE_COL, COMPUTE_IO_CORE_ROW, 0, "aie");
+  compute.address = calculateCounterAddress(COMPUTE_IO_CORE_COL, COMPUTE_IO_CORE_ROW, 2, "aie");
   compute.metricSet = "compute_io_bound";
   compute.portDirection = "";
   compute.eventType = "compute";
@@ -1277,10 +1278,10 @@ void AieDtraceCTWriter::appendComputeIoBoundConfig(
   CTCounterInfo ioCompute;
   ioCompute.column = COMPUTE_IO_CORE_COL;
   ioCompute.row = COMPUTE_IO_CORE_ROW;
-  ioCompute.counterNumber = 1;
+  ioCompute.counterNumber = 3;
   ioCompute.channel = 0;
   ioCompute.module = "aie";
-  ioCompute.address = calculateCounterAddress(COMPUTE_IO_CORE_COL, COMPUTE_IO_CORE_ROW, 1, "aie");
+  ioCompute.address = calculateCounterAddress(COMPUTE_IO_CORE_COL, COMPUTE_IO_CORE_ROW, 3, "aie");
   ioCompute.metricSet = "compute_io_bound";
   ioCompute.portDirection = "";
   ioCompute.eventType = "io_compute";
@@ -1383,20 +1384,20 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePcRangeCoreConfig(
   addWrite(CM_PC_EVENT0 + 12, PC_EVENT_VALID | (PROG_MEM_END & PC_ADDRESS_MASK),
            "PC_Event3 @ " + loc + " (io+compute range end)");
 
-  // Reset performance counters 0 and 1.
-  addWrite(CM_PERF_COUNTER0 + 0, 0, "Reset PerfCounter0 @ " + loc);
-  addWrite(CM_PERF_COUNTER0 + 4, 0, "Reset PerfCounter1 @ " + loc);
+  // Reset performance counters 2 and 3.
+  addWrite(CM_PERF_COUNTER0 + 8, 0, "Reset PerfCounter2 @ " + loc);
+  addWrite(CM_PERF_COUNTER0 + 12, 0, "Reset PerfCounter3 @ " + loc);
 
-  // Performance_Ctrl0: [7:0]=Cnt0_Start, [15:8]=Cnt0_Stop, [23:16]=Cnt1_Start, [31:24]=Cnt1_Stop
-  // Counter 0 counts PC_Range_0-1 (Compute); Counter 1 counts PC_Range_2-3 (IO + Compute).
+  // Performance_Ctrl1: [6:0]=Cnt2_Start, [14:8]=Cnt2_Stop, [22:16]=Cnt3_Start, [30:24]=Cnt3_Stop
+  // Counter 2 counts PC_Range_0-1 (Compute); Counter 3 counts PC_Range_2-3 (IO + Compute).
   {
     uint32_t regValue = 0;
-    regValue |= (static_cast<uint32_t>(PC_RANGE_0_1_EVENT) & 0xFF) << 0;
-    regValue |= (static_cast<uint32_t>(PC_RANGE_0_1_EVENT) & 0xFF) << 8;
-    regValue |= (static_cast<uint32_t>(PC_RANGE_2_3_EVENT) & 0xFF) << 16;
-    regValue |= (static_cast<uint32_t>(PC_RANGE_2_3_EVENT) & 0xFF) << 24;
-    addWrite(CM_PERF_CTRL0, regValue,
-             "PerfCtrl0 @ " + loc + " (ctr0=PC_Range_0-1 compute, ctr1=PC_Range_2-3 io+compute)");
+    regValue |= (static_cast<uint32_t>(PC_RANGE_0_1_EVENT) & 0x7F) << 0;
+    regValue |= (static_cast<uint32_t>(PC_RANGE_0_1_EVENT) & 0x7F) << 8;
+    regValue |= (static_cast<uint32_t>(PC_RANGE_2_3_EVENT) & 0x7F) << 16;
+    regValue |= (static_cast<uint32_t>(PC_RANGE_2_3_EVENT) & 0x7F) << 24;
+    addWrite(CM_PERF_CTRL1, regValue,
+             "PerfCtrl1 @ " + loc + " (ctr2=PC_Range_0-1 compute, ctr3=PC_Range_2-3 io+compute)");
   }
 
   return writes;

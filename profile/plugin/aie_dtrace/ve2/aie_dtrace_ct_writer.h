@@ -412,8 +412,8 @@ private:
   static constexpr uint64_t PERF_CTRL_OFFSET = 0x00031000;
 
   // Core (aie) module offsets for the compute_io_bound metric (aie2ps)
-  static constexpr uint64_t CM_PERF_CTRL0     = 0x00037500;  // Counters 0,1 start/stop events
-  static constexpr uint64_t CM_PERF_COUNTER0  = 0x00037520;  // Counter 0 (Counter 1 at +4)
+  static constexpr uint64_t CM_PERF_CTRL1     = 0x00037504;  // Counters 2,3 start/stop events
+  static constexpr uint64_t CM_PERF_COUNTER0  = 0x00037520;  // Counter 0 (Counter N at +4*N)
   static constexpr uint64_t CM_PC_EVENT0      = 0x00038020;  // PC_Event0 (1..3 at +4 each)
   static constexpr uint32_t PC_EVENT_VALID    = 0x80000000;  // PC_Event Valid bit (bit 31)
   static constexpr uint32_t PC_ADDRESS_MASK   = 0x00003FFF;  // PC_Address field (bits 13:0)

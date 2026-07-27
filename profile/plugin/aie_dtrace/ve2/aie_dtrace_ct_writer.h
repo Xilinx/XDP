@@ -93,6 +93,28 @@ struct BandwidthCounterConfig {
 };
 
 /**
+ * @brief Resolved configuration for the single core-tile compute_io_bound counter.
+ *
+ * Two modes, selected by design type:
+ * - Reloadable design (useStartStop=false): the compute counter is PC_Range_0-1
+ *   over [startPc(=wpc), PROG_MEM_END]. Works because wrapper+kernel are contiguous.
+ * - Static/inlined design (useStartStop=true): kernelWrapper is inlined into main's
+ *   inner loop; the compute counter is driven by PC breakpoint events - Start=PC_0
+ *   at startPc (loop header), Stop=PC_1 at stopPc (loop back-edge) - so it accumulates
+ *   the whole loop iteration including the dispatched kernel call.
+ *
+ * absRow is the ABSOLUTE core-tile row (relative row 0 + aie_tile_row_start) used for
+ * register addressing.
+ */
+struct ComputeIoCoreConfig {
+  bool valid = false;
+  bool useStartStop = false;  // false = reloadable PC-range, true = static start/stop
+  uint32_t startPc = 0;       // wpc (reloadable) or start_pc / loop header (static)
+  uint32_t stopPc = 0;        // stop_pc / loop back-edge (static only)
+  uint8_t absRow = 0;         // absolute core-tile row for register addressing
+};
+
+/**
  * @class AieDtraceCTWriter
  * @brief Generates CT (CERT Tracing) files for VE2 AIE profiling
  *
@@ -169,21 +191,21 @@ public:
   /**
    * @brief Generate a self-contained CT file for the compute_io_bound metric
    *
-   * Configures a single core (aie) tile at the first column / first core row
-   * with two PC-range events and two core performance counters:
-   *   - Counter 0 (Compute):      PC in [wpc, PROG_MEM_END]  via PC_Range_0-1
-   *   - Counter 1 (IO + Compute): PC in [0,   PROG_MEM_END]  via PC_Range_2-3
+   * Configures a single core (aie) tile with two core performance counters:
+   *   - Counter 2 (kernelWrapper/Compute): reloadable -> PC_Range_0-1 over
+   *     [startPc, PROG_MEM_END]; static-inline -> Start=PC_0@startPc, Stop=PC_1@stopPc
+   *   - Counter 3 (Total): PC_Range_2-3 over [0, PROG_MEM_END]
    *
    * @param outputPath Full path for the generated CT file
    * @param hwctx Hardware context handle for partition info access
    * @param opLocations Vector of op_loc from aiebu_assembler::get_op_locations
-   * @param wpc Wrapper PC (reloadable ELF entry PC) from AIE metadata
+   * @param cfg Resolved compute_io_bound core configuration
    * @return true if CT file was generated successfully, false otherwise
    */
   bool generateComputeIoBoundCT(const std::string& outputPath,
                                 void* hwctx,
                                 const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
-                                uint32_t wpc);
+                                const ComputeIoCoreConfig& cfg);
 
   /**
    * @brief Generate a self-contained CT file combining bandwidth and/or
@@ -200,7 +222,7 @@ public:
    * @param bandwidthMetricSet Bandwidth metric set (used when includeBandwidth)
    * @param bandwidthChannel DMA channel for detailed_ddr_*_bandwidth sets
    * @param includeComputeIoBound Emit the single core-tile compute_io_bound counters
-   * @param wpc Wrapper PC (used when includeComputeIoBound)
+   * @param computeIoCfg Resolved compute_io_bound core configuration (used when includeComputeIoBound)
    * @return true if CT file was generated successfully, false otherwise
    */
   bool generateCT(const std::string& outputPath,
@@ -210,7 +232,7 @@ public:
                   const std::string& bandwidthMetricSet,
                   uint8_t bandwidthChannel,
                   bool includeComputeIoBound,
-                  uint32_t wpc);
+                  const ComputeIoCoreConfig& computeIoCfg);
 
 private:
   /**
@@ -357,26 +379,27 @@ private:
 
   /**
    * @brief Append the single core-tile compute_io_bound counters and begin-block writes
-   * @param wpc Wrapper PC used as the lower bound of the Compute range
+   * @param cfg Resolved compute_io_bound core configuration
    * @param counters [in,out] Accumulated counter list
    * @param beginWrites [in,out] Accumulated begin-block register writes
    */
-  void appendComputeIoBoundConfig(uint32_t wpc,
+  void appendComputeIoBoundConfig(const ComputeIoCoreConfig& cfg,
       std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites);
 
   /**
-   * @brief Generate PC-range + performance counter config for a single core tile
+   * @brief Generate PC-event + performance counter config for a single core tile
    *
-   * Programs PC_Event0-3 (with the Valid bit), resets performance counters 0/1,
-   * and configures Performance_Ctrl0 so counter 0 counts PC_Range_0-1 (Compute)
-   * and counter 1 counts PC_Range_2-3 (IO + Compute).
+   * Programs PC_Event0-3 (with the Valid bit), resets performance counters 2/3,
+   * and configures Performance_Ctrl1 so counter 2 measures kernelWrapper (Compute)
+   * and counter 3 measures total (PC_Range_2-3 over [0, PROG_MEM_END]).
+   * - Reloadable (cfg.useStartStop=false): counter 2 = PC_Range_0-1 over [startPc, end].
+   * - Static-inline (cfg.useStartStop=true): counter 2 Start=PC_0@startPc, Stop=PC_1@stopPc.
    *
    * @param column Partition-relative core tile column
-   * @param row Core tile row (absolute; first core row = 3)
-   * @param wpc Wrapper PC used as the lower bound of the Compute range
+   * @param cfg Resolved compute_io_bound core configuration (provides absRow, mode, PCs)
    * @return Vector of register writes for the begin block
    */
-  std::vector<CTRegisterWrite> generatePcRangeCoreConfig(uint8_t column, uint8_t row, uint32_t wpc);
+  std::vector<CTRegisterWrite> generatePcRangeCoreConfig(uint8_t column, const ComputeIoCoreConfig& cfg);
 
   /**
    * @brief Write a self-contained counter CT file with begin-block register writes
@@ -418,6 +441,8 @@ private:
   static constexpr uint32_t PC_EVENT_VALID    = 0x80000000;  // PC_Event Valid bit (bit 31)
   static constexpr uint32_t PC_ADDRESS_MASK   = 0x00003FFF;  // PC_Address field (bits 13:0)
   static constexpr uint32_t PROG_MEM_END      = 0x00003FFF;  // End of 16KB program memory
+  static constexpr uint8_t  PC_0_EVENT         = 16;         // XAIE2PS_EVENTS_CORE_PC_0 (breakpoint @ PC_Event0)
+  static constexpr uint8_t  PC_1_EVENT         = 17;         // XAIE2PS_EVENTS_CORE_PC_1 (breakpoint @ PC_Event1)
   static constexpr uint8_t  PC_RANGE_0_1_EVENT = 20;         // XAIE2PS_EVENTS_CORE_PC_RANGE_0_1
   static constexpr uint8_t  PC_RANGE_2_3_EVENT = 21;         // XAIE2PS_EVENTS_CORE_PC_RANGE_2_3
 

@@ -36,7 +36,6 @@
 #include "xdp/profile/plugin/aie_trace/x86/aie_trace_kernel_config.h"
 
 #include <unistd.h>
-#include <sys/mman.h>
 
 namespace xdp {
 
@@ -159,10 +158,9 @@ bool AIETraceOffload::initReadTrace()
       if(XRT_NULL_BO_EXPORT == boExportHandle) {
         throw std::runtime_error("Unable to export BO while attaching to AIE Driver");
       }
-      XAie_MemAttach(devInst,  &memInst, 0, 0, 0, prop, boExportHandle);
+      XAie_MemAttach(devInst, &memInst, 0, 0, bufAllocSz, prop, boExportHandle);
 
-      char* vaddr = reinterpret_cast<char *>(mmap(NULL, bufAllocSz, PROT_READ | PROT_WRITE, MAP_SHARED, boExportHandle, 0));
-      XAie_DmaSetAddrLen(&(gmioDMAInsts[i].shimDmaInst), (uint64_t)vaddr, bufAllocSz);
+      XAie_DmaSetAddrOffsetLen(&(gmioDMAInsts[i].shimDmaInst), &memInst, 0, static_cast<u32>(bufAllocSz));
 
       XAie_DmaEnableBd(&(gmioDMAInsts[i].shimDmaInst));
 

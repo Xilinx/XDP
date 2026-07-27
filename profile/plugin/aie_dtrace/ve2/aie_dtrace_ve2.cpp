@@ -6,6 +6,7 @@
 #include "xdp/profile/plugin/aie_dtrace/ve2/aie_dtrace_ve2.h"
 #include "xdp/profile/plugin/aie_dtrace/ve2/aie_dtrace_ct_writer.h"
 #include "xdp/profile/plugin/aie_dtrace/ve2/elf_helper.h"
+#include "xdp/profile/plugin/aie_dtrace/ve2/lst_helper.h"
 
 #include "core/common/api/hw_context_int.h"
 #include "core/common/api/kernel_int.h"
@@ -120,18 +121,50 @@ namespace xdp {
       }
     }
 
-    uint32_t wpc = 0;
+    // Resolve the compute_io_bound core config. Two modes:
+    //  - Reloadable design: wrapper PC (wpc) from metadata -> PC_Range_0-1 [wpc, end].
+    //  - Static/inlined design (no reloadable PC): if kernelWrapper is inline (checked
+    //    from the tile source 0_0.cc), derive start/stop PCs from the tile listing
+    //    (0_0.lst) -> counter Start=PC_0@start_pc, Stop=PC_1@stop_pc.
+    ComputeIoCoreConfig computeIoCfg;
     if (includeComputeIoBound) {
+      // Absolute core row = relative row 0 + aie_tile_row_start.
+      computeIoCfg.absRow = metadata->getCoreRowOffset();
+
       auto wpcOpt = metadata->getWrapperPC();
-      if (!wpcOpt) {
-        xrt_core::message::send(severity_level::warning, "XRT",
-            "AIE dtrace: compute_io_bound requested but the wrapper PC "
-            "(elfs_metadata col0/row0 reloadable_elfs) is missing or its values "
-            "are not all identical; skipping core configuration.");
-        includeComputeIoBound = false;
+      if (wpcOpt) {
+        computeIoCfg.valid = true;
+        computeIoCfg.useStartStop = false;
+        computeIoCfg.startPc = *wpcOpt;  // stopPc unused in range mode (writer uses PROG_MEM_END)
+        std::stringstream wpcMsg;
+        wpcMsg << "AIE dtrace: compute_io_bound reloadable design, wpc=0x" << std::hex << *wpcOpt;
+        xrt_core::message::send(severity_level::info, "XRT", wpcMsg.str());
       }
       else {
-        wpc = *wpcOpt;
+        // Static/inlined design: gate on kernelWrapper being inline, then parse the listing.
+        const std::string tileBase = metadata->getStaticElfTileName().value_or("0_0");
+        if (!isKernelWrapperInline(tileBase)) {
+          xrt_core::message::send(severity_level::warning, "XRT",
+              "AIE dtrace: compute_io_bound requested but no reloadable wrapper PC and "
+              "kernelWrapper is not inline for tile '" + tileBase
+              + "'; skipping core configuration.");
+          includeComputeIoBound = false;
+        }
+        else {
+          auto ss = getStaticStartStopPcFromLst(tileBase);
+          if (!ss) {
+            xrt_core::message::send(severity_level::warning, "XRT",
+                "AIE dtrace: compute_io_bound could not derive start/stop PCs from listing "
+                "for tile '" + tileBase + "'; skipping core configuration.");
+            includeComputeIoBound = false;
+          }
+          else {
+            computeIoCfg.valid = true;
+            computeIoCfg.useStartStop = true;
+            computeIoCfg.startPc = ss->first;
+            computeIoCfg.stopPc = ss->second;
+          }
+        }
       }
     }
 
@@ -166,7 +199,7 @@ namespace xdp {
 
     if (!ctWriter.generateCT(outputPath, hwctx, it->second,
                              includeBandwidth, bandwidthMetricSet, bandwidthChannel,
-                             includeComputeIoBound, wpc))
+                             includeComputeIoBound, computeIoCfg))
       return;
 
     std::stringstream genMsg;
@@ -175,8 +208,14 @@ namespace xdp {
       genMsg << "interface_tile=" << bandwidthMetricSet;
     if (includeBandwidth && includeComputeIoBound)
       genMsg << ", ";
-    if (includeComputeIoBound)
-      genMsg << "aie_tile=compute_io_bound wpc=0x" << std::hex << wpc << std::dec;
+    if (includeComputeIoBound) {
+      genMsg << "aie_tile=compute_io_bound ";
+      if (computeIoCfg.useStartStop)
+        genMsg << "start_pc=0x" << std::hex << computeIoCfg.startPc
+               << " stop_pc=0x" << computeIoCfg.stopPc << std::dec;
+      else
+        genMsg << "wpc=0x" << std::hex << computeIoCfg.startPc << std::dec;
+    }
     genMsg << ")";
     xrt_core::message::send(severity_level::debug, "XRT", genMsg.str());
 

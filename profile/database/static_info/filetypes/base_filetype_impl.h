@@ -55,6 +55,34 @@ class BaseFiletypeImpl {
             return std::nullopt;
         }
 
+        // Returns the static ELF tile base name (e.g. "0_0") for the core tile at
+        // column 0, row 0 from "elfs_metadata" (the first key under "static_elfs").
+        // This is the RELATIVE-row listing base used to locate 0_0.lst / 0_0.cc.
+        // std::nullopt if the entry or its static_elfs are missing.
+        std::optional<std::string>
+        getStaticElfTileName() const
+        {
+            auto elfsMetadata = aie_meta.get_child_optional("elfs_metadata");
+            if (!elfsMetadata)
+                return std::nullopt;
+
+            for (const auto& entry : elfsMetadata.get()) {
+                auto column = entry.second.get_optional<int>("column");
+                auto row = entry.second.get_optional<int>("row");
+                if (!column || !row || *column != 0 || *row != 0)
+                    continue;
+
+                auto staticElfs = entry.second.get_child_optional("static_elfs");
+                if (!staticElfs)
+                    return std::nullopt;
+                for (const auto& e : staticElfs.get())
+                    return e.first;  // first (and typically only) key, e.g. "0_0"
+                return std::nullopt;
+            }
+
+            return std::nullopt;
+        }
+
         // Top level interface used for both file type formats
         
         virtual driver_config

@@ -101,11 +101,13 @@ AieDtraceCTWriter::AieDtraceCTWriter(VPDatabase* database,
     , deviceId(deviceId)
     , columnShift(0)
     , rowShift(0)
+    , coreRowStart(0)
     , partitionStartCol(startCol)
 {
   auto config = metadata->getAIEConfigMetadata();
   columnShift = config.column_shift;
   rowShift = config.row_shift;
+  coreRowStart = config.aie_tile_row_start;
 }
 
 bool AieDtraceCTWriter::generate()
@@ -1261,10 +1263,10 @@ void AieDtraceCTWriter::appendComputeIoBoundConfig(
     const ComputeIoCoreConfig& cfg,
     std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites)
 {
-  // Single core tile at (COMPUTE_IO_CORE_COL, cfg.absRow): two counters (compute and
-  // io+compute) using performance counters 2 and 3. absRow is the absolute core row
-  // (relative row 0 + aie_tile_row_start) for register addressing.
-  const uint8_t row = cfg.absRow;
+  // Single core tile: two counters (kernelWrapper and total) using performance
+  // counters 2 and 3. The listing/metadata use relative core rows, so the first
+  // core row's absolute row for register addressing is aie_tile_row_start.
+  const uint8_t row = coreRowStart;
 
   CTCounterInfo compute;
   compute.column = COMPUTE_IO_CORE_COL;
@@ -1290,8 +1292,8 @@ void AieDtraceCTWriter::appendComputeIoBoundConfig(
   ioCompute.eventType = "io_compute";
   counters.push_back(ioCompute);
 
-  auto pcRangeWrites = generatePcRangeCoreConfig(COMPUTE_IO_CORE_COL, cfg);
-  beginWrites.insert(beginWrites.end(), pcRangeWrites.begin(), pcRangeWrites.end());
+  auto pcWrites = generatePcStartStopCoreConfig(COMPUTE_IO_CORE_COL, cfg);
+  beginWrites.insert(beginWrites.end(), pcWrites.begin(), pcWrites.end());
 }
 
 bool AieDtraceCTWriter::generateCT(
@@ -1322,7 +1324,7 @@ bool AieDtraceCTWriter::generateCT(
 
   // Both metric families can be emitted into the same CT file. Bandwidth
   // counters live on shim tiles (row 0); the compute_io_bound counters live on
-  // the single core tile (col 0, row 3). filterCountersByColumn keys by column,
+  // the single core tile (col 0, first core row). filterCountersByColumn keys by column,
   // so both simply land in the matching UC group and read distinct addresses.
   if (includeBandwidth)
     appendBandwidthConfig(hwctx, bandwidthMetricSet, bandwidthChannel, allCounters, beginBlockWrites);
@@ -1357,12 +1359,12 @@ bool AieDtraceCTWriter::generateBandwidthCT(
                     /*includeComputeIoBound=*/false, ComputeIoCoreConfig{});
 }
 
-std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePcRangeCoreConfig(
+std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePcStartStopCoreConfig(
     uint8_t column, const ComputeIoCoreConfig& cfg)
 {
   std::vector<CTRegisterWrite> writes;
 
-  const uint8_t row = cfg.absRow;
+  const uint8_t row = coreRowStart;
   uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
                          (static_cast<uint64_t>(row) << rowShift);
 
@@ -1376,19 +1378,13 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePcRangeCoreConfig(
 
   std::string loc = "core (" + std::to_string(column) + "," + std::to_string(row) + ")";
 
-  // Compute-counter (counter 2) uses PC_Event0/PC_Event1:
-  //   reloadable  : PC_Range_0-1 over [startPc(=wpc), PROG_MEM_END]
-  //   static-inline: Start=PC_0@startPc, Stop=PC_1@stopPc (temporal, incl. kernel call)
-  // Total-counter (counter 3) always PC_Range_2-3 over [0, PROG_MEM_END] via PC_Event2/3.
-  const uint32_t computeEnd = cfg.useStartStop ? cfg.stopPc : PROG_MEM_END;
-
+  // PC_Event0/1 bracket the kernelWrapper dispatch window (counter 2);
+  // PC_Event2/3 give the total range [0, PROG_MEM_END] (counter 3).
   // PC_Event0..3: Valid bit + 14-bit PC address.
   addWrite(CM_PC_EVENT0 + 0, PC_EVENT_VALID | (cfg.startPc & PC_ADDRESS_MASK),
-           "PC_Event0 @ " + loc + (cfg.useStartStop ? " (kernelWrapper loop header / start_pc)"
-                                                     : " (wpc = compute range start)"));
-  addWrite(CM_PC_EVENT0 + 4, PC_EVENT_VALID | (computeEnd & PC_ADDRESS_MASK),
-           "PC_Event1 @ " + loc + (cfg.useStartStop ? " (kernelWrapper loop back-edge / stop_pc)"
-                                                     : " (compute range end)"));
+           "PC_Event0 @ " + loc + " (kernelWrapper start_pc = indirect kernel dispatch)");
+  addWrite(CM_PC_EVENT0 + 4, PC_EVENT_VALID | (cfg.stopPc & PC_ADDRESS_MASK),
+           "PC_Event1 @ " + loc + " (kernelWrapper stop_pc)");
   addWrite(CM_PC_EVENT0 + 8, PC_EVENT_VALID | 0,
            "PC_Event2 @ " + loc + " (total range start)");
   addWrite(CM_PC_EVENT0 + 12, PC_EVENT_VALID | (PROG_MEM_END & PC_ADDRESS_MASK),
@@ -1399,36 +1395,21 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePcRangeCoreConfig(
   addWrite(CM_PERF_COUNTER0 + 12, 0, "Reset PerfCounter3 @ " + loc);
 
   // Performance_Ctrl1: [6:0]=Cnt2_Start, [14:8]=Cnt2_Stop, [22:16]=Cnt3_Start, [30:24]=Cnt3_Stop
-  // Counter 2 = kernelWrapper (Compute); Counter 3 = Total (PC_Range_2-3).
-  // Static-inline counter 2 uses distinct Start(PC_0)/Stop(PC_1) breakpoint events so the
-  // counter accumulates the whole inner-loop iteration including the kernel call (which
-  // executes at low addresses outside [start_pc, stop_pc]); a PC-range would exclude it.
+  // Counter 2 = kernelWrapper, counter 3 = total. Counter 2 uses distinct Start(PC_0)/
+  // Stop(PC_1) breakpoint events, i.e. a temporal window rather than a PC range, so the
+  // called kernel is counted even though it executes outside [start_pc, stop_pc].
   {
-    const uint8_t cnt2Start = cfg.useStartStop ? PC_0_EVENT : PC_RANGE_0_1_EVENT;
-    const uint8_t cnt2Stop  = cfg.useStartStop ? PC_1_EVENT : PC_RANGE_0_1_EVENT;
     uint32_t regValue = 0;
-    regValue |= (static_cast<uint32_t>(cnt2Start)        & 0x7F) << 0;
-    regValue |= (static_cast<uint32_t>(cnt2Stop)         & 0x7F) << 8;
+    regValue |= (static_cast<uint32_t>(PC_0_EVENT)         & 0x7F) << 0;
+    regValue |= (static_cast<uint32_t>(PC_1_EVENT)         & 0x7F) << 8;
     regValue |= (static_cast<uint32_t>(PC_RANGE_2_3_EVENT) & 0x7F) << 16;
     regValue |= (static_cast<uint32_t>(PC_RANGE_2_3_EVENT) & 0x7F) << 24;
     addWrite(CM_PERF_CTRL1, regValue,
-             "PerfCtrl1 @ " + loc + (cfg.useStartStop
-                 ? " (ctr2 start=PC_0 stop=PC_1 kernelWrapper, ctr3=PC_Range_2-3 total)"
-                 : " (ctr2=PC_Range_0-1 kernelWrapper, ctr3=PC_Range_2-3 total)"));
+             "PerfCtrl1 @ " + loc
+             + " (ctr2 start=PC_0 stop=PC_1 kernelWrapper, ctr3=PC_Range_2-3 total)");
   }
 
   return writes;
-}
-
-bool AieDtraceCTWriter::generateComputeIoBoundCT(
-    const std::string& outputPath,
-    void* hwctx,
-    const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
-    const ComputeIoCoreConfig& cfg)
-{
-  return generateCT(outputPath, hwctx, opLocations,
-                    /*includeBandwidth=*/false, /*bandwidthMetricSet=*/"", /*bandwidthChannel=*/0,
-                    /*includeComputeIoBound=*/true, cfg);
 }
 
 } // namespace xdp

@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <map>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -22,8 +21,9 @@ class AieDtraceMetadata {
     static constexpr int CORE_MODULE_IDX = static_cast<int>(module_type::core);
     static constexpr int NUM_MODULES = static_cast<int>(module_type::num_types);
 
-    // The compute_io_bound metric configures a single fixed core tile at the
-    // first column / first core row (absolute location col 0, row 3).
+    // compute_io_bound configures a single core tile: the first column / first
+    // core row. Used as the config-map key here; the CT writer derives the
+    // actual absolute row from driver_config.aie_tile_row_start.
     static constexpr uint8_t COMPUTE_IO_CORE_COL = 0;
     static constexpr uint8_t COMPUTE_IO_CORE_ROW = 3;
 
@@ -84,29 +84,6 @@ class AieDtraceMetadata {
     }
 
     aie::driver_config getAIEConfigMetadata();
-
-    // Wrapper PC (reloadable ELF entry PC) for the compute_io_bound core tile.
-    // Returns std::nullopt when the col0/row0 elfs_metadata entry is missing or
-    // its reloadable_elfs values are not all identical (e.g. static/inlined designs).
-    std::optional<uint32_t> getWrapperPC() const {
-      return metadataReader == nullptr ? std::nullopt
-                                       : metadataReader->getReloadableElfEntryPC();
-    }
-
-    // Static ELF tile base name (e.g. "0_0") for the col0/row0 core tile, used to
-    // locate the relative-row listing/source (0_0.lst / 0_0.cc) for static designs.
-    std::optional<std::string> getStaticElfTileName() const {
-      return metadataReader == nullptr ? std::nullopt
-                                       : metadataReader->getStaticElfTileName();
-    }
-
-    // AIE core tile row offset (aie_tile_row_start): absolute row of the first
-    // core row. The compute_io_bound tile is relative row 0, so its absolute row
-    // equals this offset. Falls back to COMPUTE_IO_CORE_ROW when unavailable.
-    uint8_t getCoreRowOffset() const {
-      return metadataReader == nullptr ? COMPUTE_IO_CORE_ROW
-                                       : metadataReader->getAIETileRowOffset();
-    }
 
     std::unique_ptr<const AIEProfileFinalConfig> createAIEProfileConfig();
 };

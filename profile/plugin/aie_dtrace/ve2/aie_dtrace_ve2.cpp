@@ -26,6 +26,10 @@ namespace xdp {
   static constexpr int SHIM_MODULE_IDX = static_cast<int>(module_type::shim);
   static constexpr int CORE_MODULE_IDX = static_cast<int>(module_type::core);
 
+  // Listing base name of the compute_io_bound core tile: first column, first core
+  // row. Listings/elfs_metadata use RELATIVE core rows, hence "<col>_0".
+  static constexpr const char* COMPUTE_IO_TILE_BASE = "0_0";
+
   AieDtrace_VE2Impl::AieDtrace_VE2Impl(VPDatabase* database,
                                          std::shared_ptr<AieDtraceMetadata> metadata,
                                          uint64_t deviceID)
@@ -121,50 +125,23 @@ namespace xdp {
       }
     }
 
-    // Resolve the compute_io_bound core config. Two modes:
-    //  - Reloadable design: wrapper PC (wpc) from metadata -> PC_Range_0-1 [wpc, end].
-    //  - Static/inlined design (no reloadable PC): if kernelWrapper is inline (checked
-    //    from the tile source 0_0.cc), derive start/stop PCs from the tile listing
-    //    (0_0.lst) -> counter Start=PC_0@start_pc, Stop=PC_1@stop_pc.
+    // Resolve the compute_io_bound compute start/stop PCs from the core tile's listing.
+    // Same rule for static and reloadable designs: start_pc is the indirect kernel
+    // dispatch, stop_pc the 10th listed instruction from it. tileBase is the
+    // relative-row listing base name of the first core tile.
     ComputeIoCoreConfig computeIoCfg;
     if (includeComputeIoBound) {
-      // Absolute core row = relative row 0 + aie_tile_row_start.
-      computeIoCfg.absRow = metadata->getCoreRowOffset();
-
-      auto wpcOpt = metadata->getWrapperPC();
-      if (wpcOpt) {
-        computeIoCfg.valid = true;
-        computeIoCfg.useStartStop = false;
-        computeIoCfg.startPc = *wpcOpt;  // stopPc unused in range mode (writer uses PROG_MEM_END)
-        std::stringstream wpcMsg;
-        wpcMsg << "AIE dtrace: compute_io_bound reloadable design, wpc=0x" << std::hex << *wpcOpt;
-        xrt_core::message::send(severity_level::info, "XRT", wpcMsg.str());
+      const std::string tileBase = COMPUTE_IO_TILE_BASE;
+      auto pcs = getComputeStartStopPc(tileBase);
+      if (!pcs) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: compute_io_bound could not derive compute start/stop PCs "
+            "for tile '" + tileBase + "'; skipping core configuration.");
+        includeComputeIoBound = false;
       }
       else {
-        // Static/inlined design: gate on kernelWrapper being inline, then parse the listing.
-        const std::string tileBase = metadata->getStaticElfTileName().value_or("0_0");
-        if (!isKernelWrapperInline(tileBase)) {
-          xrt_core::message::send(severity_level::warning, "XRT",
-              "AIE dtrace: compute_io_bound requested but no reloadable wrapper PC and "
-              "kernelWrapper is not inline for tile '" + tileBase
-              + "'; skipping core configuration.");
-          includeComputeIoBound = false;
-        }
-        else {
-          auto ss = getStaticStartStopPcFromLst(tileBase);
-          if (!ss) {
-            xrt_core::message::send(severity_level::warning, "XRT",
-                "AIE dtrace: compute_io_bound could not derive start/stop PCs from listing "
-                "for tile '" + tileBase + "'; skipping core configuration.");
-            includeComputeIoBound = false;
-          }
-          else {
-            computeIoCfg.valid = true;
-            computeIoCfg.useStartStop = true;
-            computeIoCfg.startPc = ss->first;
-            computeIoCfg.stopPc = ss->second;
-          }
-        }
+        computeIoCfg.startPc = pcs->first;
+        computeIoCfg.stopPc = pcs->second;
       }
     }
 
@@ -208,14 +185,9 @@ namespace xdp {
       genMsg << "interface_tile=" << bandwidthMetricSet;
     if (includeBandwidth && includeComputeIoBound)
       genMsg << ", ";
-    if (includeComputeIoBound) {
-      genMsg << "aie_tile=compute_io_bound ";
-      if (computeIoCfg.useStartStop)
-        genMsg << "start_pc=0x" << std::hex << computeIoCfg.startPc
-               << " stop_pc=0x" << computeIoCfg.stopPc << std::dec;
-      else
-        genMsg << "wpc=0x" << std::hex << computeIoCfg.startPc << std::dec;
-    }
+    if (includeComputeIoBound)
+      genMsg << "aie_tile=compute_io_bound start_pc=0x" << std::hex << computeIoCfg.startPc
+             << " stop_pc=0x" << computeIoCfg.stopPc << std::dec;
     genMsg << ")";
     xrt_core::message::send(severity_level::debug, "XRT", genMsg.str());
 

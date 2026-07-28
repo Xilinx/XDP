@@ -93,25 +93,16 @@ struct BandwidthCounterConfig {
 };
 
 /**
- * @brief Resolved configuration for the single core-tile compute_io_bound counter.
+ * @brief Resolved kernelWrapper PCs for the single core-tile compute_io_bound counter.
  *
- * Two modes, selected by design type:
- * - Reloadable design (useStartStop=false): the compute counter is PC_Range_0-1
- *   over [startPc(=wpc), PROG_MEM_END]. Works because wrapper+kernel are contiguous.
- * - Static/inlined design (useStartStop=true): kernelWrapper is inlined into main's
- *   inner loop; the compute counter is driven by PC breakpoint events - Start=PC_0
- *   at startPc (loop header), Stop=PC_1 at stopPc (loop back-edge) - so it accumulates
- *   the whole loop iteration including the dispatched kernel call.
- *
- * absRow is the ABSOLUTE core-tile row (relative row 0 + aie_tile_row_start) used for
- * register addressing.
+ * Used identically for static and reloadable designs: the compute counter is driven
+ * by PC breakpoint events - Start=PC_0 at startPc (the indirect kernel dispatch),
+ * Stop=PC_1 at stopPc (the 10th listed instruction from it) - so it accumulates the
+ * whole dispatch window including the called kernel.
  */
 struct ComputeIoCoreConfig {
-  bool valid = false;
-  bool useStartStop = false;  // false = reloadable PC-range, true = static start/stop
-  uint32_t startPc = 0;       // wpc (reloadable) or start_pc / loop header (static)
-  uint32_t stopPc = 0;        // stop_pc / loop back-edge (static only)
-  uint8_t absRow = 0;         // absolute core-tile row for register addressing
+  uint32_t startPc = 0;  // indirect kernel dispatch ("jl pN")
+  uint32_t stopPc = 0;   // 10th listed instruction from the dispatch
 };
 
 /**
@@ -187,25 +178,6 @@ public:
                            const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
                            const std::string& metricSet = "ddr_bandwidth",
                            uint8_t channel = 0);
-
-  /**
-   * @brief Generate a self-contained CT file for the compute_io_bound metric
-   *
-   * Configures a single core (aie) tile with two core performance counters:
-   *   - Counter 2 (kernelWrapper/Compute): reloadable -> PC_Range_0-1 over
-   *     [startPc, PROG_MEM_END]; static-inline -> Start=PC_0@startPc, Stop=PC_1@stopPc
-   *   - Counter 3 (Total): PC_Range_2-3 over [0, PROG_MEM_END]
-   *
-   * @param outputPath Full path for the generated CT file
-   * @param hwctx Hardware context handle for partition info access
-   * @param opLocations Vector of op_loc from aiebu_assembler::get_op_locations
-   * @param cfg Resolved compute_io_bound core configuration
-   * @return true if CT file was generated successfully, false otherwise
-   */
-  bool generateComputeIoBoundCT(const std::string& outputPath,
-                                void* hwctx,
-                                const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
-                                const ComputeIoCoreConfig& cfg);
 
   /**
    * @brief Generate a self-contained CT file combining bandwidth and/or
@@ -389,17 +361,17 @@ private:
   /**
    * @brief Generate PC-event + performance counter config for a single core tile
    *
-   * Programs PC_Event0-3 (with the Valid bit), resets performance counters 2/3,
-   * and configures Performance_Ctrl1 so counter 2 measures kernelWrapper (Compute)
-   * and counter 3 measures total (PC_Range_2-3 over [0, PROG_MEM_END]).
-   * - Reloadable (cfg.useStartStop=false): counter 2 = PC_Range_0-1 over [startPc, end].
-   * - Static-inline (cfg.useStartStop=true): counter 2 Start=PC_0@startPc, Stop=PC_1@stopPc.
+   * Programs PC_Event0-3 (with the Valid bit), resets performance counters 2/3, and
+   * configures Performance_Ctrl1 so counter 2 measures kernelWrapper (Start=PC_0 at
+   * startPc, Stop=PC_1 at stopPc) and counter 3 measures total (PC_Range_2-3 over
+   * [0, PROG_MEM_END]).
    *
    * @param column Partition-relative core tile column
-   * @param cfg Resolved compute_io_bound core configuration (provides absRow, mode, PCs)
+   * @param cfg Resolved kernelWrapper start/stop PCs
    * @return Vector of register writes for the begin block
    */
-  std::vector<CTRegisterWrite> generatePcRangeCoreConfig(uint8_t column, const ComputeIoCoreConfig& cfg);
+  std::vector<CTRegisterWrite> generatePcStartStopCoreConfig(uint8_t column,
+      const ComputeIoCoreConfig& cfg);
 
   /**
    * @brief Write a self-contained counter CT file with begin-block register writes
@@ -422,6 +394,7 @@ private:
   // AIE configuration values
   uint8_t columnShift;
   uint8_t rowShift;
+  uint8_t coreRowStart;       // Absolute row of the first AIE core row (aie_tile_row_start)
   uint8_t partitionStartCol;  // Absolute start column of the hw_context partition
 
   // Base offsets by module type
@@ -443,13 +416,11 @@ private:
   static constexpr uint32_t PROG_MEM_END      = 0x00003FFF;  // End of 16KB program memory
   static constexpr uint8_t  PC_0_EVENT         = 16;         // XAIE2PS_EVENTS_CORE_PC_0 (breakpoint @ PC_Event0)
   static constexpr uint8_t  PC_1_EVENT         = 17;         // XAIE2PS_EVENTS_CORE_PC_1 (breakpoint @ PC_Event1)
-  static constexpr uint8_t  PC_RANGE_0_1_EVENT = 20;         // XAIE2PS_EVENTS_CORE_PC_RANGE_0_1
   static constexpr uint8_t  PC_RANGE_2_3_EVENT = 21;         // XAIE2PS_EVENTS_CORE_PC_RANGE_2_3
 
-  // compute_io_bound configures a single core tile at the first column / first
-  // core row (partition-relative col 0, row 3).
+  // compute_io_bound configures a single core tile: the first column / first core
+  // row. The absolute row comes from coreRowStart (driver_config.aie_tile_row_start).
   static constexpr uint8_t COMPUTE_IO_CORE_COL = 0;
-  static constexpr uint8_t COMPUTE_IO_CORE_ROW = 3;
 
   // Bandwidth monitoring constants
   static constexpr uint8_t NUM_BANDWIDTH_COUNTERS = 4;

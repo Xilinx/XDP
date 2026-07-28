@@ -106,6 +106,7 @@ namespace xdp {
     // VE2 XDNA only (control-code / aie_codegen + VE2Transaction)
     // -------------------------------------------------------------------------
     bool configureWindowedEventTrace(void* handle);
+    void timerSynchronization(uint8_t startCol, uint8_t numCols, uint8_t numRows);
     void build2ChannelBroadcastNetwork(void* handle, uint8_t broadcastId1,
                                        uint8_t broadcastId2, XAie_Events event);
     void reset2ChannelBroadcastNetwork(void* handle, uint8_t broadcastId1,

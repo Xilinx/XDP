@@ -1479,6 +1479,11 @@ namespace xdp {
         xrt_core::message::send(severity_level::debug, "XRT", msg.str());
       }
     }
+    else if (metadataReader->getAIECompilerOptions().enable_multi_layer) {
+      xrt_core::message::send(severity_level::info, "XRT",
+          "Synchronizing AIE timers so trace and ML timeline share a time domain.");
+      // timerSynchronization(startCol, numCols, metadataReader->getNumRows());
+    }
 
     // Using user event for trace end to enable flushing
     // NOTE: Flush trace module always at the end because for some applications
@@ -1996,6 +2001,79 @@ namespace xdp {
       return;
     }
     xrt_core::message::send(severity_level::info, "XRT", "Successfully scheduled AIE trace flush.");
+  }
+
+  /***************************************************************************
+   * Reset all timers in the partition to a common origin
+   *
+   * A single broadcast event resets every module timer simultaneously, which
+   * puts AIE trace timestamps and the ML timeline record timer values into the
+   * same time domain. Without this, each timer keeps the offset it accumulated
+   * since its own reset release and trace events appear shifted relative to
+   * layer execution in AI Analyzer.
+   ***************************************************************************/
+  void AieTrace_VE2Impl::timerSynchronization(uint8_t startCol, uint8_t numCols, uint8_t numRows)
+  {
+    // Reuse the fixed trace-start channels: the network is torn down below
+    // before any other use of these channels is programmed.
+    const uint8_t broadcastId1 = 6;
+    const uint8_t broadcastId2 = 7;
+
+    aie::trace::build2ChannelBroadcastNetwork(&aieDevInst, metadata, broadcastId1, broadcastId2,
+                                              XAIE_EVENT_COMBO_EVENT_0_PL, startCol, numCols, numRows);
+
+    // Point every timer's reset event at the broadcast network
+    for (uint8_t col = startCol; col < startCol + numCols; col++) {
+      for (uint8_t row = 0; row < numRows; row++) {
+        auto type = aie::getModuleType(row, metadata->getRowOffset());
+        auto loc  = XAie_TileLoc(col, row);
+
+        if (type == module_type::shim) {
+          XAie_Events resetEvent = (col == startCol)
+              ? XAIE_EVENT_COMBO_EVENT_0_PL
+              : static_cast<XAie_Events>(XAIE_EVENT_BROADCAST_A_0_PL + broadcastId2);
+          XAie_SetTimerResetEvent(&aieDevInst, loc, XAIE_PL_MOD, resetEvent, XAIE_RESETDISABLE);
+        }
+        else if (type == module_type::mem_tile) {
+          XAie_SetTimerResetEvent(&aieDevInst, loc, XAIE_MEM_MOD,
+              static_cast<XAie_Events>(XAIE_EVENT_BROADCAST_0_MEM_TILE + broadcastId1),
+              XAIE_RESETDISABLE);
+        }
+        else {
+          XAie_SetTimerResetEvent(&aieDevInst, loc, XAIE_CORE_MOD,
+              static_cast<XAie_Events>(XAIE_EVENT_BROADCAST_0_CORE + broadcastId1),
+              XAIE_RESETDISABLE);
+          XAie_SetTimerResetEvent(&aieDevInst, loc, XAIE_MEM_MOD,
+              static_cast<XAie_Events>(XAIE_EVENT_BROADCAST_0_MEM + broadcastId1),
+              XAIE_RESETDISABLE);
+        }
+      }
+    }
+
+    // Trigger the broadcast network to reset all timers
+    XAie_EventGenerate(&aieDevInst, XAie_TileLoc(startCol, 0), XAIE_PL_MOD, XAIE_EVENT_COMBO_EVENT_0_PL);
+
+    // Clear reset events so timers free-run from this common origin
+    for (uint8_t col = startCol; col < startCol + numCols; col++) {
+      for (uint8_t row = 0; row < numRows; row++) {
+        auto type = aie::getModuleType(row, metadata->getRowOffset());
+        auto loc  = XAie_TileLoc(col, row);
+
+        if (type == module_type::shim) {
+          XAie_SetTimerResetEvent(&aieDevInst, loc, XAIE_PL_MOD, XAIE_EVENT_NONE_PL, XAIE_RESETDISABLE);
+        }
+        else if (type == module_type::mem_tile) {
+          XAie_SetTimerResetEvent(&aieDevInst, loc, XAIE_MEM_MOD, XAIE_EVENT_NONE_MEM_TILE, XAIE_RESETDISABLE);
+        }
+        else {
+          XAie_SetTimerResetEvent(&aieDevInst, loc, XAIE_CORE_MOD, XAIE_EVENT_NONE_CORE, XAIE_RESETDISABLE);
+          XAie_SetTimerResetEvent(&aieDevInst, loc, XAIE_MEM_MOD, XAIE_EVENT_NONE_MEM, XAIE_RESETDISABLE);
+        }
+      }
+    }
+
+    aie::trace::reset2ChannelBroadcastNetwork(&aieDevInst, metadata, broadcastId1, broadcastId2,
+                                              startCol, numCols, numRows);
   }
 
   /***************************************************************************

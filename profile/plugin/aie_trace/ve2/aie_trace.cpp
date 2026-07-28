@@ -1482,7 +1482,7 @@ namespace xdp {
     else if (metadataReader->getAIECompilerOptions().enable_multi_layer) {
       xrt_core::message::send(severity_level::info, "XRT",
           "Synchronizing AIE timers so trace and ML timeline share a time domain.");
-      // timerSynchronization(startCol, numCols, metadataReader->getNumRows());
+      timerSynchronization(startCol, numCols, metadataReader->getNumRows());
     }
 
     // Using user event for trace end to enable flushing

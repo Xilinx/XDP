@@ -66,12 +66,29 @@ namespace xdp {
         return std::nullopt;
       }
 
-      auto startPc = tile->get_optional<uint32_t>("start_pc");
-      auto stopPc = tile->get_optional<uint32_t>("stop_pc");
+      // The PCs are "0x"-prefixed hex strings, JSON having no hex number literal.
+      auto parsePc = [](const boost::optional<std::string>& text) -> std::optional<uint32_t> {
+        if (!text)
+          return std::nullopt;
+        try {
+          size_t end = 0;
+          const unsigned long value = std::stoul(*text, &end, 16);
+          if (end != text->size())  // trailing junk
+            return std::nullopt;
+          return static_cast<uint32_t>(value);
+        }
+        catch (const std::exception&) {
+          return std::nullopt;
+        }
+      };
+
+      auto startPc = parsePc(tile->get_optional<std::string>("start_pc"));
+      auto stopPc = parsePc(tile->get_optional<std::string>("stop_pc"));
       if (!startPc || !stopPc) {
         xrt_core::message::send(severity_level::warning, "XRT",
             "AIE dtrace: 'compute_io_bound." + tileBase + "' in " + path
-            + " is missing start_pc/stop_pc; skipping compute_io_bound.");
+            + " has missing or malformed start_pc/stop_pc (expected hex strings such as "
+            "\"0x337e\"); skipping compute_io_bound.");
         return std::nullopt;
       }
 

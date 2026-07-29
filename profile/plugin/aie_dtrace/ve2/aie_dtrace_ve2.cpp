@@ -6,7 +6,6 @@
 #include "xdp/profile/plugin/aie_dtrace/ve2/aie_dtrace_ve2.h"
 #include "xdp/profile/plugin/aie_dtrace/ve2/aie_dtrace_ct_writer.h"
 #include "xdp/profile/plugin/aie_dtrace/ve2/elf_helper.h"
-#include "xdp/profile/plugin/aie_dtrace/ve2/lst_helper.h"
 
 #include "core/common/api/hw_context_int.h"
 #include "core/common/api/kernel_int.h"
@@ -16,9 +15,12 @@
 
 #include "xdp/profile/database/static_info/aie_util.h"
 
+#include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <filesystem>
+#include <optional>
 #include <sstream>
+#include <utility>
 
 namespace xdp {
   using severity_level = xrt_core::message::severity_level;
@@ -29,6 +31,66 @@ namespace xdp {
   // Listing base name of the compute_io_bound core tile: first column, first core
   // row. Listings/elfs_metadata use RELATIVE core rows, hence "<col>_0".
   static constexpr const char* COMPUTE_IO_TILE_BASE = "0_0";
+
+  // PC metadata produced on the host by "vaiprofile --gen-pc-metadata" and read from
+  // the run directory. Holds the compute_io_bound start/stop PCs so this plugin does
+  // not have to parse aiecompiler listings at run time.
+  static constexpr const char* PC_METADATA_FILENAME = "aie_pc_metadata.json";
+
+  // Read compute_io_bound start/stop PCs for 'tileBase' from the PC metadata JSON in
+  // the run directory. std::nullopt when the file is missing or lacks the tile entry.
+  static std::optional<std::pair<uint32_t, uint32_t>>
+  readComputeStartStopPc(const std::string& tileBase)
+  {
+    const std::string path =
+        (std::filesystem::current_path() / PC_METADATA_FILENAME).string();
+
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+          "AIE dtrace: '" + std::string(PC_METADATA_FILENAME) + "' not found in the run "
+          "directory; generate it with 'vaiprofile --gen-pc-metadata <design>' and copy it "
+          "here. Skipping compute_io_bound.");
+      return std::nullopt;
+    }
+
+    try {
+      boost::property_tree::ptree pt;
+      boost::property_tree::read_json(path, pt);
+
+      auto tile = pt.get_child_optional("compute_io_bound." + tileBase);
+      if (!tile) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: no 'compute_io_bound." + tileBase + "' entry in " + path
+            + "; skipping compute_io_bound.");
+        return std::nullopt;
+      }
+
+      auto startPc = tile->get_optional<uint32_t>("start_pc");
+      auto stopPc = tile->get_optional<uint32_t>("stop_pc");
+      if (!startPc || !stopPc) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: 'compute_io_bound." + tileBase + "' in " + path
+            + " is missing start_pc/stop_pc; skipping compute_io_bound.");
+        return std::nullopt;
+      }
+
+      std::stringstream msg;
+      msg << "AIE dtrace: compute_io_bound PCs from " << path << " (design '"
+          << pt.get<std::string>("design", "unknown") << "', "
+          << pt.get<std::string>("design_type", "unknown") << "): start_pc=0x"
+          << std::hex << *startPc << " stop_pc=0x" << *stopPc << std::dec;
+      xrt_core::message::send(severity_level::info, "XRT", msg.str());
+
+      return std::make_pair(*startPc, *stopPc);
+    }
+    catch (const std::exception& e) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+          "AIE dtrace: could not parse " + path + " (" + e.what()
+          + "); skipping compute_io_bound.");
+      return std::nullopt;
+    }
+  }
 
   AieDtrace_VE2Impl::AieDtrace_VE2Impl(VPDatabase* database,
                                          std::shared_ptr<AieDtraceMetadata> metadata,
@@ -125,23 +187,20 @@ namespace xdp {
       }
     }
 
-    // Resolve the compute_io_bound compute start/stop PCs from the core tile's listing.
-    // Same rule for static and reloadable designs: start_pc is the indirect kernel
-    // dispatch, stop_pc the 10th listed instruction from it. tileBase is the
-    // relative-row listing base name of the first core tile.
+    // Compute start/stop PCs come from the host-generated PC metadata JSON; resolve
+    // once per process since they are fixed for the loaded design.
     ComputeIoCoreConfig computeIoCfg;
     if (includeComputeIoBound) {
-      const std::string tileBase = COMPUTE_IO_TILE_BASE;
-      auto pcs = getComputeStartStopPc(tileBase);
-      if (!pcs) {
-        xrt_core::message::send(severity_level::warning, "XRT",
-            "AIE dtrace: compute_io_bound could not derive compute start/stop PCs "
-            "for tile '" + tileBase + "'; skipping core configuration.");
+      if (!m_computeIoPcsResolved) {
+        m_computeIoPcs = readComputeStartStopPc(COMPUTE_IO_TILE_BASE);
+        m_computeIoPcsResolved = true;
+      }
+      if (!m_computeIoPcs) {
         includeComputeIoBound = false;
       }
       else {
-        computeIoCfg.startPc = pcs->first;
-        computeIoCfg.stopPc = pcs->second;
+        computeIoCfg.startPc = m_computeIoPcs->first;
+        computeIoCfg.stopPc = m_computeIoPcs->second;
       }
     }
 

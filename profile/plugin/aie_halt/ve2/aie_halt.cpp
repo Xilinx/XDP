@@ -19,7 +19,6 @@
 #include <sstream>
 
 #include <boost/property_tree/ptree.hpp>
-#include <boost/property_tree/json_parser.hpp>
 
 #include "core/common/api/hw_context_int.h"
 #include "core/common/api/xclbin_int.h"
@@ -66,14 +65,9 @@ namespace xdp {
   {
     using severity_level = xrt_core::message::severity_level;
 
-    // Read AIE metadata from the xclbin to configure the AIE device model.
-    // Assume the hw context flow: fetch the xclbin via the hw context uuid
-    // rather than device->get_xclbin_uuid(), which reads the sysfs xclbinid
-    // file that does not exist on the XDNA (PCIe NPU) path.
-    //
-    // Mirror the static-info reader: the AIE info is carried in the
-    // AIE_TRACE_METADATA section, falling back to AIE_METADATA. Parse it via
-    // the file-type reader so the correct driver_config layout is used.
+    // Get the xclbin via the hw context uuid (device->get_xclbin_uuid() reads
+    // the sysfs xclbinid file, which is absent on the XDNA path). AIE info is
+    // in AIE_TRACE_METADATA, falling back to AIE_METADATA.
     xdp::aie::driver_config meta_config;
     try {
       auto device = xrt_core::hw_context_int::get_core_device(hwContext);
@@ -133,22 +127,21 @@ namespace xdp {
     }
 
     std::stringstream msg;
-    msg << " Set AIE Core breakpoint at Lock Acquire Req Instr, Start col "
-        << startCol << ", Num col " << numCols << std::endl;
+    msg << "Set AIE Core breakpoint at Lock Acquire Req Instr, Start col "
+        << startCol << ", Num col " << numCols;
     xrt_core::message::send(severity_level::info, "XRT", msg.str());
 
-    // Start recording driver calls into the control code ASM.
+    // Record driver calls into the control code ASM.
     if (!tranxHandler->initializeTransaction(&aieDevInst, "AieHalt")) {
       xrt_core::message::send(severity_level::warning, "XRT", "AIE Halt transaction initialization failed.");
       return false;
     }
 
-    // Initial break on Event 44: Lock Acquire instruction
+    // Halt each AIE core on the Lock Acquire Request instruction (event 0x2C).
     constexpr uint32_t AIE_EVENT_INSTR_LOCK_ACQ_REQ = 0x2C;
     uint32_t dbg_ctrl_1_reg =
       AIE_EVENT_INSTR_LOCK_ACQ_REQ << XAIE2PSGBL_CORE_MODULE_DEBUG_CONTROL1_DEBUG_HALT_CORE_EVENT0_LSB;
 
-    // AIE core tile rows span from aie_tile_row_start up to num_rows.
     for (uint8_t c = static_cast<uint8_t>(startCol); c < static_cast<uint8_t>(startCol + numCols); c++) {
       for (uint8_t r = meta_config.aie_tile_row_start; r < meta_config.num_rows; r++) {
         auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
@@ -156,7 +149,7 @@ namespace xdp {
       }
     }
 
-    // Complete the ASM, assemble it to an ELF, then load and run it on XDP_KERNEL.
+    // Assemble the recorded ASM into an ELF and run it on XDP_KERNEL.
     if (!tranxHandler->submitTransaction(&aieDevInst, hwContext)) {
       xrt_core::message::send(severity_level::warning, "XRT",
                 "Failed to generate/submit AIE Halt control code.");

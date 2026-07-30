@@ -50,11 +50,11 @@ namespace xdp {
       void finishflushDevice(void* hwCtxImpl) override;
 
     private:
-      // Primary path: generate the halt control code on the fly using aie-codegen.
-      // Returns true if the control code was generated and successfully scheduled.
+      // Primary path: generate the halt control code on the fly via aie-codegen.
+      // Returns true if it was generated and scheduled successfully.
       bool generateHaltControlCode(void* hwCtxImpl, xrt::hw_context hwContext);
 
-      // Fallback path: load a prebuilt control code ELF from disk and run it.
+      // Fallback path: load and run a prebuilt control code ELF from disk.
       void loadHaltElf(xrt::hw_context hwContext);
 
       XAie_DevInst aieDevInst = {0};

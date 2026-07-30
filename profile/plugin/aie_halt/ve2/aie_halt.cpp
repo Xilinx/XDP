@@ -70,29 +70,37 @@ namespace xdp {
     // Assume the hw context flow: fetch the xclbin via the hw context uuid
     // rather than device->get_xclbin_uuid(), which reads the sysfs xclbinid
     // file that does not exist on the XDNA (PCIe NPU) path.
-    boost::property_tree::ptree aieMetadata;
+    //
+    // Mirror the static-info reader: the AIE info is carried in the
+    // AIE_TRACE_METADATA section, falling back to AIE_METADATA. Parse it via
+    // the file-type reader so the correct driver_config layout is used.
+    xdp::aie::driver_config meta_config;
     try {
       auto device = xrt_core::hw_context_int::get_core_device(hwContext);
       xrt::xclbin xrtXclbin = device->get_xclbin(hwContext.get_xclbin_uuid());
-      auto data = xrt_core::xclbin_int::get_axlf_section(xrtXclbin, AIE_METADATA);
+
+      auto data = xrt_core::xclbin_int::get_axlf_section(xrtXclbin, AIE_TRACE_METADATA);
+      if (!data.first || !data.second)
+        data = xrt_core::xclbin_int::get_axlf_section(xrtXclbin, AIE_METADATA);
 
       if (!data.first || !data.second) {
         xrt_core::message::send(severity_level::warning, "XRT", "Empty AIE Metadata in xclbin");
         return false;
       }
 
-      std::stringstream ss;
-      ss.write(data.first, data.second);
-      boost::property_tree::read_json(ss, aieMetadata);
+      boost::property_tree::ptree aieMetadata;
+      auto metadataReader = xdp::aie::readAIEMetadata(data.first, data.second, aieMetadata);
+      if (!metadataReader) {
+        xrt_core::message::send(severity_level::warning, "XRT", "Failed to parse AIE Metadata from xclbin.");
+        return false;
+      }
+      meta_config = metadataReader->getDriverConfig();
     } catch (const std::exception& e) {
       std::string msg("AIE Metadata could not be read/processed from xclbin: ");
       msg += e.what();
       xrt_core::message::send(severity_level::warning, "XRT", msg);
       return false;
     }
-
-    xdp::aie::driver_config meta_config =
-      xdp::aie::getDriverConfig(aieMetadata, "aie_metadata.driver_config");
 
     XAie_Config cfg {
       meta_config.hw_gen,

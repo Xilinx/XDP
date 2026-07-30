@@ -67,10 +67,13 @@ namespace xdp {
     using severity_level = xrt_core::message::severity_level;
 
     // Read AIE metadata from the xclbin to configure the AIE device model.
+    // Assume the hw context flow: fetch the xclbin via the hw context uuid
+    // rather than device->get_xclbin_uuid(), which reads the sysfs xclbinid
+    // file that does not exist on the XDNA (PCIe NPU) path.
     boost::property_tree::ptree aieMetadata;
     try {
       auto device = xrt_core::hw_context_int::get_core_device(hwContext);
-      xrt::xclbin xrtXclbin = device->get_xclbin(device->get_xclbin_uuid());
+      xrt::xclbin xrtXclbin = device->get_xclbin(hwContext.get_xclbin_uuid());
       auto data = xrt_core::xclbin_int::get_axlf_section(xrtXclbin, AIE_METADATA);
 
       if (!data.first || !data.second) {

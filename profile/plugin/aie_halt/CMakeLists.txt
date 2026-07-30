@@ -42,13 +42,14 @@ if (XDP_CLIENT_BUILD_CMAKE STREQUAL "yes")
   )
 
 elseif (XDP_VE2_BUILD_CMAKE STREQUAL "yes")
-  add_library(xdp_aie_halt_plugin SHARED ${XDP_AIE_HALT_PLUGIN_FILES})
+  # For ve2 the halt control code is generated on the fly using aie-codegen
+  # (with a prebuilt elf loaded as a fallback), so the aie-codegen library and
+  # the shared device/common transaction helpers are required.
+  add_library(xdp_aie_halt_plugin SHARED ${XDP_AIE_HALT_PLUGIN_FILES} ${XDP_DEVICE_COMMON_FILES})
   add_dependencies(xdp_aie_halt_plugin xdp_core xrt_coreutil)
-  
-  # Note: For ve2, a prebuilt elf is loaded so aie-codegen library is not needed
-  #target_include_directories(xdp_aie_halt_plugin PRIVATE ${AIE_CODEGEN_DIR}/include)
-  #target_link_libraries(xdp_aie_halt_plugin PRIVATE xdp_core xrt_coreutil aie_codegen)
-  target_link_libraries(xdp_aie_halt_plugin PRIVATE xdp_core xrt_coreutil)
+
+  target_include_directories(xdp_aie_halt_plugin PRIVATE ${AIE_CODEGEN_DIR}/include)
+  target_link_libraries(xdp_aie_halt_plugin PRIVATE xdp_core xrt_coreutil aie_codegen)
   target_compile_definitions(xdp_aie_halt_plugin PRIVATE XDP_VE2_BUILD=1 XDP_USE_AIE_CODEGEN=1)
 
   set_target_properties(xdp_aie_halt_plugin PROPERTIES VERSION ${XRT_VERSION_STRING} SOVERSION ${XRT_SOVERSION})

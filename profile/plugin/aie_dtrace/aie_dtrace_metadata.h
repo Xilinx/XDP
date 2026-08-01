@@ -24,6 +24,7 @@ class AieDtraceMetadata {
     double clockFreqMhz = 0.0;
     void* handle = nullptr;
     bool configOnePartition = false;
+    bool l2L2TransferEnabled = false;
 
     std::vector<std::map<tile_type, std::string>> configMetrics;
     std::map<tile_type, uint8_t> configChannel0;
@@ -48,6 +49,8 @@ class AieDtraceMetadata {
     }
 
     bool isConfigOnePartition() const { return configOnePartition; }
+
+    bool isL2L2Enabled() const { return l2L2TransferEnabled; }
 
     bool aieMetadataEmpty() { return metadataReader == nullptr; }
 

@@ -88,11 +88,14 @@ namespace xdp {
       "tile_based_interface_tile_metrics",
       "configure_aie_hardware",
       "config_one_partition",
+      "l2_l2_transfer_metrics",
     };
 
     auto tree = xrt_core::config::detail::get_ptree_value("AIE_dtrace_settings");
     if (auto val = tree.get_optional<bool>("config_one_partition"))
       configOnePartition = *val;
+
+    l2L2TransferEnabled = xrt_core::config::get_aie_dtrace_settings_l2_l2_transfer_metrics();
 
     for (ptree::iterator pos = tree.begin(); pos != tree.end(); pos++) {
       if (validSettings.find(pos->first) == validSettings.end()) {

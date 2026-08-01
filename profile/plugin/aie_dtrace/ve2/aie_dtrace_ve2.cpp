@@ -134,8 +134,9 @@ namespace xdp {
     if (!ctWriter.generateBandwidthCT(outputPath, hwctx, it->second, bandwidthMetricSet, bandwidthChannel))
       return;
 
+    const std::string ctMode = metadata->isL2L2Enabled() ? "bandwidth+L2-L2" : "bandwidth";
     xrt_core::message::send(severity_level::debug, "XRT",
-        "AIE dtrace: Bandwidth CT generated for kernel '" + kernel_name
+        "AIE dtrace: " + ctMode + " CT generated for kernel '" + kernel_name
         + "' with metric set '" + bandwidthMetricSet + "'");
 
     auto* run_impl = static_cast<xrt::run_impl*>(run_impl_ptr);

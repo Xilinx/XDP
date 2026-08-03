@@ -33,10 +33,20 @@ namespace xdp {
                            const std::string& kernel_name,
                            void* elf_handle) override;
 
+      void finalizeDtraceDump() override;
+
     private:
       void computeOpLocations(void* elf_handle, const std::string& kernel_name);
 
       std::map<std::string, std::vector<aiebu::aiebu_assembler::op_loc>> m_op_locations_cache;
+
+      // Slot index of the hw context this impl serves (for locating the dump file);
+      // -1 until a CT has been generated for a run.
+      int m_dumpSlotIdx = -1;
+
+      // Per-run counter metadata (run_uid -> JSON object string) captured at CT
+      // generation, injected into the JSON dtrace dump on teardown.
+      std::map<uint32_t, std::string> m_runMetadataJson;
   };
 
 }

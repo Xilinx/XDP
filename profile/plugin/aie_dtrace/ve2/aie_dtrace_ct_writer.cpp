@@ -12,6 +12,7 @@
 #include "core/common/message.h"
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -85,6 +86,41 @@ extendLastUcToMaxConfiguredColumn(std::vector<ASMFileInfo>& asmFileInfoList,
   auto& last = asmFileInfoList.back();
   if (maxCfgCol >= last.colStart)
     last.colEnd = std::max(last.colEnd, maxCfgCol);
+}
+
+// Build a unique, self-describing dtrace variable name for a counter read.
+//
+// The JSON dtrace dump keys every read action by its left-hand-side variable
+// name (json[probe][lhs] = value). Using the throwaway "_" for all reads makes
+// the 4-16 per-probe counters collapse into a single "_" key in the JSON, and
+// the "# COUNTER_METADATA" block is a comment that the JSON serializer drops.
+// Encoding col/row/counter/channel/direction/event into the LHS name keeps every
+// counter as a distinct JSON key and embeds the per-counter metadata directly in
+// that key (e.g. "c0_r0_n1_ch0_i_lock").
+std::string
+makeCounterVarName(const CTCounterInfo& ctr)
+{
+  const std::string dir = (ctr.portDirection == "input")  ? "i"
+                        : (ctr.portDirection == "output") ? "o"
+                        :                                    "x";
+
+  std::stringstream ss;
+  ss << "c"   << static_cast<int>(ctr.column)
+     << "_r"  << static_cast<int>(ctr.row)
+     << "_n"  << static_cast<int>(ctr.counterNumber)
+     << "_ch" << static_cast<int>(ctr.channel)
+     << "_"   << dir;
+  if (!ctr.eventType.empty())
+    ss << "_" << ctr.eventType;
+
+  // The key doubles as a python identifier in the non-JSON dump, so replace any
+  // character that is not [A-Za-z0-9_] with '_'.
+  std::string name = ss.str();
+  for (char& c : name) {
+    if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_'))
+      c = '_';
+  }
+  return name;
 }
 
 } // namespace
@@ -636,10 +672,13 @@ bool AieDtraceCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFileInfoL
     ctFile << "{\n";
     ctFile << "    ts_" << asmFileInfo.asmId << " = timestamp32()\n";
 
-    // Write counter reads using _ as throwaway variable
+    // Write counter reads using a unique, self-describing variable name per
+    // counter so the JSON dtrace dump keeps every counter as a distinct key
+    // (see makeCounterVarName).
     for (size_t i = 0; i < asmFileInfo.counters.size(); i++) {
-      ctFile << "    _ = read_reg("
-             << formatAddress(asmFileInfo.counters[i].address) << ")\n";
+      const auto& ctr = asmFileInfo.counters[i];
+      ctFile << "    " << makeCounterVarName(ctr)
+             << " = read_reg(" << formatAddress(ctr.address) << ")\n";
     }
 
     ctFile << "}\n\n";
@@ -1077,58 +1116,17 @@ bool AieDtraceCTWriter::writeBandwidthCTFile(
 
   ctFile << "@blockopen\n";
   ctFile << "# COUNTER_METADATA_BEGIN\n";
-  ctFile << "# {\n";
 
-  // Per-UC counter metadata groupings only
-  std::vector<const ASMFileInfo*> metaGroups;
-  for (const auto& asmFileInfo : asmFileInfoList) {
-    if (!asmFileInfo.counters.empty())
-      metaGroups.push_back(&asmFileInfo);
+  // Render the metadata comment from the same builder used for the JSON dump, so the
+  // python (comment) and JSON metadata are identical for every metric set.
+  {
+    const std::string metadata = buildBandwidthMetadataJson(asmFileInfoList);
+    std::istringstream metaStream(metadata);
+    std::string line;
+    while (std::getline(metaStream, line))
+      ctFile << "# " << line << "\n";
   }
 
-  for (size_t g = 0; g < metaGroups.size(); g++) {
-    const auto& asmFileInfo = *metaGroups[g];
-    ctFile << "#   \"" << asmFileInfo.asmId << "\": [\n";
-
-    for (size_t c = 0; c < asmFileInfo.counters.size(); c++) {
-      const auto& ctr = asmFileInfo.counters[c];
-      ctFile << "#     {\"col\": " << static_cast<int>(ctr.column)
-             << ", \"row\": " << static_cast<int>(ctr.row)
-             << ", \"ctr\": " << static_cast<int>(ctr.counterNumber)
-             << ", \"ch\": " << static_cast<int>(ctr.channel)
-             << ", \"dir\": ";
-
-      if (ctr.portDirection == "input")
-        ctFile << "\"i\"";
-      else if (ctr.portDirection == "output")
-        ctFile << "\"o\"";
-      else
-        ctFile << "null";
-
-      // Add event type for peak bandwidth metrics
-      if (!ctr.eventType.empty()) {
-        ctFile << ", \"event\": ";
-        if (ctr.eventType == "running")
-          ctFile << "\"r\"";
-        else if (ctr.eventType == "stalled")
-          ctFile << "\"s\"";
-        else
-          ctFile << "\"" << ctr.eventType << "\"";
-      }
-
-      ctFile << "}";
-      if (c < asmFileInfo.counters.size() - 1)
-        ctFile << ",";
-      ctFile << "\n";
-    }
-
-    ctFile << "#   ]";
-    if (g < metaGroups.size() - 1)
-      ctFile << ",";
-    ctFile << "\n";
-  }
-
-  ctFile << "# }\n";
   ctFile << "# COUNTER_METADATA_END\n";
   ctFile << "@blockclose\n";
   ctFile << "}\n\n";
@@ -1158,7 +1156,8 @@ bool AieDtraceCTWriter::writeBandwidthCTFile(
 
     for (size_t i = 0; i < asmFileInfo.counters.size(); i++) {
       const auto& ctr = asmFileInfo.counters[i];
-      ctFile << "    _ = read_reg(" << formatAddress(ctr.address) << ")\n";
+      ctFile << "    " << makeCounterVarName(ctr)
+             << " = read_reg(" << formatAddress(ctr.address) << ")\n";
     }
 
     ctFile << "}\n\n";
@@ -1179,12 +1178,74 @@ bool AieDtraceCTWriter::writeBandwidthCTFile(
   return true;
 }
 
+std::string AieDtraceCTWriter::buildBandwidthMetadataJson(
+    const std::vector<ASMFileInfo>& asmFileInfoList)
+{
+  // Single source of truth for the bandwidth counter metadata, shared by every
+  // metric set. The returned string is valid JSON (per-UC groups keyed by ASM id)
+  // and is used two ways:
+  //   1. rendered verbatim (with a "# " prefix) as the CT begin-block
+  //      COUNTER_METADATA comment, which is what the python dtrace dump emits, and
+  //   2. parsed and injected into the JSON dtrace dump (the engine drops CT
+  //      comments from JSON output).
+  // Because both consumers format from this one function, the JSON metadata is
+  // guaranteed to match the python metadata for every metric set.
+  std::vector<const ASMFileInfo*> metaGroups;
+  for (const auto& asmFileInfo : asmFileInfoList) {
+    if (!asmFileInfo.counters.empty())
+      metaGroups.push_back(&asmFileInfo);
+  }
+
+  std::stringstream ss;
+  ss << "{\n";
+  for (size_t g = 0; g < metaGroups.size(); g++) {
+    const auto& asmFileInfo = *metaGroups[g];
+    ss << "  \"" << asmFileInfo.asmId << "\": [\n";
+    for (size_t c = 0; c < asmFileInfo.counters.size(); c++) {
+      const auto& ctr = asmFileInfo.counters[c];
+      ss << "    {\"col\": " << static_cast<int>(ctr.column)
+         << ", \"row\": " << static_cast<int>(ctr.row)
+         << ", \"ctr\": " << static_cast<int>(ctr.counterNumber)
+         << ", \"ch\": " << static_cast<int>(ctr.channel)
+         << ", \"dir\": ";
+      if (ctr.portDirection == "input")
+        ss << "\"i\"";
+      else if (ctr.portDirection == "output")
+        ss << "\"o\"";
+      else
+        ss << "null";
+
+      if (!ctr.eventType.empty()) {
+        ss << ", \"event\": ";
+        if (ctr.eventType == "running")
+          ss << "\"r\"";
+        else if (ctr.eventType == "stalled")
+          ss << "\"s\"";
+        else
+          ss << "\"" << ctr.eventType << "\"";
+      }
+
+      ss << "}";
+      if (c + 1 < asmFileInfo.counters.size())
+        ss << ",";
+      ss << "\n";
+    }
+    ss << "  ]";
+    if (g + 1 < metaGroups.size())
+      ss << ",";
+    ss << "\n";
+  }
+  ss << "}";
+  return ss.str();
+}
+
 bool AieDtraceCTWriter::generateBandwidthCT(
     const std::string& outputPath,
     void* hwctx,
     const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
     const std::string& metricSet,
-    uint8_t channel)
+    uint8_t channel,
+    std::string* outMetadataJson)
 {
   if (opLocations.empty()) {
     xrt_core::message::send(severity_level::debug, "XRT",
@@ -1257,6 +1318,11 @@ bool AieDtraceCTWriter::generateBandwidthCT(
   for (auto& asmFileInfo : asmFileInfoList) {
     asmFileInfo.counters = filterCountersByColumn(allCounters, asmFileInfo.colStart, asmFileInfo.colEnd);
   }
+
+  // Expose the counter metadata so the plugin can inject it into the JSON dtrace
+  // dump (the dtrace engine drops the CT COUNTER_METADATA comment from JSON output).
+  if (outMetadataJson)
+    *outMetadataJson = buildBandwidthMetadataJson(asmFileInfoList);
 
   std::vector<CTRegisterWrite> beginBlockWrites;
   for (uint8_t column : shimColumns) {

@@ -16,8 +16,12 @@
 
 #include "xdp/profile/database/static_info/aie_util.h"
 
+#include "core/common/json/nlohmann/json.hpp"
+
 #include <boost/property_tree/ptree.hpp>
 #include <filesystem>
+#include <fstream>
+#include <regex>
 #include <sstream>
 
 namespace xdp {
@@ -132,8 +136,16 @@ namespace xdp {
           "AIE dtrace: No interface tile metrics configured, using default 'peak_read_bandwidth'");
     }
 
-    if (!ctWriter.generateBandwidthCT(outputPath, hwctx, it->second, bandwidthMetricSet, bandwidthChannel))
+    std::string metadataJson;
+    if (!ctWriter.generateBandwidthCT(outputPath, hwctx, it->second, bandwidthMetricSet,
+                                      bandwidthChannel, &metadataJson))
       return;
+
+    // Remember slot + per-run counter metadata so it can be injected into the JSON
+    // dtrace dump on hw context teardown (see finalizeDtraceDump()).
+    m_dumpSlotIdx = static_cast<int>(slotIdx);
+    if (!metadataJson.empty())
+      m_runMetadataJson[run_uid] = metadataJson;
 
     aie::dtrace::initDtraceOutputConfig();
 
@@ -153,6 +165,102 @@ namespace xdp {
       std::stringstream msg;
       msg << "AIE dtrace: Could not set per-run CT file: " << e.what();
       xrt_core::message::send(severity_level::debug, "XRT", msg.str());
+    }
+  }
+
+  void AieDtrace_VE2Impl::finalizeDtraceDump()
+  {
+    // The dtrace engine drops the CT COUNTER_METADATA comment from the JSON dump,
+    // so inject the metadata captured at CT generation into the JSON file that core
+    // has just written for this hw context (before it is erased on teardown).
+    if (m_dumpSlotIdx < 0 || m_runMetadataJson.empty())
+      return;
+
+    // The JSON dump file only exists in coalesced JSON output mode.
+    if (!(xrt_core::config::get_dtrace_output_json_format()
+          && xrt_core::config::get_dtrace_coalesce_result()))
+      return;
+
+    try {
+      // Locate the newest dump file for this context slot in the working directory.
+      // core writes: dtrace_dump_ctx_<slot>_<timestamp>.json
+      const std::regex fileRe("^dtrace_dump_ctx_" + std::to_string(m_dumpSlotIdx)
+                              + "_.*\\.json$");
+      std::filesystem::path dumpFile;
+      std::filesystem::file_time_type newest{};
+      for (const auto& entry : std::filesystem::directory_iterator(std::filesystem::current_path())) {
+        if (!entry.is_regular_file())
+          continue;
+        if (!std::regex_match(entry.path().filename().string(), fileRe))
+          continue;
+        auto mtime = entry.last_write_time();
+        if (dumpFile.empty() || mtime > newest) {
+          dumpFile = entry.path();
+          newest = mtime;
+        }
+      }
+
+      if (dumpFile.empty()) {
+        xrt_core::message::send(severity_level::debug, "XRT",
+            "AIE dtrace: no JSON dump file found for slot "
+            + std::to_string(m_dumpSlotIdx) + "; skipping metadata injection.");
+        return;
+      }
+
+      nlohmann::ordered_json root;
+      {
+        std::ifstream in(dumpFile);
+        if (!in)
+          return;
+        in >> root;
+      }
+
+      if (!root.is_object())
+        return;
+
+      // A fallback metadata (same metric set across runs of a context): used when a
+      // run key's uid is not found in the captured map.
+      const std::string& fallbackMeta = m_runMetadataJson.begin()->second;
+      const std::regex runRe("_run_(\\d+)_");
+
+      for (auto& item : root.items()) {
+        auto& runObj = item.value();
+        if (!runObj.is_object())
+          continue;
+
+        const std::string* metaStr = &fallbackMeta;
+        std::smatch m;
+        const std::string key = item.key();
+        if (std::regex_search(key, m, runRe)) {
+          auto uid = static_cast<uint32_t>(std::stoul(m[1].str()));
+          auto it = m_runMetadataJson.find(uid);
+          if (it != m_runMetadataJson.end())
+            metaStr = &it->second;
+        }
+
+        nlohmann::ordered_json meta = nlohmann::ordered_json::parse(*metaStr, nullptr, false);
+        if (meta.is_discarded())
+          continue;
+
+        // Mirror the python dump: metadata lives in the begin block.
+        if (!runObj.contains("begin") || !runObj["begin"].is_object())
+          runObj["begin"] = nlohmann::ordered_json::object();
+        runObj["begin"]["counter_metadata"] = std::move(meta);
+      }
+
+      {
+        std::ofstream out(dumpFile, std::ios::trunc);
+        if (!out)
+          return;
+        out << root.dump(4) << "\n";
+      }
+
+      xrt_core::message::send(severity_level::debug, "XRT",
+          "AIE dtrace: injected counter metadata into " + dumpFile.string());
+    }
+    catch (const std::exception& e) {
+      xrt_core::message::send(severity_level::debug, "XRT",
+          std::string{"AIE dtrace: metadata injection failed (ignored): "} + e.what());
     }
   }
 

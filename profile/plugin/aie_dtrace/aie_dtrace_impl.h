@@ -47,10 +47,6 @@ namespace xdp {
                                   const std::string& /*kernel_name*/,
                                   void* /*elf_handle*/) {}
 
-    // Post-process the dumped dtrace JSON (e.g. inject counter metadata) after the
-    // hw context has written it. Called on hw context teardown, after the dump.
-    virtual void finalizeDtraceDump() {}
-
     uint64_t getDeviceID() { return deviceID; }
   };
 

@@ -5,6 +5,7 @@
 
 #include "aie_dtrace_cb.h"
 #include "aie_dtrace_plugin.h"
+#include "xdp/profile/plugin/aie_dtrace/util/aie_dtrace_util.h"
 
 namespace xdp {
 
@@ -18,6 +19,14 @@ namespace xdp {
 
   static void endAIEDtracePoll(void* handle)
   {
+    // Inject the captured counter metadata into the coalesced JSON dtrace dump that
+    // core writes on hw context teardown. This is deliberately done unconditionally
+    // (not gated by AieDtracePlugin::alive()): the plugin's static instance may be
+    // destroyed before the hw context writes the dump, so relying on the plugin being
+    // alive here would silently skip the injection. The metadata lives in a
+    // process-lifetime registry, so this is safe even after plugin teardown.
+    aie::dtrace::injectPendingMetadata();
+
     if (AieDtracePlugin::alive())
       aieDtracePluginInstance.endPollforDevice(handle);
   }

@@ -100,27 +100,17 @@ extendLastUcToMaxConfiguredColumn(std::vector<ASMFileInfo>& asmFileInfoList,
 std::string
 makeCounterVarName(const CTCounterInfo& ctr)
 {
-  const std::string dir = (ctr.portDirection == "input")  ? "i"
-                        : (ctr.portDirection == "output") ? "o"
-                        :                                    "x";
-
+  // The key only needs to (a) be unique within a probe block so the counters do
+  // not collapse into a single JSON entry, and (b) let post-processing recover
+  // the counter's identity. Column + counter number satisfy both: everything
+  // else (row, channel, direction, event) is constant per counter number across
+  // tiles and is carried once in the common "counter_metadata" array (keyed by
+  // "ctr"). Keeping the key short reduces CT file size and dtrace runtime/output
+  // overhead. Example: "c3_n2" -> column 3, counter 2.
   std::stringstream ss;
-  ss << "c"   << static_cast<int>(ctr.column)
-     << "_r"  << static_cast<int>(ctr.row)
-     << "_n"  << static_cast<int>(ctr.counterNumber)
-     << "_ch" << static_cast<int>(ctr.channel)
-     << "_"   << dir;
-  if (!ctr.eventType.empty())
-    ss << "_" << ctr.eventType;
-
-  // The key doubles as a python identifier in the non-JSON dump, so replace any
-  // character that is not [A-Za-z0-9_] with '_'.
-  std::string name = ss.str();
-  for (char& c : name) {
-    if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_'))
-      c = '_';
-  }
-  return name;
+  ss << "c" << static_cast<int>(ctr.column)
+     << "_n" << static_cast<int>(ctr.counterNumber);
+  return ss.str();
 }
 
 } // namespace
@@ -1182,59 +1172,98 @@ std::string AieDtraceCTWriter::buildBandwidthMetadataJson(
     const std::vector<ASMFileInfo>& asmFileInfoList)
 {
   // Single source of truth for the bandwidth counter metadata, shared by every
-  // metric set. The returned string is valid JSON (per-UC groups keyed by ASM id)
-  // and is used two ways:
+  // metric set. The returned string is valid JSON and is used two ways:
   //   1. rendered verbatim (with a "# " prefix) as the CT begin-block
   //      COUNTER_METADATA comment, which is what the python dtrace dump emits, and
   //   2. parsed and injected into the JSON dtrace dump (the engine drops CT
   //      comments from JSON output).
   // Because both consumers format from this one function, the JSON metadata is
   // guaranteed to match the python metadata for every metric set.
-  std::vector<const ASMFileInfo*> metaGroups;
+  //
+  // The per-tile counter layout is identical for every shim tile/UC: the same
+  // counter configuration is replicated on each column, so only the column
+  // number differs between tiles and that is already encoded in each counter's
+  // JSON key (c<col>_n<ctr>). We therefore emit the counter descriptors once as
+  // a shared "counters" array (deduped by counter number, "col" dropped) instead
+  // of repeating the same block per UC.
+  //
+  // The per-microcontroller (UC) information that IS distinct - namely which
+  // columns each microcontroller owns - is emitted separately as a compact "uc"
+  // map keyed by UC number, without re-duplicating the counter descriptors:
+  //   {"counters": [ ... ], "uc": {"0": {"col_start":0,"col_end":3}, ...}}
+  std::vector<const CTCounterInfo*> uniqueCounters;
+  std::vector<uint8_t> seenCounterNumbers;
+  for (const auto& asmFileInfo : asmFileInfoList) {
+    for (const auto& ctr : asmFileInfo.counters) {
+      if (std::find(seenCounterNumbers.begin(), seenCounterNumbers.end(),
+                    ctr.counterNumber) != seenCounterNumbers.end())
+        continue;
+      seenCounterNumbers.push_back(ctr.counterNumber);
+      uniqueCounters.push_back(&ctr);
+    }
+  }
+
+  std::sort(uniqueCounters.begin(), uniqueCounters.end(),
+            [](const CTCounterInfo* a, const CTCounterInfo* b) {
+              return a->counterNumber < b->counterNumber;
+            });
+
+  // Per-UC column ownership, ordered by UC number (skip UCs with no counters).
+  std::vector<const ASMFileInfo*> ucGroups;
   for (const auto& asmFileInfo : asmFileInfoList) {
     if (!asmFileInfo.counters.empty())
-      metaGroups.push_back(&asmFileInfo);
+      ucGroups.push_back(&asmFileInfo);
   }
+  std::sort(ucGroups.begin(), ucGroups.end(),
+            [](const ASMFileInfo* a, const ASMFileInfo* b) {
+              return a->ucNumber < b->ucNumber;
+            });
 
   std::stringstream ss;
   ss << "{\n";
-  for (size_t g = 0; g < metaGroups.size(); g++) {
-    const auto& asmFileInfo = *metaGroups[g];
-    ss << "  \"" << asmFileInfo.asmId << "\": [\n";
-    for (size_t c = 0; c < asmFileInfo.counters.size(); c++) {
-      const auto& ctr = asmFileInfo.counters[c];
-      ss << "    {\"col\": " << static_cast<int>(ctr.column)
-         << ", \"row\": " << static_cast<int>(ctr.row)
-         << ", \"ctr\": " << static_cast<int>(ctr.counterNumber)
-         << ", \"ch\": " << static_cast<int>(ctr.channel)
-         << ", \"dir\": ";
-      if (ctr.portDirection == "input")
-        ss << "\"i\"";
-      else if (ctr.portDirection == "output")
-        ss << "\"o\"";
+
+  ss << "  \"counters\": [\n";
+  for (size_t c = 0; c < uniqueCounters.size(); c++) {
+    const auto& ctr = *uniqueCounters[c];
+    ss << "    {\"row\": " << static_cast<int>(ctr.row)
+       << ", \"ctr\": " << static_cast<int>(ctr.counterNumber)
+       << ", \"ch\": " << static_cast<int>(ctr.channel)
+       << ", \"dir\": ";
+    if (ctr.portDirection == "input")
+      ss << "\"i\"";
+    else if (ctr.portDirection == "output")
+      ss << "\"o\"";
+    else
+      ss << "null";
+
+    if (!ctr.eventType.empty()) {
+      ss << ", \"event\": ";
+      if (ctr.eventType == "running")
+        ss << "\"r\"";
+      else if (ctr.eventType == "stalled")
+        ss << "\"s\"";
       else
-        ss << "null";
-
-      if (!ctr.eventType.empty()) {
-        ss << ", \"event\": ";
-        if (ctr.eventType == "running")
-          ss << "\"r\"";
-        else if (ctr.eventType == "stalled")
-          ss << "\"s\"";
-        else
-          ss << "\"" << ctr.eventType << "\"";
-      }
-
-      ss << "}";
-      if (c + 1 < asmFileInfo.counters.size())
-        ss << ",";
-      ss << "\n";
+        ss << "\"" << ctr.eventType << "\"";
     }
-    ss << "  ]";
-    if (g + 1 < metaGroups.size())
+
+    ss << "}";
+    if (c + 1 < uniqueCounters.size())
       ss << ",";
     ss << "\n";
   }
+  ss << "  ],\n";
+
+  ss << "  \"uc\": {\n";
+  for (size_t u = 0; u < ucGroups.size(); u++) {
+    const auto& uc = *ucGroups[u];
+    ss << "    \"" << uc.ucNumber << "\": {\"col_start\": " << uc.colStart
+       << ", \"col_end\": " << uc.colEnd << "}";
+    if (u + 1 < ucGroups.size())
+      ss << ",";
+    ss << "\n";
+  }
+  ss << "  }\n";
+
   ss << "}";
   return ss.str();
 }

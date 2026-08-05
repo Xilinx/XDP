@@ -15,14 +15,99 @@
 
 #include "xdp/profile/database/static_info/aie_util.h"
 
+#include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <filesystem>
+#include <optional>
 #include <sstream>
+#include <utility>
 
 namespace xdp {
   using severity_level = xrt_core::message::severity_level;
 
   static constexpr int SHIM_MODULE_IDX = static_cast<int>(module_type::shim);
+  static constexpr int CORE_MODULE_IDX = static_cast<int>(module_type::core);
+
+  // Listing base name of the compute_io_bound core tile: first column, first core
+  // row. Listings/elfs_metadata use RELATIVE core rows, hence "<col>_0".
+  static constexpr const char* COMPUTE_IO_TILE_BASE = "0_0";
+
+  // PC metadata produced on the host by "vaiprofile --gen-pc-metadata" and read from
+  // the run directory. Holds the compute_io_bound start/stop PCs so this plugin does
+  // not have to parse aiecompiler listings at run time.
+  static constexpr const char* PC_METADATA_FILENAME = "aie_pc_metadata.json";
+
+  // Read compute_io_bound start/stop PCs for 'tileBase' from the PC metadata JSON in
+  // the run directory. std::nullopt when the file is missing or lacks the tile entry.
+  static std::optional<std::pair<uint32_t, uint32_t>>
+  readComputeStartStopPc(const std::string& tileBase)
+  {
+    const std::string path =
+        (std::filesystem::current_path() / PC_METADATA_FILENAME).string();
+
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+          "AIE dtrace: '" + std::string(PC_METADATA_FILENAME) + "' not found in the run "
+          "directory; generate it with 'vaiprofile --gen-pc-metadata <design>' and copy it "
+          "here. Skipping compute_io_bound.");
+      return std::nullopt;
+    }
+
+    try {
+      boost::property_tree::ptree pt;
+      boost::property_tree::read_json(path, pt);
+
+      auto tile = pt.get_child_optional("compute_io_bound." + tileBase);
+      if (!tile) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: no 'compute_io_bound." + tileBase + "' entry in " + path
+            + "; skipping compute_io_bound.");
+        return std::nullopt;
+      }
+
+      // The PCs are "0x"-prefixed hex strings, JSON having no hex number literal.
+      auto parsePc = [](const boost::optional<std::string>& text) -> std::optional<uint32_t> {
+        if (!text)
+          return std::nullopt;
+        try {
+          size_t end = 0;
+          const unsigned long value = std::stoul(*text, &end, 16);
+          if (end != text->size())  // trailing junk
+            return std::nullopt;
+          return static_cast<uint32_t>(value);
+        }
+        catch (const std::exception&) {
+          return std::nullopt;
+        }
+      };
+
+      auto startPc = parsePc(tile->get_optional<std::string>("start_pc"));
+      auto stopPc = parsePc(tile->get_optional<std::string>("stop_pc"));
+      if (!startPc || !stopPc) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: 'compute_io_bound." + tileBase + "' in " + path
+            + " has missing or malformed start_pc/stop_pc (expected hex strings such as "
+            "\"0x337e\"); skipping compute_io_bound.");
+        return std::nullopt;
+      }
+
+      std::stringstream msg;
+      msg << "AIE dtrace: compute_io_bound PCs from " << path << " (design '"
+          << pt.get<std::string>("design", "unknown") << "', "
+          << pt.get<std::string>("design_type", "unknown") << "): start_pc=0x"
+          << std::hex << *startPc << " stop_pc=0x" << *stopPc << std::dec;
+      xrt_core::message::send(severity_level::info, "XRT", msg.str());
+
+      return std::make_pair(*startPc, *stopPc);
+    }
+    catch (const std::exception& e) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+          "AIE dtrace: could not parse " + path + " (" + e.what()
+          + "); skipping compute_io_bound.");
+      return std::nullopt;
+    }
+  }
 
   AieDtrace_VE2Impl::AieDtrace_VE2Impl(VPDatabase* database,
                                          std::shared_ptr<AieDtraceMetadata> metadata,
@@ -108,10 +193,41 @@ namespace xdp {
 
     AieDtraceCTWriter ctWriter(db, metadata, deviceID, partitionStartCol);
 
+    // Determine which metric families are configured for this run. Both the
+    // interface-tile bandwidth metrics and the core-tile compute_io_bound metric
+    // can be emitted into the same per-run CT file.
+    bool includeComputeIoBound = false;
+    for (const auto& tc : metadata->getConfigMetricsVec(CORE_MODULE_IDX)) {
+      if (tc.second == "compute_io_bound") {
+        includeComputeIoBound = true;
+        break;
+      }
+    }
+
+    // Compute start/stop PCs come from the host-generated PC metadata JSON; resolve
+    // once per process since they are fixed for the loaded design.
+    ComputeIoCoreConfig computeIoCfg;
+    if (includeComputeIoBound) {
+      if (!m_computeIoPcsResolved) {
+        m_computeIoPcs = readComputeStartStopPc(COMPUTE_IO_TILE_BASE);
+        m_computeIoPcsResolved = true;
+      }
+      if (!m_computeIoPcs) {
+        includeComputeIoBound = false;
+      }
+      else {
+        computeIoCfg.startPc = m_computeIoPcs->first;
+        computeIoCfg.stopPc = m_computeIoPcs->second;
+      }
+    }
+
+    // Interface-tile bandwidth metrics are configured by default unless the user
+    // turned interface tiles off (which leaves the shim config map empty).
+    auto shimConfigMetrics = metadata->getConfigMetricsVec(SHIM_MODULE_IDX);
+    bool includeBandwidth = !shimConfigMetrics.empty();
     std::string bandwidthMetricSet = "peak_read_bandwidth";
     uint8_t bandwidthChannel = 0;
-    auto shimConfigMetrics = metadata->getConfigMetricsVec(SHIM_MODULE_IDX);
-    if (!shimConfigMetrics.empty()) {
+    if (includeBandwidth) {
       bandwidthMetricSet = shimConfigMetrics.front().second;
       // The detailed_ddr_*_bandwidth metric sets carry a DMA channel in their
       // ":<channel>" suffix (stored in configChannel0). Match by column/row.
@@ -124,19 +240,32 @@ namespace xdp {
         }
       }
       xrt_core::message::send(severity_level::info, "XRT",
-          "AIE dtrace: Using metric set '" + bandwidthMetricSet + "' (channel "
+          "AIE dtrace: Using interface tile metric set '" + bandwidthMetricSet + "' (channel "
           + std::to_string(bandwidthChannel) + ") from configuration");
-    } else {
-      xrt_core::message::send(severity_level::info, "XRT",
-          "AIE dtrace: No interface tile metrics configured, using default 'peak_read_bandwidth'");
     }
 
-    if (!ctWriter.generateBandwidthCT(outputPath, hwctx, it->second, bandwidthMetricSet, bandwidthChannel))
+    if (!includeBandwidth && !includeComputeIoBound) {
+      xrt_core::message::send(severity_level::info, "XRT",
+          "AIE dtrace: No metrics configured; skipping CT generation.");
+      return;
+    }
+
+    if (!ctWriter.generateCT(outputPath, hwctx, it->second,
+                             includeBandwidth, bandwidthMetricSet, bandwidthChannel,
+                             includeComputeIoBound, computeIoCfg))
       return;
 
-    xrt_core::message::send(severity_level::debug, "XRT",
-        "AIE dtrace: Bandwidth CT generated for kernel '" + kernel_name
-        + "' with metric set '" + bandwidthMetricSet + "'");
+    std::stringstream genMsg;
+    genMsg << "AIE dtrace: CT generated for kernel '" << kernel_name << "' (";
+    if (includeBandwidth)
+      genMsg << "interface_tile=" << bandwidthMetricSet;
+    if (includeBandwidth && includeComputeIoBound)
+      genMsg << ", ";
+    if (includeComputeIoBound)
+      genMsg << "aie_tile=compute_io_bound start_pc=0x" << std::hex << computeIoCfg.startPc
+             << " stop_pc=0x" << computeIoCfg.stopPc << std::dec;
+    genMsg << ")";
+    xrt_core::message::send(severity_level::debug, "XRT", genMsg.str());
 
     auto* run_impl = static_cast<xrt::run_impl*>(run_impl_ptr);
     try {

@@ -6,7 +6,9 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "aiebu/aiebu_assembler.h"
@@ -37,6 +39,10 @@ namespace xdp {
       void computeOpLocations(void* elf_handle, const std::string& kernel_name);
 
       std::map<std::string, std::vector<aiebu::aiebu_assembler::op_loc>> m_op_locations_cache;
+
+      // compute_io_bound start/stop PCs read once from the PC metadata JSON.
+      std::optional<std::pair<uint32_t, uint32_t>> m_computeIoPcs;
+      bool m_computeIoPcsResolved = false;
   };
 
 }

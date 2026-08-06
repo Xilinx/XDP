@@ -164,8 +164,7 @@ public:
                            void* hwctx,
                            const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
                            const std::string& metricSet = "ddr_bandwidth",
-                           uint8_t channel = 0,
-                           std::string* outMetadataJson = nullptr);
+                           uint8_t channel = 0);
 
 private:
   /**
@@ -302,19 +301,6 @@ private:
                             const std::vector<CTCounterInfo>& allCounters,
                             const std::vector<CTRegisterWrite>& beginBlockWrites,
                             const std::string& outputPath);
-
-  /**
-   * @brief Build the per-UC counter metadata as a compact JSON string
-   *
-   * Produces the same structure embedded in the CT begin-block
-   * COUNTER_METADATA comment (keyed by ASM id -> array of counter descriptors).
-   * Used to inject the metadata into the JSON dtrace dump during post-processing,
-   * since the dtrace engine drops CT comments from the JSON output.
-   *
-   * @param asmFileInfoList ASM file infos with filtered per-UC counters
-   * @return JSON object string, e.g. {"0":[{"col":0,"row":0,"ctr":0,...}]}
-   */
-  std::string buildBandwidthMetadataJson(const std::vector<ASMFileInfo>& asmFileInfoList);
 
 private:
   VPDatabase* db;

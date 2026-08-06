@@ -182,12 +182,6 @@ namespace xdp {
     if (itr == handleToAIEDtraceImpl.end())
       return;
 
-    // Post-process the JSON dtrace dump for this context. This runs from
-    // finish_flush_device on hw context teardown, i.e. after core has written the
-    // dtrace_dump_ctx_<slot>_*.json file, so the dump exists and can be augmented
-    // with the counter metadata captured during CT generation.
-    itr->second->finalizeDtraceDump();
-
     // Drop implementation without endPoll(): dtrace must not read/offload on hwctx teardown;
     // ~AieDtrace_VE2Impl releases FAL resources only.
     handleToAIEDtraceImpl.erase(itr);

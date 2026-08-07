@@ -115,9 +115,9 @@ public:
    *                 hardware addresses regardless of where XRT placed the partition
    */
   AieDtraceCTWriter(VPDatabase* database,
-                     std::shared_ptr<AieDtraceMetadata> metadata,
-                     uint64_t deviceId,
-                     uint8_t startCol);
+                    std::shared_ptr<AieDtraceMetadata> metadata,
+                    uint64_t deviceId,
+                    uint8_t startCol);
 
   /**
    * @brief Destructor

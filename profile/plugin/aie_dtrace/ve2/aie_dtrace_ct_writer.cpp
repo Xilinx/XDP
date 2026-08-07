@@ -9,6 +9,7 @@
 #include "xdp/profile/database/static_info/aie_constructs.h"
 #include "xdp/profile/database/static_info/aie_util.h"
 
+#include "core/common/config_reader.h"
 #include "core/common/message.h"
 
 #include <algorithm>
@@ -1061,7 +1062,7 @@ bool AieDtraceCTWriter::writeBandwidthCTFile(
   ctFile << "# Fixed 4 counters per shim tile: S2MM ch0,ch1 + MM2S ch0,ch1\n";
   ctFile << "# Post-processing filters by metric: read_bandwidth, write_bandwidth, ddr_bandwidth\n";
   if (!allL2l2Counters.empty())
-    ctFile << "# Memtile L2-L2 inter-stamp halo counters appended when l2_l2_transfer_metrics=true\n";
+    ctFile << "# Memtile L2-L2 inter-stamp halo counters appended when tile_based_memory_tile_metrics includes l2_l2_transfer\n";
   ctFile << "\n";
 
   ctFile << "begin\n";
@@ -1315,43 +1316,51 @@ bool AieDtraceCTWriter::generateBandwidthCT(
     const uint32_t numCols = aiePartitionPt.empty() ? 0
         : static_cast<uint32_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols", 0));
 
-    auto counterPoints = aie::dtrace::getL2L2CounterPoints(numCols);
-    if (counterPoints.empty()) {
-      std::stringstream l2Msg;
-      l2Msg << "AIE dtrace: L2-L2 counters require the 1x6x4x4 baseline ("
-            << aie::dtrace::L2L2_BASELINE_NUM_COLS << " columns); partition has "
-            << numCols << " columns. Skipping L2-L2 CT append.";
-      xrt_core::message::send(severity_level::warning, "XRT", l2Msg.str());
-    } else {
-      std::map<uint8_t, std::vector<aie::dtrace::L2L2CounterPoint>> pointsByColumn;
-      for (const auto& point : counterPoints)
-        pointsByColumn[point.column].push_back(point);
+    const auto instrumentPoints = aie::dtrace::parseL2L2DesignPoints(
+        xrt_core::config::get_aie_dtrace_settings_l2_l2_design_points());
+    if (!instrumentPoints.empty()) {
+      auto counterPoints = aie::dtrace::getL2L2CounterPoints(
+          partitionStartCol, numCols, instrumentPoints);
+      if (counterPoints.size() == instrumentPoints.size() * 2) {
+        std::map<uint8_t, std::vector<aie::dtrace::L2L2CounterPoint>> pointsByColumn;
+        for (const auto& point : counterPoints)
+          pointsByColumn[point.column].push_back(point);
 
-      for (const auto& entry : pointsByColumn) {
-        auto pcWrites = generateMemtilePerfCounterConfig(entry.first, entry.second);
-        l2l2BeginBlockWrites.insert(l2l2BeginBlockWrites.end(),
-                                    pcWrites.begin(), pcWrites.end());
+        for (const auto& entry : pointsByColumn) {
+          auto pcWrites = generateMemtilePerfCounterConfig(entry.first, entry.second);
+          l2l2BeginBlockWrites.insert(l2l2BeginBlockWrites.end(),
+                                      pcWrites.begin(), pcWrites.end());
+        }
+
+        for (const auto& point : counterPoints) {
+          CTCounterInfo info;
+          info.column = point.column;
+          info.row = point.row;
+          info.counterNumber = point.counterNumber;
+          info.channel = 0;
+          info.module = "memory_tile";
+          info.address = calculateCounterAddress(point.column, point.row, point.counterNumber,
+                                                 "memory_tile");
+          info.metricSet = "l2_l2_transfer";
+          info.portDirection = "input";
+          info.eventType = point.eventType;
+          allL2l2Counters.push_back(info);
+        }
+
+        std::stringstream l2Msg;
+        l2Msg << "AIE dtrace: Appending " << allL2l2Counters.size()
+              << " inter-stamp memtile L2-L2 counters to bandwidth CT (start_col="
+              << static_cast<int>(partitionStartCol) << ", num_cols=" << numCols << ")";
+        xrt_core::message::send(severity_level::info, "XRT", l2Msg.str());
+      } else {
+        std::stringstream l2Msg;
+        l2Msg << "AIE dtrace: L2-L2 design points are invalid for this partition (start_col="
+              << static_cast<int>(partitionStartCol) << ", num_cols=" << numCols
+              << "). Check l2_l2_design_points column indices and dst paths per memtile (max "
+              << static_cast<int>(aie::dtrace::L2L2_MAX_DST_PATHS_PER_COLUMN)
+              << "). Skipping L2-L2 CT append.";
+        xrt_core::message::send(severity_level::warning, "XRT", l2Msg.str());
       }
-
-      for (const auto& point : counterPoints) {
-        CTCounterInfo info;
-        info.column = point.column;
-        info.row = point.row;
-        info.counterNumber = point.counterNumber;
-        info.channel = 0;
-        info.module = "memory_tile";
-        info.address = calculateCounterAddress(point.column, point.row, point.counterNumber,
-                                               "memory_tile");
-        info.metricSet = "l2_l2_transfer";
-        info.portDirection = "input";
-        info.eventType = point.eventType;
-        allL2l2Counters.push_back(info);
-      }
-
-      std::stringstream l2Msg;
-      l2Msg << "AIE dtrace: Appending " << allL2l2Counters.size()
-            << " inter-stamp memtile L2-L2 counters to bandwidth CT (num_cols=" << numCols << ")";
-      xrt_core::message::send(severity_level::info, "XRT", l2Msg.str());
     }
   }
   // ========================================= L2-L2 transfer metrics ==========================================

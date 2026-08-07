@@ -15,6 +15,7 @@
 #include "core/common/message.h"
 #include "xdp/profile/database/database.h"
 #include "xdp/profile/database/static_info/aie_util.h"
+#include "xdp/profile/plugin/aie_dtrace/util/aie_dtrace_util.h"
 #include "xdp/profile/plugin/vp_base/profiling_runtime_config.h"
 
 namespace xdp {
@@ -27,6 +28,21 @@ namespace xdp {
       "peak_read_bandwidth", "peak_write_bandwidth",
       "detailed_ddr_read_bandwidth", "detailed_ddr_write_bandwidth", "off"};
     return metrics;
+  }
+
+  static constexpr const char* L2L2_TRANSFER_METRIC_SET = "l2_l2_transfer";
+
+  bool settingsRequestL2L2Transfer(const std::vector<std::string>& metricsSettings)
+  {
+    for (const auto& setting : metricsSettings) {
+      std::vector<std::string> parts;
+      boost::split(parts, setting, boost::is_any_of(":"));
+      for (const auto& part : parts) {
+        if (part == L2L2_TRANSFER_METRIC_SET)
+          return true;
+      }
+    }
+    return false;
   }
 
   AieDtraceMetadata::AieDtraceMetadata(uint64_t deviceID, void* handle)
@@ -54,9 +70,26 @@ namespace xdp {
             + "' from profiling_runtime_config will be supported in a follow-up.");
       }
       if (ci.mem_tile.has_value() && !ci.mem_tile->empty()) {
-        xrt_core::message::send(severity_level::info, "XRT",
-            "AIE dtrace: mem tile metric '" + *ci.mem_tile
-            + "' from profiling_runtime_config will be supported in a follow-up.");
+        if (*ci.mem_tile == L2L2_TRANSFER_METRIC_SET) {
+          l2L2TransferEnabled = true;
+          xrt_core::message::send(severity_level::info, "XRT",
+              "AIE dtrace: enabling L2-L2 via mem_tile metric '" + *ci.mem_tile
+              + "' from Debug.profiling_runtime_config.");
+        } else {
+          xrt_core::message::send(severity_level::info, "XRT",
+              "AIE dtrace: mem tile metric '" + *ci.mem_tile
+              + "' from profiling_runtime_config will be supported in a follow-up.");
+        }
+      }
+    }
+
+    if (l2L2TransferEnabled) {
+      const auto designPoints = aie::dtrace::parseL2L2DesignPoints(
+          xrt_core::config::get_aie_dtrace_settings_l2_l2_design_points());
+      if (designPoints.empty()) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: L2-L2 is enabled but AIE_dtrace_settings.l2_l2_design_points is "
+            "empty or invalid. L2-L2 counters will not be appended to the CT.");
       }
     }
 
@@ -86,6 +119,8 @@ namespace xdp {
     using boost::property_tree::ptree;
     const std::set<std::string> validSettings {
       "tile_based_interface_tile_metrics",
+      "tile_based_memory_tile_metrics",
+      "l2_l2_design_points",
       "configure_aie_hardware",
       "config_one_partition",
     };
@@ -93,6 +128,12 @@ namespace xdp {
     auto tree = xrt_core::config::detail::get_ptree_value("AIE_dtrace_settings");
     if (auto val = tree.get_optional<bool>("config_one_partition"))
       configOnePartition = *val;
+
+    l2L2TransferEnabled = false;
+    const std::string memTileSettings =
+        xrt_core::config::get_aie_dtrace_settings_tile_based_memory_tile_metrics();
+    if (!memTileSettings.empty())
+      l2L2TransferEnabled = settingsRequestL2L2Transfer(getSettingsVector(memTileSettings));
 
     for (ptree::iterator pos = tree.begin(); pos != tree.end(); pos++) {
       if (validSettings.find(pos->first) == validSettings.end()) {

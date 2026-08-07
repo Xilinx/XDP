@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "aiebu/aiebu_assembler.h"
+#include "xdp/profile/plugin/aie_dtrace/util/aie_dtrace_util.h"
 
 namespace xdp {
 
@@ -57,7 +58,8 @@ struct ASMFileInfo {
   uint32_t opLocMinCol = UINT32_MAX;
   uint32_t opLocMaxCol = 0;
   std::vector<SaveTimestampInfo> timestamps;   // SAVE_TIMESTAMPS lines
-  std::vector<CTCounterInfo> counters;         // Filtered counters for this ASM
+  std::vector<CTCounterInfo> counters;         // Filtered shim counters for this ASM
+  std::vector<CTCounterInfo> l2l2Counters;    // Filtered memtile L2-L2 counters for this ASM
 };
 
 /**
@@ -113,9 +115,9 @@ public:
    *                 hardware addresses regardless of where XRT placed the partition
    */
   AieDtraceCTWriter(VPDatabase* database,
-                     std::shared_ptr<AieDtraceMetadata> metadata,
-                     uint64_t deviceId,
-                     uint8_t startCol);
+                    std::shared_ptr<AieDtraceMetadata> metadata,
+                    uint64_t deviceId,
+                    uint8_t startCol);
 
   /**
    * @brief Destructor
@@ -300,7 +302,13 @@ private:
   bool writeBandwidthCTFile(const std::vector<ASMFileInfo>& asmFileInfoList,
                             const std::vector<CTCounterInfo>& allCounters,
                             const std::vector<CTRegisterWrite>& beginBlockWrites,
-                            const std::string& outputPath);
+                            const std::string& outputPath,
+                            const std::vector<CTRegisterWrite>& l2l2BeginBlockWrites = {},
+                            const std::vector<CTCounterInfo>& allL2l2Counters = {});
+
+  std::vector<CTRegisterWrite> generateMemtilePerfCounterConfig(
+      uint8_t column,
+      const std::vector<aie::dtrace::L2L2CounterPoint>& counterPoints);
 
 private:
   VPDatabase* db;
@@ -320,7 +328,12 @@ private:
 
   // Stream switch and performance counter configuration offsets
   static constexpr uint64_t STREAM_SWITCH_EVENT_PORT_SEL_OFFSET = 0x0003FF00;
+  static constexpr uint64_t MEM_TILE_PERF_CTRL0_OFFSET          = 0x00091000;
+  static constexpr uint64_t MEM_TILE_PERF_CTRL1_OFFSET          = 0x00091004;
   static constexpr uint64_t PERF_CTRL_OFFSET = 0x00031000;
+
+  static constexpr uint8_t PORT_RUNNING_0_MEM_TILE_EVENT = 80;  // PORT_RUNNING_N = 80 + 4*N
+  static constexpr uint8_t PORT_STALLED_0_MEM_TILE_EVENT = 81;  // PORT_STALLED_N = 81 + 4*N
 
   // Bandwidth monitoring constants
   static constexpr uint8_t NUM_BANDWIDTH_COUNTERS = 4;

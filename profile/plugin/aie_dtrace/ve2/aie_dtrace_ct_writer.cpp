@@ -636,9 +636,12 @@ bool AieDtraceCTWriter::writeCTFile(const std::vector<ASMFileInfo>& asmFileInfoL
     ctFile << "{\n";
     ctFile << "    ts_" << asmFileInfo.asmId << " = timestamp32()\n";
 
-    // Write counter reads using _ as throwaway variable
+    // Write counter reads. Each counter is assigned a sequential result
+    // variable (_0, _1, _2, ...) so the dtrace JSON dump emits one key per
+    // counter ("_0", "_1", ...) in probe order; counter semantics are provided
+    // by the COUNTER_METADATA block above.
     for (size_t i = 0; i < asmFileInfo.counters.size(); i++) {
-      ctFile << "    _ = read_reg("
+      ctFile << "    _" << i << " = read_reg("
              << formatAddress(asmFileInfo.counters[i].address) << ")\n";
     }
 
@@ -1156,9 +1159,12 @@ bool AieDtraceCTWriter::writeBandwidthCTFile(
     ctFile << "{\n";
     ctFile << "    ts_" << asmFileInfo.asmId << " = timestamp32()\n";
 
+    // Each counter is assigned a sequential result variable (_0, _1, _2, ...)
+    // so the dtrace JSON dump emits one key per counter ("_0", "_1", ...) in
+    // probe order; counter semantics live in the COUNTER_METADATA block above.
     for (size_t i = 0; i < asmFileInfo.counters.size(); i++) {
       const auto& ctr = asmFileInfo.counters[i];
-      ctFile << "    _ = read_reg(" << formatAddress(ctr.address) << ")\n";
+      ctFile << "    _" << i << " = read_reg(" << formatAddress(ctr.address) << ")\n";
     }
 
     ctFile << "}\n\n";

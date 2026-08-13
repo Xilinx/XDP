@@ -195,13 +195,29 @@ bool AIETraceOffload::initReadTrace()
   xrt_bos.clear();
 
   xdp::aie::driver_config meta_config = metadata->getAIEConfigMetadata();
+
+  // Determine the control-code submission flow for this hw_context.
+  bool isFullElfFlow = false;
+  uint8_t numColumns = meta_config.num_columns;
+  try {
+    isFullElfFlow = xrt_core::hw_context_int::get_elf_flow(context);
+    if (isFullElfFlow) {
+      size_t partitionSize = xrt_core::hw_context_int::get_partition_size(context);
+      if (partitionSize > 0)
+        numColumns = static_cast<uint8_t>(partitionSize);
+    }
+  } catch (const std::exception& e) {
+    xrt_core::message::send(severity_level::warning, "XRT",
+        std::string("Failed to query ELF flow for AIE trace offload, assuming xclbin flow: ") + e.what());
+  }
+
   XAie_Config cfg{
     meta_config.hw_gen,
     meta_config.base_address,
     meta_config.column_shift,
     meta_config.row_shift,
     meta_config.num_rows,
-    meta_config.num_columns,
+    numColumns,
     meta_config.shim_row,
     meta_config.mem_row_start,
     meta_config.mem_num_rows,
@@ -220,6 +236,10 @@ bool AIETraceOffload::initReadTrace()
   if (!tranxHandler->initializeTransaction(&aieDevInst, "AieTraceOffload" + std::to_string(deviceId)))
     return false;
 
+  // Reuse the flow queried above so submitTransaction() opens the kernel via the
+  // matching path (add_config vs xrt::module).
+  tranxHandler->setElfFlow(isFullElfFlow);
+
   for (uint64_t i = 0; i < numStream; ++i) {
     VPDatabase* db = VPDatabase::Instance();
     TraceGMIO* traceGMIO = (db->getStaticInfo()).getTraceGMIO(deviceId, i);
@@ -230,8 +250,7 @@ bool AIETraceOffload::initReadTrace()
 
     try {
       xrt_bos.emplace_back(xrt::bo(context.get_device(), bufAllocSz,
-                           XRT_BO_FLAGS_HOST_ONLY,
-                           tranxHandler->getGroupID(0, context)));
+                           XRT_BO_FLAGS_HOST_ONLY, 0));
     } catch (const std::exception& ex) {
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
           std::string("AIE trace BO allocation failed: ") + ex.what());

@@ -22,10 +22,12 @@
 #include <memory>
 #include <sstream>
 
-#if defined (XDP_VE2_BUILD) && defined (XDP_VE2_ZOCL_BUILD) // ZOCL build
-#include "core/common/shim/hwctx_handle.h"
+#if defined (XDP_VE2_BUILD)
 #include "core/common/api/hw_context_int.h"
+#if defined (XDP_VE2_ZOCL_BUILD) // ZOCL build
+#include "core/common/shim/hwctx_handle.h"
 #include "shim_ve2/xdna_hwctx.h"
+#endif
 #endif
 
 #ifdef XDP_VE2_ZOCL_BUILD
@@ -1245,13 +1247,38 @@ namespace xdp {
     interfaceTileTraceEndEvent = XAIE_EVENT_USER_EVENT_1_PL;
 
     xdp::aie::driver_config meta_config = metadata->getAIEConfigMetadata();
+
+    // Determine the control-code submission flow for this hw_context.
+    bool isFullELFFlow = false;
+    uint8_t numColumns = meta_config.num_columns;
+    {
+      xrt::hw_context context =
+        xrt_core::hw_context_int::create_hw_context_from_implementation(metadata->getHandle());
+      try {
+        isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(context);
+      } catch (const std::exception& e) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            std::string("Failed to query ELF flow, assuming xclbin flow: ") + e.what());
+      }
+
+      // Full-ELF add_config() rejects an ELF whose partition column count
+      // differs from the hw_context's, so use the actual partition width instead
+      // of metadata num_columns (traced tiles are partition-relative). The
+      // xclbin flow does not enforce this and keeps num_columns.
+      if (isFullELFFlow) {
+        size_t partitionSize = xrt_core::hw_context_int::get_partition_size(context);
+        if (partitionSize > 0)
+          numColumns = static_cast<uint8_t>(partitionSize);
+      }
+    }
+
     XAie_Config cfg {
       meta_config.hw_gen,
       meta_config.base_address,
       meta_config.column_shift,
       meta_config.row_shift,
       meta_config.num_rows,
-      meta_config.num_columns,
+      numColumns,
       meta_config.shim_row,
       meta_config.mem_row_start,
       meta_config.mem_num_rows,
@@ -1265,6 +1292,7 @@ namespace xdp {
       xrt_core::message::send(severity_level::warning, "XRT", "AIE Driver Initialization Failed.");
 
     tranxHandler = std::make_unique<aie::VE2Transaction>();
+    tranxHandler->setElfFlow(isFullELFFlow);
   }
 
   /****************************************************************************

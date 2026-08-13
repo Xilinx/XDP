@@ -62,11 +62,15 @@ struct ASMFileInfo {
 
 /**
  * @brief Register write operation for CT file begin block
+ *
+ * A mask other than 0xFFFFFFFF emits mask_write_reg instead of write_reg, which
+ * is required for registers whose remaining fields belong to someone else.
  */
 struct CTRegisterWrite {
   uint64_t address;
   uint32_t value;
   std::string comment;
+  uint32_t mask = 0xFFFFFFFF;
 };
 
 /**
@@ -90,19 +94,6 @@ struct BandwidthCounterConfig {
   bool isMaster;           // true=S2MM/output (master), false=MM2S/input (slave)
   std::string direction;   // "input" (MM2S) or "output" (S2MM)
   std::string eventType;   // "running" or "stalled"
-};
-
-/**
- * @brief Resolved kernelWrapper PCs for the single core-tile compute_io_bound counter.
- *
- * Used identically for static and reloadable designs: the compute counter is driven
- * by PC breakpoint events - Start=PC_0 at startPc (the indirect kernel dispatch),
- * Stop=PC_1 at stopPc (the 10th listed instruction from it) - so it accumulates the
- * whole dispatch window including the called kernel.
- */
-struct ComputeIoCoreConfig {
-  uint32_t startPc = 0;  // indirect kernel dispatch ("jl pN")
-  uint32_t stopPc = 0;   // 10th listed instruction from the dispatch
 };
 
 /**
@@ -193,8 +184,7 @@ public:
    * @param includeBandwidth Emit interface-tile bandwidth counters
    * @param bandwidthMetricSet Bandwidth metric set (used when includeBandwidth)
    * @param bandwidthChannel DMA channel for detailed_ddr_*_bandwidth sets
-   * @param includeComputeIoBound Emit the single core-tile compute_io_bound counters
-   * @param computeIoCfg Resolved compute_io_bound core configuration (used when includeComputeIoBound)
+   * @param includeComputeIoBound Emit the core-tile compute_io_bound counters
    * @return true if CT file was generated successfully, false otherwise
    */
   bool generateCT(const std::string& outputPath,
@@ -203,8 +193,7 @@ public:
                   bool includeBandwidth,
                   const std::string& bandwidthMetricSet,
                   uint8_t bandwidthChannel,
-                  bool includeComputeIoBound,
-                  const ComputeIoCoreConfig& computeIoCfg);
+                  bool includeComputeIoBound);
 
 private:
   /**
@@ -350,28 +339,52 @@ private:
       std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites);
 
   /**
-   * @brief Append the single core-tile compute_io_bound counters and begin-block writes
-   * @param cfg Resolved compute_io_bound core configuration
+   * @brief Append the compute_io_bound counters and begin-block writes
    * @param counters [in,out] Accumulated counter list
    * @param beginWrites [in,out] Accumulated begin-block register writes
    */
-  void appendComputeIoBoundConfig(const ComputeIoCoreConfig& cfg,
-      std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites);
+  void appendComputeIoBoundConfig(std::vector<CTCounterInfo>& counters,
+      std::vector<CTRegisterWrite>& beginWrites);
 
   /**
-   * @brief Generate PC-event + performance counter config for a single core tile
+   * @brief Generate the core module config for the compute_io_bound tile
    *
-   * Programs PC_Event0-3 (with the Valid bit), resets performance counters 2/3, and
-   * configures Performance_Ctrl1 so counter 2 measures kernelWrapper (Start=PC_0 at
-   * startPc, Stop=PC_1 at stopPc) and counter 3 measures total (PC_Range_2-3 over
-   * [0, PROG_MEM_END]).
+   * Counters 2 and 3 count total execution cycles (PC_Range_2-3 over [0, PROG_MEM_END])
+   * and group stall, each with Start == Stop so it accumulates the cycles its event is
+   * asserted. Only Performance_Control1 is written, so counters 0 and 1 and their shared
+   * Performance_Control0 are left untouched. Also drives the four individual stall events
+   * onto broadcast channels and blocks them everywhere but east, the internal link to the
+   * memory module.
    *
    * @param column Partition-relative core tile column
-   * @param cfg Resolved kernelWrapper start/stop PCs
+   * @param row Absolute core tile row
    * @return Vector of register writes for the begin block
    */
-  std::vector<CTRegisterWrite> generatePcStartStopCoreConfig(uint8_t column,
-      const ComputeIoCoreConfig& cfg);
+  std::vector<CTRegisterWrite> generateComputeCoreConfig(uint8_t column, uint8_t row);
+
+  /**
+   * @brief Generate the memory module config for the compute_io_bound tile
+   *
+   * Counters 0-3 count the memory, stream, cascade and lock stall events arriving from
+   * the core module as broadcasts. The broadcast is blocked in all four directions:
+   * blocking west does not stop the module observing the event locally, it only stops it
+   * re-driving the signal back into the core module.
+   *
+   * @param column Partition-relative core tile column
+   * @param row Absolute core tile row
+   * @return Vector of register writes for the begin block
+   */
+  std::vector<CTRegisterWrite> generateComputeMemoryConfig(uint8_t column, uint8_t row);
+
+  /**
+   * @brief Append broadcast block writes for the compute_io_bound channels
+   * @param blockBase Module's Event_Broadcast_Block_South_Set offset
+   * @param openDir Direction index to leave unblocked, or -1 to block all four
+   * @param loc Human-readable location for the generated comments
+   * @param writes [in,out] Accumulated begin-block register writes
+   */
+  void appendBroadcastBlockConfig(uint64_t blockBase, int openDir, const std::string& loc,
+      uint64_t tileAddress, std::vector<CTRegisterWrite>& writes);
 
   /**
    * @brief Write a self-contained counter CT file with begin-block register writes
@@ -407,19 +420,66 @@ private:
   static constexpr uint64_t STREAM_SWITCH_EVENT_PORT_SEL_OFFSET = 0x0003FF00;
   static constexpr uint64_t PERF_CTRL_OFFSET = 0x00031000;
 
-  // Core (aie) module offsets for the compute_io_bound metric (aie2ps)
+  // Core (aie) module offsets for the compute_io_bound metric (aie2ps).
+  // Performance_Control0 (0x00037500) is deliberately never written: it holds counter
+  // 0's start/stop events, and the driver's ECC scrubbing owns core counter 0
+  // (XAIE_ECC_PERFCOUNTER_ID in xaie_ecc.c). Counters programmed there did not stick.
   static constexpr uint64_t CM_PERF_CTRL1     = 0x00037504;  // Counters 2,3 start/stop events
   static constexpr uint64_t CM_PERF_COUNTER0  = 0x00037520;  // Counter 0 (Counter N at +4*N)
   static constexpr uint64_t CM_PC_EVENT0      = 0x00038020;  // PC_Event0 (1..3 at +4 each)
+  static constexpr uint64_t CM_EVENT_GROUP_CORE_STALL_ENABLE = 0x00034508;
   static constexpr uint32_t PC_EVENT_VALID    = 0x80000000;  // PC_Event Valid bit (bit 31)
   static constexpr uint32_t PC_ADDRESS_MASK   = 0x00003FFF;  // PC_Address field (bits 13:0)
   static constexpr uint32_t PROG_MEM_END      = 0x00003FFF;  // End of 16KB program memory
-  static constexpr uint8_t  PC_0_EVENT         = 16;         // XAIE2PS_EVENTS_CORE_PC_0 (breakpoint @ PC_Event0)
-  static constexpr uint8_t  PC_1_EVENT         = 17;         // XAIE2PS_EVENTS_CORE_PC_1 (breakpoint @ PC_Event1)
-  static constexpr uint8_t  PC_RANGE_2_3_EVENT = 21;         // XAIE2PS_EVENTS_CORE_PC_RANGE_2_3
 
-  // compute_io_bound configures a single core tile: the first column / first core
-  // row. The absolute row comes from coreRowStart (driver_config.aie_tile_row_start).
+  // Memory module offsets (aie2ps). The bundled aie-codegen register database only
+  // describes two memory module counters, so these come from the aie2ps spec. All four
+  // memory module counters are free on AIE tiles: ECC only claims the memory module
+  // counter 0 of MEM tiles (_XAie_EccPerfCntConfigMemTile), not of AIE tiles.
+  static constexpr uint64_t MM_PERF_CTRL0     = 0x00011000;  // Counters 0,1 start/stop events
+  static constexpr uint64_t MM_PERF_CTRL2     = 0x0001100C;  // Counters 2,3 start/stop events
+  static constexpr uint64_t MM_PERF_COUNTER0  = 0x00011020;  // Counter 0 (Counter N at +4*N)
+
+  // Restrict Group_Core_Stall to the four stalls that are also counted individually,
+  // dropping the reset value's debug/active/disable/ECC contributors.
+  static constexpr uint32_t GROUP_CORE_STALL_MASK = 0x0000000F;
+
+  // aie2ps core module events (xaie_events_aie2ps.h)
+  static constexpr uint8_t  PC_RANGE_2_3_EVENT = 21;
+  static constexpr uint8_t  GROUP_STALL_EVENT  = 22;
+  static constexpr uint8_t  MEMORY_STALL_EVENT = 23;
+  static constexpr uint8_t  STREAM_STALL_EVENT = 24;
+  static constexpr uint8_t  CASCADE_STALL_EVENT = 25;
+  static constexpr uint8_t  LOCK_STALL_EVENT   = 26;
+
+  // Memory module event Broadcast_N is MEM_BROADCAST_0_EVENT + N.
+  static constexpr uint8_t  MEM_BROADCAST_0_EVENT = 107;
+
+  // Event_Broadcast0 registers (channel N at +4*N) and the broadcast block registers,
+  // laid out as base + direction * BCAST_BLOCK_DIR_STRIDE with Set at +0 and Clr at +4.
+  static constexpr uint64_t CM_EVENT_BROADCAST0    = 0x00034010;
+  static constexpr uint64_t CM_BCAST_BLOCK_BASE    = 0x00034050;
+  static constexpr uint64_t MM_BCAST_BLOCK_BASE    = 0x00014050;
+  static constexpr uint64_t BCAST_BLOCK_DIR_STRIDE = 0x10;
+  static constexpr uint64_t BCAST_BLOCK_CLR_OFFSET = 4;
+  static constexpr int      BCAST_DIR_SOUTH = 0;
+  static constexpr int      BCAST_DIR_WEST  = 1;
+  static constexpr int      BCAST_DIR_NORTH = 2;
+  static constexpr int      BCAST_DIR_EAST  = 3;
+  static constexpr int      BCAST_NUM_DIRS  = 4;
+
+  // Broadcast channels carrying the four individual stall events to the memory module.
+  // Channels 0-2 are reserved by the driver for error/UC/user events, and channel 6 by
+  // ECC; the FAL resource manager hands out low ids, so these count down from the top.
+  static constexpr uint8_t  STREAM_STALL_BCAST_CHANNEL  = 15;
+  static constexpr uint8_t  CASCADE_STALL_BCAST_CHANNEL = 14;
+  static constexpr uint8_t  LOCK_STALL_BCAST_CHANNEL    = 13;
+  static constexpr uint8_t  MEMORY_STALL_BCAST_CHANNEL  = 12;
+
+  // compute_io_bound uses a single tile: core module counters 2 and 3 for total
+  // execution cycles and group stall, memory module counters 0-3 for the four
+  // individual stalls arriving as broadcasts. Only registers this metric fully owns are
+  // written, so no counter shares a control register with another owner.
   static constexpr uint8_t COMPUTE_IO_CORE_COL = 0;
 
   // Bandwidth monitoring constants

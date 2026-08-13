@@ -152,9 +152,8 @@ namespace xdp {
     if (metricsSettings.empty())
       return;
 
-    // These settings only enable/disable the metric. The tile itself is fixed
-    // to the first column / first core row; only a single core tile is ever
-    // configured for compute_io_bound.
+    // These settings only enable/disable the metric; the tiles themselves are
+    // fixed, and the CT writer decides which ones compute_io_bound needs.
     std::string metricSet;
     for (const auto& setting : metricsSettings) {
       std::vector<std::string> parts;
@@ -184,10 +183,7 @@ namespace xdp {
     configMetrics[moduleIdx][tile] = metricSet;
 
     xrt_core::message::send(severity_level::info, "XRT",
-        "AIE dtrace: configured core tile (col "
-        + std::to_string(static_cast<int>(COMPUTE_IO_CORE_COL)) + ", row "
-        + std::to_string(static_cast<int>(COMPUTE_IO_CORE_ROW))
-        + ") with metric set '" + metricSet + "'.");
+        "AIE dtrace: enabled core (aie) tile metric set '" + metricSet + "'.");
   }
 
   void AieDtraceMetadata::getConfigMetricsForInterfaceTiles(int moduleIdx,

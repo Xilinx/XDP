@@ -21,9 +21,9 @@ class AieDtraceMetadata {
     static constexpr int CORE_MODULE_IDX = static_cast<int>(module_type::core);
     static constexpr int NUM_MODULES = static_cast<int>(module_type::num_types);
 
-    // compute_io_bound configures a single core tile: the first column / first
-    // core row. Used as the config-map key here; the CT writer derives the
-    // actual absolute row from driver_config.aie_tile_row_start.
+    // Placeholder tile used only as the config-map key that enables the metric.
+    // The CT writer picks the core tiles compute_io_bound actually programs and
+    // derives their absolute rows from driver_config.aie_tile_row_start.
     static constexpr uint8_t COMPUTE_IO_CORE_COL = 0;
     static constexpr uint8_t COMPUTE_IO_CORE_ROW = 3;
 

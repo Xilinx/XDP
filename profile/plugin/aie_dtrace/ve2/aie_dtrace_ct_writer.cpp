@@ -1065,13 +1065,25 @@ bool AieDtraceCTWriter::writeCounterCTFile(
   ctFile << "    ts_start = timestamp32()\n";
 
   if (!beginBlockWrites.empty()) {
-    ctFile << "\n    # Hardware configuration for bandwidth counters\n";
+    ctFile << "\n    # Hardware configuration for the performance counters\n";
     for (const auto& write : beginBlockWrites) {
       if (!write.comment.empty())
         ctFile << "    # " << write.comment << "\n";
-      ctFile << "    write_reg(" << formatAddress(write.address)
-             << ", 0x" << std::hex << std::setfill('0') << std::setw(8)
-             << write.value << std::dec << ")\n";
+
+      auto hex32 = [&ctFile](uint32_t value) -> std::ostream& {
+        return ctFile << "0x" << std::hex << std::setfill('0') << std::setw(8)
+                      << value << std::dec;
+      };
+
+      if (write.mask != 0xFFFFFFFF) {
+        ctFile << "    mask_write_reg(" << formatAddress(write.address) << ", ";
+        hex32(write.mask) << ", ";
+        hex32(write.value) << ")\n";
+      }
+      else {
+        ctFile << "    write_reg(" << formatAddress(write.address) << ", ";
+        hex32(write.value) << ")\n";
+      }
     }
     ctFile << "\n";
   }
@@ -1093,10 +1105,21 @@ bool AieDtraceCTWriter::writeCounterCTFile(
 
     for (size_t c = 0; c < asmFileInfo.counters.size(); c++) {
       const auto& ctr = asmFileInfo.counters[c];
+      // The module disambiguates counters that share a tile and counter number, as the
+      // core and memory module counters of the compute_io_bound tile do.
+      std::string modTag = "core";
+      if (ctr.module == "aie_memory")
+        modTag = "mem";
+      else if (ctr.module == "interface_tile")
+        modTag = "shim";
+      else if (ctr.module == "memory_tile")
+        modTag = "memtile";
+
       ctFile << "#     {\"col\": " << static_cast<int>(ctr.column)
              << ", \"row\": " << static_cast<int>(ctr.row)
              << ", \"ctr\": " << static_cast<int>(ctr.counterNumber)
              << ", \"ch\": " << static_cast<int>(ctr.channel)
+             << ", \"mod\": \"" << modTag << "\""
              << ", \"dir\": ";
 
       if (ctr.portDirection == "input")
@@ -1260,40 +1283,50 @@ bool AieDtraceCTWriter::appendBandwidthConfig(
 }
 
 void AieDtraceCTWriter::appendComputeIoBoundConfig(
-    const ComputeIoCoreConfig& cfg,
     std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites)
 {
-  // Single core tile: two counters (kernelWrapper and total) using performance
-  // counters 2 and 3. The listing/metadata use relative core rows, so the first
-  // core row's absolute row for register addressing is aie_tile_row_start.
+  // The metric uses both modules of one tile. Only control registers it fully owns are
+  // written, which limits the core module to counters 2 and 3 (Performance_Control1);
+  // the four individual stalls are broadcast to the memory module, whose counters 0-3
+  // are all free on AIE tiles. The listing/metadata use relative core rows, so the first
+  // core row's absolute row is aie_tile_row_start.
   const uint8_t row = coreRowStart;
 
-  CTCounterInfo compute;
-  compute.column = COMPUTE_IO_CORE_COL;
-  compute.row = row;
-  compute.counterNumber = 2;
-  compute.channel = 0;
-  compute.module = "aie";
-  compute.address = calculateCounterAddress(COMPUTE_IO_CORE_COL, row, 2, "aie");
-  compute.metricSet = "compute_io_bound";
-  compute.portDirection = "";
-  compute.eventType = "compute";
-  counters.push_back(compute);
+  struct CounterLayout {
+    const char* module;
+    uint8_t counterNumber;
+    const char* eventType;
+  };
 
-  CTCounterInfo ioCompute;
-  ioCompute.column = COMPUTE_IO_CORE_COL;
-  ioCompute.row = row;
-  ioCompute.counterNumber = 3;
-  ioCompute.channel = 0;
-  ioCompute.module = "aie";
-  ioCompute.address = calculateCounterAddress(COMPUTE_IO_CORE_COL, row, 3, "aie");
-  ioCompute.metricSet = "compute_io_bound";
-  ioCompute.portDirection = "";
-  ioCompute.eventType = "io_compute";
-  counters.push_back(ioCompute);
+  const CounterLayout layout[] = {
+    {"aie",        2, "total"},
+    {"aie",        3, "group_stall"},
+    {"aie_memory", 0, "memory_stall"},
+    {"aie_memory", 1, "stream_stall"},
+    {"aie_memory", 2, "cascade_stall"},
+    {"aie_memory", 3, "lock_stall"}
+  };
 
-  auto pcWrites = generatePcStartStopCoreConfig(COMPUTE_IO_CORE_COL, cfg);
-  beginWrites.insert(beginWrites.end(), pcWrites.begin(), pcWrites.end());
+  for (const auto& entry : layout) {
+    CTCounterInfo info;
+    info.column = COMPUTE_IO_CORE_COL;
+    info.row = row;
+    info.counterNumber = entry.counterNumber;
+    info.channel = 0;
+    info.module = entry.module;
+    info.address = calculateCounterAddress(COMPUTE_IO_CORE_COL, row,
+                                           entry.counterNumber, entry.module);
+    info.metricSet = "compute_io_bound";
+    info.portDirection = "";
+    info.eventType = entry.eventType;
+    counters.push_back(info);
+  }
+
+  auto coreWrites = generateComputeCoreConfig(COMPUTE_IO_CORE_COL, row);
+  beginWrites.insert(beginWrites.end(), coreWrites.begin(), coreWrites.end());
+
+  auto memoryWrites = generateComputeMemoryConfig(COMPUTE_IO_CORE_COL, row);
+  beginWrites.insert(beginWrites.end(), memoryWrites.begin(), memoryWrites.end());
 }
 
 bool AieDtraceCTWriter::generateCT(
@@ -1303,8 +1336,7 @@ bool AieDtraceCTWriter::generateCT(
     bool includeBandwidth,
     const std::string& bandwidthMetricSet,
     uint8_t bandwidthChannel,
-    bool includeComputeIoBound,
-    const ComputeIoCoreConfig& computeIoCfg)
+    bool includeComputeIoBound)
 {
   if (opLocations.empty()) {
     xrt_core::message::send(severity_level::debug, "XRT",
@@ -1322,15 +1354,15 @@ bool AieDtraceCTWriter::generateCT(
   std::vector<CTCounterInfo> allCounters;
   std::vector<CTRegisterWrite> beginBlockWrites;
 
-  // Both metric families can be emitted into the same CT file. Bandwidth
-  // counters live on shim tiles (row 0); the compute_io_bound counters live on
-  // the single core tile (col 0, first core row). filterCountersByColumn keys by column,
-  // so both simply land in the matching UC group and read distinct addresses.
+  // Both metric families can be emitted into the same CT file. Bandwidth counters live
+  // on shim tiles (row 0); the compute_io_bound counters live on the core and memory
+  // modules of a single tile (col 0, first core row). filterCountersByColumn keys by
+  // column, so both land in the matching UC group and read distinct addresses.
   if (includeBandwidth)
     appendBandwidthConfig(hwctx, bandwidthMetricSet, bandwidthChannel, allCounters, beginBlockWrites);
 
   if (includeComputeIoBound)
-    appendComputeIoBoundConfig(computeIoCfg, allCounters, beginBlockWrites);
+    appendComputeIoBoundConfig(allCounters, beginBlockWrites);
 
   if (allCounters.empty()) {
     xrt_core::message::send(severity_level::warning, "XRT",
@@ -1356,17 +1388,40 @@ bool AieDtraceCTWriter::generateBandwidthCT(
 {
   return generateCT(outputPath, hwctx, opLocations,
                     /*includeBandwidth=*/true, metricSet, channel,
-                    /*includeComputeIoBound=*/false, ComputeIoCoreConfig{});
+                    /*includeComputeIoBound=*/false);
 }
 
-std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePcStartStopCoreConfig(
-    uint8_t column, const ComputeIoCoreConfig& cfg)
-{
-  std::vector<CTRegisterWrite> writes;
+namespace {
 
-  const uint8_t row = coreRowStart;
-  uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
-                         (static_cast<uint64_t>(row) << rowShift);
+// Start == Stop makes a performance counter accumulate the cycles its event is
+// asserted. Both control registers place a counter's start event at 'startShift'
+// and its stop event 8 bits higher.
+uint32_t
+counterEventPair(uint8_t event, unsigned startShift)
+{
+  return ((static_cast<uint32_t>(event) & 0x7F) << startShift) |
+         ((static_cast<uint32_t>(event) & 0x7F) << (startShift + 8));
+}
+
+// Channel mask of the four broadcast channels carrying the stall events.
+constexpr uint32_t
+broadcastChannelMask(uint8_t a, uint8_t b, uint8_t c, uint8_t d)
+{
+  return (1u << a) | (1u << b) | (1u << c) | (1u << d);
+}
+
+} // namespace
+
+void AieDtraceCTWriter::appendBroadcastBlockConfig(
+    uint64_t blockBase, int openDir, const std::string& loc,
+    uint64_t tileAddress, std::vector<CTRegisterWrite>& writes)
+{
+  static const char* dirNames[BCAST_NUM_DIRS] = {"south", "west", "north", "east"};
+
+  const uint32_t channels = broadcastChannelMask(STREAM_STALL_BCAST_CHANNEL,
+                                                 CASCADE_STALL_BCAST_CHANNEL,
+                                                 LOCK_STALL_BCAST_CHANNEL,
+                                                 MEMORY_STALL_BCAST_CHANNEL);
 
   auto addWrite = [&](uint64_t offset, uint32_t value, const std::string& comment) {
     CTRegisterWrite w;
@@ -1376,38 +1431,133 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePcStartStopCoreConfig(
     writes.push_back(w);
   };
 
+  for (int dir = 0; dir < BCAST_NUM_DIRS; dir++) {
+    const uint64_t dirBase = blockBase + static_cast<uint64_t>(dir) * BCAST_BLOCK_DIR_STRIDE;
+
+    // The Set/Clr registers are write-1-to-set and write-1-to-clear, so writing the
+    // channel mask only affects our three channels.
+    if (dir == openDir) {
+      addWrite(dirBase + BCAST_BLOCK_CLR_OFFSET, channels,
+               "Unblock " + std::string(dirNames[dir]) + " broadcast @ " + loc
+               + " (link to the memory module)");
+    }
+    else {
+      addWrite(dirBase, channels,
+               "Block " + std::string(dirNames[dir]) + " broadcast @ " + loc);
+    }
+  }
+}
+
+std::vector<CTRegisterWrite> AieDtraceCTWriter::generateComputeCoreConfig(
+    uint8_t column, uint8_t row)
+{
+  std::vector<CTRegisterWrite> writes;
+
+  uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
+                         (static_cast<uint64_t>(row) << rowShift);
+
+  auto addWrite = [&](uint64_t offset, uint32_t value, const std::string& comment,
+                      uint32_t mask = 0xFFFFFFFF) {
+    CTRegisterWrite w;
+    w.address = tileAddress + offset;
+    w.value = value;
+    w.comment = comment;
+    w.mask = mask;
+    writes.push_back(w);
+  };
+
   std::string loc = "core (" + std::to_string(column) + "," + std::to_string(row) + ")";
 
-  // PC_Event0/1 bracket the kernelWrapper dispatch window (counter 2);
-  // PC_Event2/3 give the total range [0, PROG_MEM_END] (counter 3).
-  // PC_Event0..3: Valid bit + 14-bit PC address.
-  addWrite(CM_PC_EVENT0 + 0, PC_EVENT_VALID | (cfg.startPc & PC_ADDRESS_MASK),
-           "PC_Event0 @ " + loc + " (kernelWrapper start_pc = indirect kernel dispatch)");
-  addWrite(CM_PC_EVENT0 + 4, PC_EVENT_VALID | (cfg.stopPc & PC_ADDRESS_MASK),
-           "PC_Event1 @ " + loc + " (kernelWrapper stop_pc)");
+  // Counter 2 measures total execution cycles via a PC range spanning all of program
+  // memory, so PC_Event2/3 define that range.
   addWrite(CM_PC_EVENT0 + 8, PC_EVENT_VALID | 0,
            "PC_Event2 @ " + loc + " (total range start)");
   addWrite(CM_PC_EVENT0 + 12, PC_EVENT_VALID | (PROG_MEM_END & PC_ADDRESS_MASK),
            "PC_Event3 @ " + loc + " (total range end)");
+  addWrite(CM_EVENT_GROUP_CORE_STALL_ENABLE, GROUP_CORE_STALL_MASK,
+           "Group_Core_Stall_Enable @ " + loc + " (memory|stream|cascade|lock only)");
 
-  // Reset performance counters 2 and 3.
+  // Only Performance_Control1 is usable here, so all four individual stalls are
+  // broadcast to the memory module and counted on its own counters.
+  addWrite(CM_EVENT_BROADCAST0 + 4 * STREAM_STALL_BCAST_CHANNEL, STREAM_STALL_EVENT,
+           "Event_Broadcast" + std::to_string(STREAM_STALL_BCAST_CHANNEL) + " @ " + loc
+           + " = stream stall");
+  addWrite(CM_EVENT_BROADCAST0 + 4 * CASCADE_STALL_BCAST_CHANNEL, CASCADE_STALL_EVENT,
+           "Event_Broadcast" + std::to_string(CASCADE_STALL_BCAST_CHANNEL) + " @ " + loc
+           + " = cascade stall");
+  addWrite(CM_EVENT_BROADCAST0 + 4 * LOCK_STALL_BCAST_CHANNEL, LOCK_STALL_EVENT,
+           "Event_Broadcast" + std::to_string(LOCK_STALL_BCAST_CHANNEL) + " @ " + loc
+           + " = lock stall");
+  addWrite(CM_EVENT_BROADCAST0 + 4 * MEMORY_STALL_BCAST_CHANNEL, MEMORY_STALL_EVENT,
+           "Event_Broadcast" + std::to_string(MEMORY_STALL_BCAST_CHANNEL) + " @ " + loc
+           + " = memory stall");
+
+  // East is the core module's internal link to the memory module; the broadcast must
+  // not escape the tile in any other direction.
+  appendBroadcastBlockConfig(CM_BCAST_BLOCK_BASE, BCAST_DIR_EAST, loc, tileAddress, writes);
+
   addWrite(CM_PERF_COUNTER0 + 8, 0, "Reset PerfCounter2 @ " + loc);
   addWrite(CM_PERF_COUNTER0 + 12, 0, "Reset PerfCounter3 @ " + loc);
 
-  // Performance_Ctrl1: [6:0]=Cnt2_Start, [14:8]=Cnt2_Stop, [22:16]=Cnt3_Start, [30:24]=Cnt3_Stop
-  // Counter 2 = kernelWrapper, counter 3 = total. Counter 2 uses distinct Start(PC_0)/
-  // Stop(PC_1) breakpoint events, i.e. a temporal window rather than a PC range, so the
-  // called kernel is counted even though it executes outside [start_pc, stop_pc].
-  {
-    uint32_t regValue = 0;
-    regValue |= (static_cast<uint32_t>(PC_0_EVENT)         & 0x7F) << 0;
-    regValue |= (static_cast<uint32_t>(PC_1_EVENT)         & 0x7F) << 8;
-    regValue |= (static_cast<uint32_t>(PC_RANGE_2_3_EVENT) & 0x7F) << 16;
-    regValue |= (static_cast<uint32_t>(PC_RANGE_2_3_EVENT) & 0x7F) << 24;
-    addWrite(CM_PERF_CTRL1, regValue,
-             "PerfCtrl1 @ " + loc
-             + " (ctr2 start=PC_0 stop=PC_1 kernelWrapper, ctr3=PC_Range_2-3 total)");
-  }
+  // Performance_Ctrl1: [6:0]=Cnt2_Start, [14:8]=Cnt2_Stop, [22:16]=Cnt3_Start, [30:24]=Cnt3_Stop.
+  // Performance_Control0 is never written: counter 0 there belongs to the driver's ECC
+  // scrubbing, and counters programmed alongside it did not survive on hardware.
+  addWrite(CM_PERF_CTRL1,
+           counterEventPair(PC_RANGE_2_3_EVENT, 0) | counterEventPair(GROUP_STALL_EVENT, 16),
+           "PerfCtrl1 @ " + loc
+           + " (ctr2 = PC_Range_2-3 total execution cycles, ctr3 = group stall)");
+
+  return writes;
+}
+
+std::vector<CTRegisterWrite> AieDtraceCTWriter::generateComputeMemoryConfig(
+    uint8_t column, uint8_t row)
+{
+  std::vector<CTRegisterWrite> writes;
+
+  uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
+                         (static_cast<uint64_t>(row) << rowShift);
+
+  auto addWrite = [&](uint64_t offset, uint32_t value, const std::string& comment,
+                      uint32_t mask = 0xFFFFFFFF) {
+    CTRegisterWrite w;
+    w.address = tileAddress + offset;
+    w.value = value;
+    w.comment = comment;
+    w.mask = mask;
+    writes.push_back(w);
+  };
+
+  std::string loc = "memory (" + std::to_string(column) + "," + std::to_string(row) + ")";
+
+  // Blocking west as well does not stop this module observing the broadcast, it only
+  // stops it re-driving the signal back into the core module's east interface.
+  appendBroadcastBlockConfig(MM_BCAST_BLOCK_BASE, -1, loc, tileAddress, writes);
+
+  addWrite(MM_PERF_COUNTER0 + 0, 0, "Reset PerfCounter0 @ " + loc);
+  addWrite(MM_PERF_COUNTER0 + 4, 0, "Reset PerfCounter1 @ " + loc);
+  addWrite(MM_PERF_COUNTER0 + 8, 0, "Reset PerfCounter2 @ " + loc);
+  addWrite(MM_PERF_COUNTER0 + 12, 0, "Reset PerfCounter3 @ " + loc);
+
+  const uint8_t memoryEvent  = MEM_BROADCAST_0_EVENT + MEMORY_STALL_BCAST_CHANNEL;
+  const uint8_t streamEvent  = MEM_BROADCAST_0_EVENT + STREAM_STALL_BCAST_CHANNEL;
+  const uint8_t cascadeEvent = MEM_BROADCAST_0_EVENT + CASCADE_STALL_BCAST_CHANNEL;
+  const uint8_t lockEvent    = MEM_BROADCAST_0_EVENT + LOCK_STALL_BCAST_CHANNEL;
+
+  // Performance_Control0: [6:0]=Cnt0_Start, [14:8]=Cnt0_Stop, [22:16]=Cnt1_Start, [30:24]=Cnt1_Stop.
+  // All four memory module counters are free on AIE tiles, so this is a full write.
+  addWrite(MM_PERF_CTRL0,
+           counterEventPair(memoryEvent, 0) | counterEventPair(streamEvent, 16),
+           "PerfCtrl0 @ " + loc + " (ctr0 = Broadcast"
+           + std::to_string(MEMORY_STALL_BCAST_CHANNEL) + " memory stall, ctr1 = Broadcast"
+           + std::to_string(STREAM_STALL_BCAST_CHANNEL) + " stream stall)");
+
+  // Performance_Control2: [6:0]=Cnt2_Start, [14:8]=Cnt2_Stop, [22:16]=Cnt3_Start, [30:24]=Cnt3_Stop
+  addWrite(MM_PERF_CTRL2,
+           counterEventPair(cascadeEvent, 0) | counterEventPair(lockEvent, 16),
+           "PerfCtrl2 @ " + loc + " (ctr2 = Broadcast"
+           + std::to_string(CASCADE_STALL_BCAST_CHANNEL) + " cascade stall, ctr3 = Broadcast"
+           + std::to_string(LOCK_STALL_BCAST_CHANNEL) + " lock stall)");
 
   return writes;
 }

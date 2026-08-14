@@ -41,8 +41,8 @@ namespace {
     xrt::hw_context context = xrt_core::hw_context_int::create_hw_context_from_implementation(devHandle);
     auto hwctx_hdl = static_cast<xrt_core::hwctx_handle*>(context);
     auto hwctx_obj = dynamic_cast<shim_xdna_edge::xdna_hwctx*>(hwctx_hdl);
-    auto aieArray = hwctx_obj->get_aie_array();
-    return aieArray->get_dev() ;
+    auto aieArray = hwctx_obj->get_aie_array() ;
+    return aieArray->get_dev();
   }
 
   static void* allocateAieDevice(void* devHandle)
@@ -785,6 +785,17 @@ namespace xdp {
 
     // Create debug buffer for AIE Profile results
     auto context = metadata->getHwContext();
+
+    // Resolve the control-code submission flow once; it is constant for the run
+    // and reused everywhere via tranxHandler->getElfFlow().
+    try {
+      tranxHandler->setElfFlow(xrt_core::hw_context_int::get_elf_flow(context));
+    } catch (const std::exception& e) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+          std::string("Failed to query ELF flow, assuming xclbin flow: ") + e.what());
+      tranxHandler->setElfFlow(false);
+    }
+
     uint32_t* output = nullptr;
     std::map<uint32_t, size_t> activeUCsegmentMap;
     activeUCsegmentMap[0] = 0x20000;
@@ -824,13 +835,30 @@ namespace xdp {
     bool runtimeCounters = false;
 
     xdp::aie::driver_config meta_config = metadata->getAIEConfigMetadata();
+
+    // Flow was resolved once in the constructor; reuse the stored value.
+    bool isFullELFFlow = tranxHandler->getElfFlow();
+    uint8_t numColumns = meta_config.num_columns;
+    // Full-ELF add_config() rejects an ELF whose partition column count differs
+    // from the hw_context's, so use the actual partition width instead of
+    // metadata num_columns (profiled tiles are partition-relative). The xclbin
+    // flow does not enforce this and keeps num_columns.
+    if (isFullELFFlow) {
+      xrt::hw_context context =
+        xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+      size_t partitionSize = xrt_core::hw_context_int::get_partition_size(context);
+      if (partitionSize > 0) {
+        numColumns = static_cast<uint8_t>(partitionSize);
+      }
+    }
+
     XAie_Config cfg {
       meta_config.hw_gen,
       meta_config.base_address,
       meta_config.column_shift,
       meta_config.row_shift,
       meta_config.num_rows,
-      meta_config.num_columns,
+      numColumns,
       meta_config.shim_row,
       meta_config.mem_row_start,
       meta_config.mem_num_rows,
@@ -1176,8 +1204,6 @@ namespace xdp {
 
   void AieProfile_VE2Impl::generatePollElf()
   {
-    auto context = metadata->getHwContext();
-
     std::string tranxName = "AieProfilePoll" + std::to_string(metadata->getDeviceID());
     if (!tranxHandler->initializeTransaction(&aieDevInst, tranxName)) {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", 

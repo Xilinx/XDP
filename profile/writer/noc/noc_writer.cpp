@@ -57,7 +57,7 @@ namespace xdp {
          << "write_traffic_class" << ","
          << std::endl;
 
-    XclbinInfo* currentXclbin = db->getStaticInfo().getCurrentlyLoadedXclbin(mDeviceIndex);
+    XclbinBinData* currentXclbin = db->getStaticInfo().getCurrentlyLoadedXclbin(mDeviceIndex);
     auto numNOC = (db->getStaticInfo()).getNumNOC(mDeviceIndex, currentXclbin);
     for (uint64_t n=0; n < numNOC; n++) {
       auto noc = (db->getStaticInfo()).getNOC(mDeviceIndex, currentXclbin, n);

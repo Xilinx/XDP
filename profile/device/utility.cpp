@@ -104,5 +104,24 @@ namespace xdp::util {
     return xrt_core::get_userpf_device(handle);
   }
 
+  std::optional<xrt::elf>
+  getAieMetadataElf(const std::map<std::string, xrt::elf>& elfMap)
+  {
+    // The design ELF is the entry not submitted by XDP itself.
+    // XDP's own ELFs use "XDP_KERNEL"-prefixed kernel-name keys
+    // (isXdpInternalKernel), so pick the first non-internal entry.
+    for (const auto& entry : elfMap) {
+      if (isXdpInternalKernel(entry.first))
+        continue;
+      return entry.second;
+    }
+
+    // No design ELF found; warn rather than pick an arbitrary XDP ELF.
+    xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+      "Full ELF flow: no non-XDP (control) ELF found in hw_context; "
+      "skipping ELF-based AIE metadata update.");
+    return std::nullopt;
+  }
+
 } // end namespace xdp::util
 

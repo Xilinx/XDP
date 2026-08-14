@@ -14,16 +14,17 @@
  * under the License.
  */
 
-#ifndef XCLBIN_TYPES_H
-#define XCLBIN_TYPES_H
+#ifndef BINARY_TYPES_H
+#define BINARY_TYPES_H
 #include "xdp/config.h"
 
 namespace xdp {
 
-  enum XclbinInfoType {
+  enum BinaryInfoType {
       XCLBIN_PL_ONLY,
       XCLBIN_AIE_ONLY,
       XCLBIN_AIE_PL,
+      ELF_AIE_ONLY
   } ;
 
   enum ConfigInfoType {
@@ -31,7 +32,13 @@ namespace xdp {
     CONFIG_AIE_ONLY,
     CONFIG_AIE_PL,
     CONFIG_AIE_PL_FORMED,
-    CONFIG_PL_DEVICE_INTF_ONLY
+    CONFIG_PL_DEVICE_INTF_ONLY,
+    CONFIG_ELF_AIE_ONLY
+  } ;
+
+  enum class BinDataSource {
+    XCLBIN,
+    ELF
   } ;
 
 } // end namespace xdp

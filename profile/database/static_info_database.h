@@ -15,11 +15,12 @@
 
 #include "core/common/system.h"
 #include "core/common/device.h"
+#include "core/include/xrt/experimental/xrt_elf.h"
 #include "xdp/profile/device/xdp_base_device.h"
 #include "xdp/profile/database/static_info/aie_util.h"
 #include "xdp/profile/database/static_info/aie_constructs.h"
 #include "xdp/profile/database/static_info/app_style.h"
-#include "xdp/profile/database/static_info/xclbin_types.h"
+#include "xdp/profile/database/static_info/binary_types.h"
 #include "xdp/profile/database/static_info/filetypes/base_filetype_impl.h"
 
 #include "xdp/config.h"
@@ -48,7 +49,8 @@ namespace xdp {
   // Forward declarations of device and xclbin contents
   struct DeviceInfo;
   struct ConfigInfo;
-  struct XclbinInfo;
+  class  VPBinData;
+  class  XclbinBinData;
   class  IpMetadata;
 
   //Forward declaration of XDP's device structure
@@ -147,14 +149,14 @@ namespace xdp {
     bool resetDeviceInfo(uint64_t deviceId, xdp::Device* xdpDevice, xrt_core::uuid new_xclbin_uuid);
 
     // Functions that create the overall structure of the Xclbin's PL region
-    void createComputeUnits(XclbinInfo*, const ip_layout*,const char*,size_t);
-    void createMemories(XclbinInfo*, const mem_topology*);
-    void createConnections(XclbinInfo*, const ip_layout*, const mem_topology*,
+    void createComputeUnits(XclbinBinData*, const ip_layout*,const char*,size_t);
+    void createMemories(XclbinBinData*, const mem_topology*);
+    void createConnections(XclbinBinData*, const ip_layout*, const mem_topology*,
                            const connectivity*);
-    void annotateWorkgroupSize(XclbinInfo*, const char*, size_t);
-    void setXclbinName(XclbinInfo*, const char*, size_t);
+    void annotateWorkgroupSize(XclbinBinData*, const char*, size_t);
+    void setXclbinName(XclbinBinData*, const char*, size_t);
     void updateSystemDiagram(const char*, size_t);
-    void addPortInfo(XclbinInfo*, const char*, size_t);
+    void addPortInfo(XclbinBinData*, const char*, size_t);
 
     // Functions that initialize the structure of the debug/profiling IP
     void initializeAM(DeviceInfo* devInfo, const std::string& name,
@@ -172,11 +174,11 @@ namespace xdp {
     void setDeviceNameFromXclbin(uint64_t deviceId, xrt::xclbin xrtXclbin);
     void setAIEGeneration(uint64_t deviceId);
     void setAIEClockRateMHz(uint64_t deviceId);
-    bool initializeStructure(XclbinInfo*, xrt::xclbin);
+    bool initializeStructure(XclbinBinData*, xrt::xclbin);
     bool initializeProfileMonitors(DeviceInfo*, xrt::xclbin);
     double findClockRate(xrt::xclbin);
 
-    XclbinInfoType getXclbinType(xrt::xclbin& xclbin);
+    BinaryInfoType getXclbinType(xrt::xclbin& xclbin);
     xrt::uuid getXclbinUuidOnDevice(std::shared_ptr<xrt_core::device> device);
     xrt::uuid getXclbinUuidOnDeviceHwCtxFlow(void* hwCtxImpl);
 
@@ -299,7 +301,7 @@ namespace xdp {
     XDP_CORE_EXPORT std::string getDeviceName(uint64_t deviceId) ;
     XDP_CORE_EXPORT PLDeviceIntf* getDeviceIntf(uint64_t deviceId) ;
     XDP_CORE_EXPORT void removeDeviceIntf(uint64_t deviceId);
-    XDP_CORE_EXPORT void createPLDeviceIntf(uint64_t deviceId, std::unique_ptr<xdp::Device> xdpDevice, XclbinInfoType xclbinType);
+    XDP_CORE_EXPORT void createPLDeviceIntf(uint64_t deviceId, std::unique_ptr<xdp::Device> xdpDevice, BinaryInfoType xclbinType);
     XDP_CORE_EXPORT uint64_t getKDMACount(uint64_t deviceId) ;
     XDP_CORE_EXPORT void setHostMaxReadBW(uint64_t deviceId, double bw) ;
     XDP_CORE_EXPORT double getHostMaxReadBW(uint64_t deviceId) ;
@@ -339,6 +341,13 @@ namespace xdp {
     XDP_CORE_EXPORT
     void updateDeviceFromCoreDeviceElf(uint64_t deviceId,
                                     std::shared_ptr<xrt_core::device> device);
+
+    // Full ELF flow overload: build an ElfBinData from the xrt::elf and push
+    //  it through DeviceInfo::createConfig as a CONFIG_ELF_AIE_ONLY entry.
+    XDP_CORE_EXPORT
+    void updateDeviceFromCoreDeviceElf(uint64_t deviceId,
+                                       std::shared_ptr<xrt_core::device> device,
+                                       xrt::elf elf);
 
     XDP_CORE_EXPORT
     uint64_t getHwCtxImplUid(void* hwCtxImpl);
@@ -439,48 +448,48 @@ namespace xdp {
     XDP_CORE_EXPORT void addAIEmetadataReader(uint64_t deviceId, std::unique_ptr<aie::BaseFiletypeImpl> metadataReader) ;
 
     // ************************************************************************
-    // ***** Functions for information from a specific xclbin on a device *****
-    XDP_CORE_EXPORT uint64_t getNumAM(uint64_t deviceId, XclbinInfo* xclbin) ;
+    // ***** Functions for information from a specific binary on a device *****
+    XDP_CORE_EXPORT uint64_t getNumAM(uint64_t deviceId, VPBinData* binary) ;
     XDP_CORE_EXPORT
-    uint64_t getNumUserAMWithTrace(uint64_t deviceId, XclbinInfo* xclbin) ;
-    XDP_CORE_EXPORT uint64_t getNumAIM(uint64_t deviceId, XclbinInfo* xclbin) ;
-    XDP_CORE_EXPORT uint64_t getNumUserAIM(uint64_t deviceId, XclbinInfo* xclbin) ;
+    uint64_t getNumUserAMWithTrace(uint64_t deviceId, VPBinData* binary) ;
+    XDP_CORE_EXPORT uint64_t getNumAIM(uint64_t deviceId, VPBinData* binary) ;
+    XDP_CORE_EXPORT uint64_t getNumUserAIM(uint64_t deviceId, VPBinData* binary) ;
     XDP_CORE_EXPORT
-    uint64_t getNumUserAIMWithTrace(uint64_t deviceId, XclbinInfo* xclbin) ;
-    XDP_CORE_EXPORT uint64_t getNumASM(uint64_t deviceId, XclbinInfo* xclbin) ;
-    XDP_CORE_EXPORT uint64_t getNumUserASM(uint64_t deviceId, XclbinInfo* xclbin) ;
+    uint64_t getNumUserAIMWithTrace(uint64_t deviceId, VPBinData* binary) ;
+    XDP_CORE_EXPORT uint64_t getNumASM(uint64_t deviceId, VPBinData* binary) ;
+    XDP_CORE_EXPORT uint64_t getNumUserASM(uint64_t deviceId, VPBinData* binary) ;
     XDP_CORE_EXPORT
-    uint64_t getNumUserASMWithTrace(uint64_t deviceId, XclbinInfo* xclbin) ;
-    XDP_CORE_EXPORT uint64_t getNumNOC(uint64_t deviceId, XclbinInfo* xclbin) ;
+    uint64_t getNumUserASMWithTrace(uint64_t deviceId, VPBinData* binary) ;
+    XDP_CORE_EXPORT uint64_t getNumNOC(uint64_t deviceId, VPBinData* binary) ;
     // Functions that get all of a certain type of monitor
     XDP_CORE_EXPORT
-    std::vector<Monitor*>* getAIMonitors(uint64_t deviceId, XclbinInfo* xclbin);
+    std::vector<Monitor*>* getAIMonitors(uint64_t deviceId, VPBinData* binary);
     XDP_CORE_EXPORT
     std::vector<Monitor*>  getUserAIMsWithTrace(uint64_t deviceId,
-                                                XclbinInfo* xclbin) ;
+                                                VPBinData* binary) ;
     XDP_CORE_EXPORT
-    std::vector<Monitor*>* getASMonitors(uint64_t deviceId, XclbinInfo* xclbin);
+    std::vector<Monitor*>* getASMonitors(uint64_t deviceId, VPBinData* binary);
     XDP_CORE_EXPORT
     std::vector<Monitor*>  getUserASMsWithTrace(uint64_t deviceId,
-                                                XclbinInfo* xclbin) ;
+                                                VPBinData* binary) ;
     XDP_CORE_EXPORT bool hasFloatingAIMWithTrace(uint64_t deviceId,
-                                            XclbinInfo* xclbin) ;
+                                            VPBinData* binary) ;
     XDP_CORE_EXPORT bool hasFloatingASMWithTrace(uint64_t deviceId,
-                                            XclbinInfo* xclbin) ;
+                                            VPBinData* binary) ;
 
     // ********************************************************************
-    // ***** Functions for single monitors from an xclbin on a device *****
+    // ***** Functions for single monitors from a binary on a device *****
     XDP_CORE_EXPORT
-    Monitor* getAMonitor(uint64_t deviceId, XclbinInfo* xclbin,
+    Monitor* getAMonitor(uint64_t deviceId, VPBinData* binary,
                          uint64_t slotId) ;
     XDP_CORE_EXPORT
-    Monitor* getAIMonitor(uint64_t deviceId, XclbinInfo* xclbin,
+    Monitor* getAIMonitor(uint64_t deviceId, VPBinData* binary,
                           uint64_t slotId) ;
     XDP_CORE_EXPORT
-    Monitor* getASMonitor(uint64_t deviceId, XclbinInfo* xclbin,
+    Monitor* getASMonitor(uint64_t deviceId, VPBinData* binary,
                           uint64_t slotID) ;
     XDP_CORE_EXPORT
-    NoCNode* getNOC(uint64_t deviceId, XclbinInfo* xclbin, uint64_t idx) ;
+    NoCNode* getNOC(uint64_t deviceId, VPBinData* binary, uint64_t idx) ;
     // This function takes a pre-allocated array of bools to fill with
     //  the status of each compute unit's AM dataflow enabled status
     XDP_CORE_EXPORT

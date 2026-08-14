@@ -42,14 +42,28 @@ if (XDP_CLIENT_BUILD_CMAKE STREQUAL "yes")
   )
 
 elseif (XDP_VE2_BUILD_CMAKE STREQUAL "yes")
-  add_library(xdp_aie_halt_plugin SHARED ${XDP_AIE_HALT_PLUGIN_FILES})
+  # For ve2 the halt control code is generated on the fly using aie-codegen
+  # (with a prebuilt elf loaded as a fallback), so the aie-codegen library and
+  # the shared device/common transaction helpers are required. Note the
+  # XDP_DEVICE_COMMON_FILES glob does not recurse into device/common/ve2, so
+  # ve2_transaction.cpp must be added explicitly.
+  add_library(xdp_aie_halt_plugin SHARED ${XDP_AIE_HALT_PLUGIN_FILES} ${XDP_DEVICE_COMMON_FILES}
+    "${PROFILE_DIR}/device/common/ve2/ve2_transaction.cpp")
   add_dependencies(xdp_aie_halt_plugin xdp_core xrt_coreutil)
-  
-  # Note: For ve2, a prebuilt elf is loaded so aie-codegen library is not needed
-  #target_include_directories(xdp_aie_halt_plugin PRIVATE ${AIE_CODEGEN_DIR}/include)
-  #target_link_libraries(xdp_aie_halt_plugin PRIVATE xdp_core xrt_coreutil aie_codegen)
-  target_link_libraries(xdp_aie_halt_plugin PRIVATE xdp_core xrt_coreutil)
-  target_compile_definitions(xdp_aie_halt_plugin PRIVATE XDP_VE2_BUILD=1 XDP_USE_AIE_CODEGEN=1)
+
+  target_link_libraries(xdp_aie_halt_plugin PRIVATE xdp_core xrt_coreutil aie_codegen aiebu_library_objects)
+  # -Bsymbolic: ensures XAie_* calls within this plugin resolve to the
+  # statically-linked aie_codegen rather than being interposed by the
+  # system libxaiengine.so.3 (required by libxrt_core.so.2)
+  target_link_options(xdp_aie_halt_plugin PRIVATE -Wl,-Bsymbolic)
+  target_compile_definitions(xdp_aie_halt_plugin PRIVATE XDP_VE2_BUILD=1 XDP_USE_AIE_CODEGEN=1 FAL_LINUX="on")
+  target_include_directories(xdp_aie_halt_plugin PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${AIEFAL_DIR}
+    ${AIEBU_SOURCE_DIR}/src/cpp/include
+    ${AIE_CODEGEN_DIR}/include
+    ${XRT_SOURCE_DIR}/runtime_src/core/common/elf
+  )
 
   set_target_properties(xdp_aie_halt_plugin PROPERTIES VERSION ${XRT_VERSION_STRING} SOVERSION ${XRT_SOVERSION})
 

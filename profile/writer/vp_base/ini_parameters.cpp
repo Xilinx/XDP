@@ -126,7 +126,7 @@ namespace xdp {
     // AIE Trace
     //
     // Every setting below routes through xdp::profiling_runtime_config's
-    // resolveXxx() helpers - the same single "check
+    // resolve<metric>() helpers - the same single "check
     // Debug.profiling_runtime_config.event_trace, else check xrt.ini"
     // decision used by AieTraceMetadata - so this report reflects what
     // actually configured the trace, not stale xrt.ini reads that were

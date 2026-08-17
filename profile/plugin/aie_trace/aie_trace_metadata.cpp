@@ -73,7 +73,7 @@ namespace xdp {
     // AIE trace is now supported for HW only
 #ifdef XDP_CLIENT_BUILD
     // Default periodic offload is flipped on client to off. But if user passes it explicitly in xrt.ini
-    // (or the blob), we read that and turn on periodic offload as user might be passing to get trace
+    // or JSON blob format, we read that and turn on periodic offload as user might be passing to get trace
     // for hung design.
     bool isPeriodicOffloadPresent = false;
     if (usingBlob) {
@@ -120,10 +120,9 @@ namespace xdp {
       return;
     }
 
-    // The blob (event_trace) fully replaces both Debug.profile_settings
+    // The "event_trace" json blob fully replaces both Debug.profile_settings
     // (xdp.json) and xrt.ini for AIE trace metric configuration - it is
-    // strictly higher precedence than xdp.json, so skip that path entirely
-    // when the blob is present.
+    // strictly higher precedence than xdp.json, so skip that path when json blob is present.
     bool useXdpJson = false;
     PluginJsonSetting pluginSettings;
 
@@ -180,7 +179,7 @@ namespace xdp {
     }
 
     // ============================================================================
-    // From this point on, either the blob (event_trace) or xrt.ini settings
+    // From this point on, either the settings in either xrt.ini or json format
     // are processed, per usingBlob.
     // ============================================================================
 
@@ -209,10 +208,10 @@ namespace xdp {
             : "Finished Parsing AIE Trace Metadata using xrt.ini settings.");
   }
 
-  // Resolve every setting through the shared blob-or-ini decision in
-  // profiling_runtime_config (xdp::profiling_runtime_config::resolveXxx()):
+  // Resolve every setting through the shared json or ini decision in
+  // profiling_runtime_config (xdp::profiling_runtime_config::resolve<metric>()):
   // each one already knows whether Debug.profiling_runtime_config.event_trace
-  // is present and, if so, returns the blob's (already-defaulted) value
+  // is present and, if so, returns the json blob's (already-defaulted) value
   // instead of the matching xrt.ini value. This class never needs to branch
   // on usingBlob itself for these settings.
   void AieTraceMetadata::resolveSettings()

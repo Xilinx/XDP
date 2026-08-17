@@ -58,7 +58,7 @@ namespace xdp::profiling_runtime_config {
     }
 
     // Same as assign_if_present, but also logs the resolved value - mirrors
-    // the string-field logging the original blob parser did (only fires
+    // the string-field logging the original parser did (only fires
     // when the key was actually present in the JSON with a non-empty value,
     // not merely because the field's default happens to be non-empty).
     void
@@ -119,9 +119,8 @@ namespace xdp::profiling_runtime_config {
 
     // Parse the event_trace subtree: copy known keys (typed per
     // event_trace_config_t) into the returned struct - anything omitted
-    // keeps the struct's own hardcoded default - and warn about any unknown
-    // keys. Mirrors AieTraceMetadata::checkSettings()'s validSettings list
-    // for AIE_trace_settings.* in xrt.ini.
+    // keeps the struct's own hardcoded default - and warn about any unknown keys
+    // Mirrors AieTraceMetadata::checkSettings()'s validSettings list for trace settings in xrt.ini
     event_trace_config_t
     parse_event_trace(const pt::ptree& et_tree)
     {
@@ -177,7 +176,7 @@ namespace xdp::profiling_runtime_config {
       return et;
     }
 
-    // Parse the root blob exactly once.
+    // Parse the root JSON blob exactly once.
     const parsed_blob_t&
     get_parsed()
     {
@@ -208,7 +207,7 @@ namespace xdp::profiling_runtime_config {
             out.et_periodic_offload_explicit =
                 static_cast<bool>(et_opt->get_child_optional("periodic_offload"));
             info("profiling_runtime_config.event_trace is present; "
-                 "AIE trace will be configured from this blob.");
+                 "AIE trace will be configured from this JSON blob.");
           }
         }
         catch (const std::exception& ex) {
@@ -224,7 +223,7 @@ namespace xdp::profiling_runtime_config {
       return cached;
     }
 
-    // The single "check the blob, else check xrt.ini" decision every
+    // The single "check the JSON blob, else check xrt.ini" decision every
     // event_trace setting routes through.
     template <typename T>
     T

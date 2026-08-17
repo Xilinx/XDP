@@ -434,10 +434,7 @@ bool AIETraceOffload::isTraceBufferFull()
 
 void AIETraceOffload::checkCircularBufferSupport()
 {
-  // This class has no AieTraceMetadata instance handy (see aie_trace_offload.h),
-  // so use the same blob-aware static helper as ve2/aie_trace_offload_ve2.cpp's
-  // ZOCL variant instead of reading xrt.ini directly - keeps this consistent
-  // with Debug.profiling_runtime_config.event_trace when present.
+  // Check if reuse buffer is enabled either through xrt.ini or vitisai_config.json
   mEnCircularBuf = AieTraceMetadata::reuseBufferEnabled();
   if (!mEnCircularBuf)
     return;

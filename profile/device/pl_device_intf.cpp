@@ -86,10 +86,8 @@ namespace xdp {
 
 // Helper functions
 
-// Parse a trace buffer size string (e.g. "1024M", "1G", "8192k") and clamp
-// it to platform limits. Shared by both the xrt.ini-driven overload below
-// and callers that already resolved their size string from elsewhere (e.g.
-// AIE trace's Debug.profiling_runtime_config.event_trace.buffer_size).
+// Parse a trace buffer size string and clamp it to platform limits.
+// Shared by both the xrt.ini-driven overload below and the supported json format.
 uint64_t GetTS2MMBufSize(const std::string& size_str) {
   std::smatch pieces_match;
 

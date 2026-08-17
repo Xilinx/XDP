@@ -10,30 +10,20 @@
 
 #include "xdp/config.h"
 
-// Parser for the XRT INI option Debug.profiling_runtime_config which holds
-// an inline JSON blob describing XDP runtime configuration. This blob is the
-// XDP-facing forwarding mechanism for the argument VAIML reserves for XDP in
-// vitisai_config.json (a "profiling_runtime_config" field, a sibling of
-// ai_analyzer_enhanced_profiling, inside vaiml_config). We are only ever on
-// the receiving end of this value: xrt_core::config::get_profiling_runtime_config()
-// returns a plain string regardless of how it got populated - the xrt.ini
-// file, an environment variable of the same name, or a host application
-// (e.g. VAIML/FlexmlRT) calling xrt::ini::set() / xrtIniStringSet()
-// programmatically before first use (see core/include/xrt/experimental/
-// xrt_ini.h). XDP never reads vitisai_config.json (or any file path)
-// directly, and does not assume or depend on which of these sources
-// actually supplied the value.
+// Parser for the Debug.profiling_runtime_config ini key, whose value is a
+// JSON blob describing XDP runtime configuration. In practice this value is
+// populated from vitisai_config.json's "profiling_runtime_config" field
+// (a sibling of ai_analyzer_enhanced_profiling, inside vaiml_config) - VAIML
+// forwards it into this ini key at runtime via xrt::ini::set() /
+// xrtIniStringSet(). XDP never reads vitisai_config.json directly; it only
+// ever sees the resulting string via xrt_core::config::get_profiling_runtime_config().
 //
 // control_instrumentation and event_trace are consumed by this parser.
 // Neither section's mere presence enables its corresponding plugin: the
-// coarse on/off switch remains Debug.aie_dtrace / Debug.aie_trace (which is
-// what ai_analyzer_enhanced_profiling's flat trigger words surface to XRT
-// as). Once that coarse switch is on, this parser's sections carry the
-// granular detail - see aie_trace_enabled() in xrt_coreutil
-// (core/common/xdp/profile.cpp) for the load-time gate.
-//
-// The parser lives on the XDP side (xdp_core) so it can evolve without
-// churning the stable xrt_coreutil interface.
+// coarse on/off switch remains Debug.aie_dtrace / Debug.aie_trace. Once that
+// switch is on, this parser's sections carry the granular detail - see
+// aie_trace_enabled() in xrt_coreutil (core/common/xdp/profile.cpp) for the
+// load-time gate.
 //
 // Example blob:
 //   {"control_instrumentation":{"aie_tile":"func_stalls","mem_tile":"","interface_tile":"ddr_bandwidth"},"event_trace":{"tile_based_aie_tile_metrics":"all:functions"}}
@@ -47,11 +37,9 @@ namespace xdp::profiling_runtime_config {
   };
 
   // Mirrors the AIE_trace_settings.* xrt.ini keys 1:1. When event_trace is
-  // present in the blob, it is authoritative for the AIE trace plugin: any
+  // present in the JSON blob, it is authoritative for the AIE trace plugin: any
   // key omitted here falls back to the same hardcoded default the
   // corresponding xrt.ini reader would use, not to the xrt.ini value itself
-  // (i.e. the blob fully replaces AIE_trace_settings.*/Debug.profile_settings
-  // rather than blending with them).
   //
   // Every field already carries its final, resolved value - the default
   // shown below when the key is absent from the JSON, matching
@@ -132,8 +120,7 @@ namespace xdp::profiling_runtime_config {
   XDP_CORE_EXPORT bool has_event_trace();
 
   // Returns the cached event_trace view. Safe to call even when
-  // has_event_trace() is false (every field is already at its documented
-  // default in that case).
+  // has_event_trace() is false (every field is already at its default val)
   XDP_CORE_EXPORT const event_trace_config_t& event_trace();
 
   // True when has_event_trace() and the JSON explicitly specified
@@ -145,13 +132,12 @@ namespace xdp::profiling_runtime_config {
   // "unspecified", even though both can resolve to the same bool.
   XDP_CORE_EXPORT bool event_trace_periodic_offload_is_explicit();
 
-  // Per-setting resolvers: the single "check the blob, else check xrt.ini"
-  // decision for each AIE trace setting, so every call site (AieTraceMetadata,
-  // the aie_trace plugin/offload files, and the settings-report writer)
+  // Per-setting resolvers: the single "check the JSON blob, else check xrt.ini"
+  // decision for each AIE trace setting, so every call site
   // shares one behavior instead of duplicating the branch. When
-  // has_event_trace() is true, the blob (already carrying its own default
-  // for anything unspecified) is authoritative and xrt.ini is not consulted
-  // at all; otherwise the matching xrt_core::config::get_aie_trace_settings_*()
+  // has_event_trace() is true, the blob (which already has defaults)
+  // is authoritative and xrt.ini is not consulted.
+  // otherwise the matching xrt_core::config::get_aie_trace_settings_*()
   // value is used unchanged.
   XDP_CORE_EXPORT std::string resolveStartType();
   XDP_CORE_EXPORT std::string resolveStartTime();

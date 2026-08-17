@@ -19,6 +19,7 @@
 
 #include "xdp/profile/writer/vp_base/ini_parameters.h"
 #include "core/common/config_reader.h"
+#include "xdp/profile/plugin/vp_base/profiling_runtime_config.h"
 
 namespace xdp {
 
@@ -123,60 +124,76 @@ namespace xdp {
                  "Iteration count when graph type delay is used in AI Engine Profiling");
 
     // AIE Trace
+    //
+    // Every setting below routes through xdp::profiling_runtime_config's
+    // resolveXxx() helpers - the same single "check
+    // Debug.profiling_runtime_config.event_trace, else check xrt.ini"
+    // decision used by AieTraceMetadata - so this report reflects what
+    // actually configured the trace, not stale xrt.ini reads that were
+    // never used.
     addParameter("AIE_trace_settings.start_type",
-                 xrt_core::config::get_aie_trace_settings_start_type(),
+                 xdp::profiling_runtime_config::resolveStartType(),
                  "Type of delay to use in AI Engine trace");
     addParameter("AIE_trace_settings.start_time",
-                 xrt_core::config::get_aie_trace_settings_start_time(),
+                 xdp::profiling_runtime_config::resolveStartTime(),
                  "Start delay for AI Engine trace");
     addParameter("AIE_trace_settings.start_iteration",
-                 xrt_core::config::get_aie_trace_settings_start_iteration(),
+                 xdp::profiling_runtime_config::resolveStartIteration(),
                  "Iteration count when graph type delay is used in AI Engine Trace");
     addParameter("AIE_trace_settings.start_layer",
-                 xrt_core::config::get_aie_trace_settings_start_layer(),
+                 xdp::profiling_runtime_config::resolveStartLayer(),
                  "layer wise windowed AI Engine Trace");
     addParameter("AIE_trace_settings.config_one_partition",
-                 xrt_core::config::get_aie_trace_settings_config_one_partition(),
+                 xdp::profiling_runtime_config::resolveConfigOnePartition(),
                  "Flag for enabling trace for a specific partition");
     addParameter("AIE_trace_settings.graph_based_aie_tile_metrics",
-                 replaceCommas(xrt_core::config::get_aie_trace_settings_graph_based_aie_tile_metrics()),
+                 replaceCommas(xdp::profiling_runtime_config::resolveGraphBasedAieTileMetrics()),
                  "Configuration level used for AI Engine trace per graph");
     addParameter("AIE_trace_settings.graph_based_memory_tile_metrics",
-                 replaceCommas(xrt_core::config::get_aie_trace_settings_graph_based_memory_tile_metrics()),
+                 replaceCommas(xdp::profiling_runtime_config::resolveGraphBasedMemoryTileMetrics()),
                  "Configuration level used for memory tile trace per graph");
     addParameter("AIE_trace_settings.graph_based_interface_tile_metrics",
-                 replaceCommas(xrt_core::config::get_aie_trace_settings_graph_based_interface_tile_metrics()),
+                 replaceCommas(xdp::profiling_runtime_config::resolveGraphBasedInterfaceTileMetrics()),
                  "Configuration level used for interface tile trace per graph");
     addParameter("AIE_trace_settings.tile_based_aie_tile_metrics",
-                 replaceCommas(xrt_core::config::get_aie_trace_settings_tile_based_aie_tile_metrics()),
+                 replaceCommas(xdp::profiling_runtime_config::resolveTileBasedAieTileMetrics()),
                  "Configuration level used for AI Engine trace per tile");
     addParameter("AIE_trace_settings.tile_based_memory_tile_metrics",
-                 replaceCommas(xrt_core::config::get_aie_trace_settings_tile_based_memory_tile_metrics()),
+                 replaceCommas(xdp::profiling_runtime_config::resolveTileBasedMemoryTileMetrics()),
                  "Configuration level used for memory tile trace per tile");
     addParameter("AIE_trace_settings.tile_based_interface_tile_metrics",
-                 replaceCommas(xrt_core::config::get_aie_trace_settings_tile_based_interface_tile_metrics()),
+                 replaceCommas(xdp::profiling_runtime_config::resolveTileBasedInterfaceTileMetrics()),
                  "Configuration level used for interface tile trace per tile");
     addParameter("AIE_trace_settings.buffer_size",
-                 xrt_core::config::get_aie_trace_settings_buffer_size(),
+                 xdp::profiling_runtime_config::resolveBufferSize(),
                  "Size of buffer to allocate for AI Engine trace");
+    addParameter("AIE_trace_settings.counter_scheme",
+                 xdp::profiling_runtime_config::resolveCounterScheme(),
+                 "Counter scheme used for AI Engine trace timestamps");
     addParameter("AIE_trace_settings.periodic_offload",
-                 xrt_core::config::get_aie_trace_settings_periodic_offload(),
+                 xdp::profiling_runtime_config::resolvePeriodicOffload(),
                  "Periodic offloading of AI Engine trace from memory to host");
     addParameter("AIE_trace_settings.trace_start_broadcast",
-                xrt_core::config::get_aie_trace_settings_trace_start_broadcast(),
+                xdp::profiling_runtime_config::resolveTraceStartBroadcast(),
                 "Starting event trace modules using broadcast network");
     addParameter("AIE_trace_settings.reuse_buffer",
-                 xrt_core::config::get_aie_trace_settings_reuse_buffer(),
+                 xdp::profiling_runtime_config::resolveReuseBuffer(),
                  "Enable use of circular buffer for AI Engine trace");
     addParameter("AIE_trace_settings.buffer_offload_interval_us",
-                 xrt_core::config::get_aie_trace_settings_buffer_offload_interval_us(),
+                 xdp::profiling_runtime_config::resolveBufferOffloadIntervalUs(),
                  "Interval for reading of device AI Engine trace data to host (in us)");
     addParameter("AIE_trace_settings.file_dump_interval_s",
-                 xrt_core::config::get_aie_trace_settings_file_dump_interval_s(),
+                 xdp::profiling_runtime_config::resolveFileDumpIntervalS(),
                  "Interval for dumping AI Engine trace files to host (in s)");
     addParameter("AIE_trace_settings.poll_timers_interval_us",
-                 xrt_core::config::get_aie_trace_settings_poll_timers_interval_us(),
+                 xdp::profiling_runtime_config::resolvePollTimersIntervalUs(),
                  "Interval for polling AI Engine timers (in us)");
+    addParameter("AIE_trace_settings.max_timer_samples",
+                 xdp::profiling_runtime_config::resolveMaxTimerSamples(),
+                 "Maximum number of AI Engine timer samples to poll before stopping");
+    addParameter("AIE_trace_settings.enable_system_timeline",
+                 xdp::profiling_runtime_config::resolveEnableSystemTimeline(),
+                 "Enable system timeline generation for AI Engine trace");
   }
 
   IniParameters::~IniParameters()

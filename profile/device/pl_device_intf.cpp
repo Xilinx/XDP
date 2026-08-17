@@ -86,17 +86,11 @@ namespace xdp {
 
 // Helper functions
 
-// Get the user-specified trace buffer size by parsing
-// settings from xrt.ini
-uint64_t GetTS2MMBufSize(bool isAIETrace) {
-  std::string size_str;
-
-  if (isAIETrace) {
-    size_str = xrt_core::config::get_aie_trace_settings_buffer_size();
-  } else {
-    size_str = xrt_core::config::get_trace_buffer_size();
-  }
-
+// Parse a trace buffer size string (e.g. "1024M", "1G", "8192k") and clamp
+// it to platform limits. Shared by both the xrt.ini-driven overload below
+// and callers that already resolved their size string from elsewhere (e.g.
+// AIE trace's Debug.profiling_runtime_config.event_trace.buffer_size).
+uint64_t GetTS2MMBufSize(const std::string& size_str) {
   std::smatch pieces_match;
 
   // Default is 1M
@@ -175,6 +169,13 @@ uint64_t GetTS2MMBufSize(bool isAIETrace) {
   }
 
   return bytes;
+}
+
+// Get the user-specified trace buffer size by parsing settings from xrt.ini.
+uint64_t GetTS2MMBufSize(bool isAIETrace) {
+  return GetTS2MMBufSize(isAIETrace
+      ? xrt_core::config::get_aie_trace_settings_buffer_size()
+      : xrt_core::config::get_trace_buffer_size());
 }
 
 void PLDeviceIntf::releaseResources() {

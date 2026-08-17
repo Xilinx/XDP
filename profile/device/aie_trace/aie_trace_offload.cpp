@@ -26,6 +26,7 @@
 #include "xdp/profile/device/aie_trace/aie_trace_logger.h"
 #include "xdp/profile/device/aie_trace/aie_trace_offload.h"
 #include "xdp/profile/device/pl_device_intf.h"
+#include "xdp/profile/plugin/aie_trace/aie_trace_metadata.h"
 #include "xdp/profile/plugin/aie_trace/x86/aie_trace_kernel_config.h"
 
 /*
@@ -433,7 +434,11 @@ bool AIETraceOffload::isTraceBufferFull()
 
 void AIETraceOffload::checkCircularBufferSupport()
 {
-  mEnCircularBuf = xrt_core::config::get_aie_trace_settings_reuse_buffer();
+  // This class has no AieTraceMetadata instance handy (see aie_trace_offload.h),
+  // so use the same blob-aware static helper as ve2/aie_trace_offload_ve2.cpp's
+  // ZOCL variant instead of reading xrt.ini directly - keeps this consistent
+  // with Debug.profiling_runtime_config.event_trace when present.
+  mEnCircularBuf = AieTraceMetadata::reuseBufferEnabled();
   if (!mEnCircularBuf)
     return;
 

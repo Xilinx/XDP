@@ -18,6 +18,7 @@
 #define AIE_TRACE_METADATA_H
 
 #include <boost/property_tree/ptree.hpp>
+#include <climits>
 #include <set>
 #include <map>
 #include <vector>
@@ -34,6 +35,7 @@
 #include "xdp/profile/database/parser/metrics.h"
 #include "xdp/profile/database/parser/metrics_collection_manager.h"
 #include "xdp/profile/database/parser/json_parser.h"
+#include "xdp/profile/plugin/vp_base/profiling_runtime_config.h"
 
 namespace xdp {
 
@@ -75,6 +77,9 @@ class AieTraceMetadata {
     void processPluginJsonSetting(const PluginJsonSetting& config, 
                                   MetricsCollectionManager& manager);
 
+  private:
+    void resolveSettings();
+
    public:
     int getHardwareGen() {
       if (metadataReader)
@@ -105,6 +110,41 @@ class AieTraceMetadata {
     bool getUseOneDelayCounter(){return useOneDelayCtr;}
     bool getRuntimeMetrics() {return runtimeMetrics;}
     std::string getCounterScheme(){return counterScheme;}
+
+    // Centralized, precedence-aware accessors for settings that are also
+    // read directly from xrt_core::config at various call sites outside
+    // this class (ve2/client aie_trace impls, aie_trace_plugin.cpp,
+    // aie_trace_offload_ve2.cpp). Resolved once in the constructor so that
+    // when Debug.profiling_runtime_config carries an event_trace section,
+    // every one of these call sites picks it up instead of re-reading
+    // xrt.ini directly.
+    std::string getStartTypeSetting() {return startTypeSetting;}
+    unsigned int getStartLayer() {return startLayer;}
+    bool getTraceStartBroadcast() {return traceStartBroadcast;}
+    bool getConfigOnePartitionSetting() {return configOnePartitionSetting;}
+    bool getReuseBufferSetting() {return reuseBufferSetting;}
+    bool getEnableSystemTimeline() {return enableSystemTimeline;}
+    std::string getBufferSizeStr() {return bufferSizeStr;}
+
+    // Static variants of the corresponding getters above, for call sites
+    // that don't have (or, per build configuration, can't have) an
+    // AieTraceMetadata instance handy: the early multi-partition
+    // short-circuit in AieTracePluginUnified::updateAIEDevice runs before
+    // metadata exists for the current handle, and the ZOCL-only circular
+    // buffer support check in aie_trace_offload_ve2.cpp runs in a build
+    // configuration where AIETraceOffload has no metadata member at all
+    // (see aie_trace_offload_ve2.h). Both simply delegate to the shared
+    // blob-or-ini resolver in profiling_runtime_config so there is exactly
+    // one place that decides which source wins for these settings.
+    static bool configOnePartitionEnabled()
+    {
+      return profiling_runtime_config::resolveConfigOnePartition();
+    }
+
+    static bool reuseBufferEnabled()
+    {
+      return profiling_runtime_config::resolveReuseBuffer();
+    }
 
     uint32_t getIterationCount(){return iterationCount;}
     // uint64_t getNumStreams() {return numAIETraceOutput;}
@@ -164,7 +204,21 @@ class AieTraceMetadata {
     uint64_t numAIETraceOutputGMIO = 0;
     uint64_t offloadIntervalUs = 0;
     unsigned int aie_trace_file_dump_int_s;
-    
+
+    unsigned int startLayer = UINT_MAX;
+    bool traceStartBroadcast = true;
+    bool configOnePartitionSetting = false;
+    bool reuseBufferSetting = false;
+    bool enableSystemTimeline = true;
+    std::string bufferSizeStr = "8M";
+
+    // Resolved once (from blob or xrt.ini, see resolveStartControlSettings())
+    // and consumed by setTraceStartControl() so that method doesn't need to
+    // know which source won.
+    std::string startTypeSetting = "time";
+    std::string startTimeSetting = "0";
+    unsigned int startIterationSetting = 1;
+
     std::string counterScheme;
     std::string metricSet;
     std::map<tile_type, std::string> configMetrics;

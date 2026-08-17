@@ -246,7 +246,7 @@ namespace xdp {
     }
 
     // Configure windowed event trace if layer-based start is enabled
-    if (xrt_core::config::get_aie_trace_settings_start_type() == "layer") {
+    if (metadata->getStartTypeSetting() == "layer") {
       if (!configureWindowedEventTrace(aieDevice)) {
         std::string msg("Unable to configure AIE windowed event trace");
         xrt_core::message::send(severity_level::warning, "XRT", msg);
@@ -282,7 +282,7 @@ namespace xdp {
     }
 
     uint8_t numRows = metadataReader->getNumRows();
-    unsigned int startLayer = xrt_core::config::get_aie_trace_settings_start_layer();
+    unsigned int startLayer = metadata->getStartLayer();
 
     // Reserve broadcast channels using FAL for trace start synchronization
     std::vector<XAie_LocType> vL;
@@ -449,8 +449,8 @@ namespace xdp {
     if(compilerOptions.enable_multi_layer) {
 
       aie::trace::timerSyncronization(aieDevInst,aieDevice, metadata, startCol, numCols, numRows);
-      if(xrt_core::config::get_aie_trace_settings_trace_start_broadcast()
-         && xrt_core::config::get_aie_trace_settings_start_type() != "layer")
+      if(metadata->getTraceStartBroadcast()
+         && metadata->getStartTypeSetting() != "layer")
       {
         std::vector<XAie_LocType> vL;
         traceStartBroadcastCh1 = aieDevice->broadcast(vL, XAIE_PL_MOD, XAIE_CORE_MOD);
@@ -822,8 +822,8 @@ namespace xdp {
         }
 
         if(compilerOptions.enable_multi_layer && type == module_type::core
-          && xrt_core::config::get_aie_trace_settings_trace_start_broadcast()
-          && xrt_core::config::get_aie_trace_settings_start_type() != "layer")
+          && metadata->getTraceStartBroadcast()
+          && metadata->getStartTypeSetting() != "layer")
         {
           traceStartEvent = (XAie_Events) (XAIE_EVENT_BROADCAST_0_MEM + traceStartBroadcastCh1->getBc());
         }
@@ -997,8 +997,8 @@ namespace xdp {
         auto shimTrace = shim.traceControl();
 
 	if(col == startCol && compilerOptions.enable_multi_layer
-           && xrt_core::config::get_aie_trace_settings_trace_start_broadcast()
-           && xrt_core::config::get_aie_trace_settings_start_type() != "layer")
+           && metadata->getTraceStartBroadcast()
+           && metadata->getStartTypeSetting() != "layer")
         {
           if (shimTrace->setCntrEvent(XAIE_EVENT_COMBO_EVENT_0_PL, interfaceTileTraceEndEvent) != XAIE_OK)
             break;
@@ -1327,7 +1327,7 @@ namespace xdp {
     }
 
     // Configure windowed event trace if layer-based start is enabled
-    if (xrt_core::config::get_aie_trace_settings_start_type() == "layer") {
+    if (metadata->getStartTypeSetting() == "layer") {
       if (!configureWindowedEventTrace(metadata->getHandle())) {
         std::string msg("Unable to configure AIE windowed event trace");
         xrt_core::message::send(severity_level::warning, "XRT", msg);
@@ -1371,7 +1371,7 @@ namespace xdp {
     XAie_Events coreModTraceStartEvent = (XAie_Events)(XAIE_EVENT_BROADCAST_0_CORE + traceStartBroadcastChId1);
     XAie_Events memTraceStartEvent = (XAie_Events)(XAIE_EVENT_BROADCAST_0_MEM + traceStartBroadcastChId1);
         
-    unsigned int startLayer = xrt_core::config::get_aie_trace_settings_start_layer();
+    unsigned int startLayer = metadata->getStartLayer();
 
     // Configure trace start events for tiles
     // NOTE: rows are stored as absolute as required by resource manager
@@ -1440,8 +1440,8 @@ namespace xdp {
     uint8_t startCol = 0;
     uint8_t numCols  = static_cast<uint8_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols"));
 
-    std::string startType = xrt_core::config::get_aie_trace_settings_start_type();
-    unsigned int startLayer = xrt_core::config::get_aie_trace_settings_start_layer();
+    std::string startType = metadata->getStartTypeSetting();
+    unsigned int startLayer = metadata->getStartLayer();
 
     std::string tranxName = "AieTraceMetrics" + std::to_string(deviceId);
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",

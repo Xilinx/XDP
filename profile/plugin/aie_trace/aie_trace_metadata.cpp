@@ -39,6 +39,7 @@
 #include "xdp/profile/database/parser/metrics_collection_manager.h"
 #include "xdp/profile/database/parser/metrics_factory.h"
 #include "xdp/profile/database/parser/parser_utils.h"
+#include "xdp/profile/plugin/vp_base/profiling_runtime_config.h"
 
 namespace {
   static bool tileCompare(xdp::tile_type tile1, xdp::tile_type tile2)
@@ -56,42 +57,49 @@ namespace xdp {
   : deviceID(deviceID)
   , handle(handle)
   {
-    // Verify settings from xrt.ini
-    checkSettings();
+    const bool usingBlob = profiling_runtime_config::has_event_trace();
 
-    counterScheme = xrt_core::config::get_aie_trace_settings_counter_scheme();
-    // Get polling interval (in usec)
-    pollingInterval = xrt_core::config::get_aie_trace_settings_poll_timers_interval_us();
-    maxTimerSamples = xrt_core::config::get_aie_trace_settings_max_timer_samples();
+    if (usingBlob) {
+      // Blob is authoritative: populate everything from it (defaults for
+      // anything unspecified), skip xrt.ini validation/reads entirely.
+      xrt_core::message::send(severity_level::info, "XRT",
+          "Configuring AIE trace from Debug.profiling_runtime_config.event_trace.");
+    } else {
+      // Verify settings from xrt.ini
+      checkSettings();
+    }
+    resolveSettings();
 
-    // Check whether continuous trace is enabled in xrt.ini
-    continuousTrace = xrt_core::config::get_aie_trace_settings_periodic_offload();
     // AIE trace is now supported for HW only
 #ifdef XDP_CLIENT_BUILD
-    // Default periodic offload is flipped on client to off. But if user passes it explicitly in xrt.ini,
-    // we read that and turn on periodic offload as user might be passing to get trace for hung design.
+    // Default periodic offload is flipped on client to off. But if user passes it explicitly in xrt.ini
+    // (or the blob), we read that and turn on periodic offload as user might be passing to get trace
+    // for hung design.
     bool isPeriodicOffloadPresent = false;
-    auto tree1 = xrt_core::config::detail::get_ptree_value("AIE_trace_settings");
-    for (pt::ptree::iterator pos = tree1.begin(); pos != tree1.end(); pos++) {
-      if (pos->first == "periodic_offload") {
-        std::stringstream msg;
-        msg << "Periodic offload on Client Devices is supported only for hanging design."
-            << " Periodic offload shouldn't be used for non hanging design.";
-        xrt_core::message::send(severity_level::warning, "XRT", msg.str());
-        isPeriodicOffloadPresent = true;
-        break;
+    if (usingBlob) {
+      isPeriodicOffloadPresent = profiling_runtime_config::event_trace_periodic_offload_is_explicit();
+    } else {
+      auto tree1 = xrt_core::config::detail::get_ptree_value("AIE_trace_settings");
+      for (pt::ptree::iterator pos = tree1.begin(); pos != tree1.end(); pos++) {
+        if (pos->first == "periodic_offload") {
+          isPeriodicOffloadPresent = true;
+          break;
+        }
       }
     }
-    if( !isPeriodicOffloadPresent)
+    if (isPeriodicOffloadPresent) {
+      std::stringstream msg;
+      msg << "Periodic offload on Client Devices is supported only for hanging design."
+          << " Periodic offload shouldn't be used for non hanging design.";
+      xrt_core::message::send(severity_level::warning, "XRT", msg.str());
+    } else {
       continuousTrace = false;
+    }
 #endif
 
     if (continuousTrace)
-      offloadIntervalUs = xrt_core::config::get_aie_trace_settings_buffer_offload_interval_us();
+      offloadIntervalUs = profiling_runtime_config::resolveBufferOffloadIntervalUs();
 
-    //Process the file dump interval
-    aie_trace_file_dump_int_s = xrt_core::config::get_aie_trace_settings_file_dump_interval_s();
-    
     if (aie_trace_file_dump_int_s < MIN_TRACE_DUMP_INTERVAL_S) {
       aie_trace_file_dump_int_s = MIN_TRACE_DUMP_INTERVAL_S;
       xrt_core::message::send(severity_level::warning, "XRT", AIE_TRACE_DUMP_INTERVAL_WARN_MSG);
@@ -112,33 +120,40 @@ namespace xdp {
       return;
     }
 
+    // The blob (event_trace) fully replaces both Debug.profile_settings
+    // (xdp.json) and xrt.ini for AIE trace metric configuration - it is
+    // strictly higher precedence than xdp.json, so skip that path entirely
+    // when the blob is present.
     bool useXdpJson = false;
-    std::string settingFile = xrt_core::config::get_xdp_json();
     PluginJsonSetting pluginSettings;
 
-    // Only use the JSON file if we aren't running as root
-    if (!xrt_core::utils::is_elevated_process() &&
-        !settingFile.empty() &&
-        SettingsJsonParser::getInstance().isValidJson(settingFile)) {
-      xrt_core::message::send(severity_level::info, "XRT",
-        "Using JSON settings from '" + settingFile + "'");
-      
-      XdpJsonSetting xdpJsonSetting = SettingsJsonParser::getInstance().parseXdpJsonSetting(settingFile, info::aie_trace);
-      if (!xdpJsonSetting.isValid) {
-        xrt_core::message::send(severity_level::warning, "XRT",
-          "Unable to parse aie_tile JSON settings from " + settingFile +
-          ". Error: " + xdpJsonSetting.errorMessage + ". Falling back to xrt.ini settings.");
-        useXdpJson = false;
-      } else {
-        // Process only AIE_TRACE plugin configuration
-        auto it = xdpJsonSetting.plugins.find(info::aie_trace);
-        if (it != xdpJsonSetting.plugins.end()) {
-          pluginSettings = it->second;
-          useXdpJson = true;
-        } else {
-          xrt_core::message::send(severity_level::info, "XRT",
-             "No valid aie_trace configuration found in JSON settings. Falling back to xrt.ini settings.");
+    if (!usingBlob) {
+      std::string settingFile = xrt_core::config::get_xdp_json();
+
+      // Only use the JSON file if we aren't running as root
+      if (!xrt_core::utils::is_elevated_process() &&
+          !settingFile.empty() &&
+          SettingsJsonParser::getInstance().isValidJson(settingFile)) {
+        xrt_core::message::send(severity_level::info, "XRT",
+          "Using JSON settings from '" + settingFile + "'");
+
+        XdpJsonSetting xdpJsonSetting = SettingsJsonParser::getInstance().parseXdpJsonSetting(settingFile, info::aie_trace);
+        if (!xdpJsonSetting.isValid) {
+          xrt_core::message::send(severity_level::warning, "XRT",
+            "Unable to parse aie_tile JSON settings from " + settingFile +
+            ". Error: " + xdpJsonSetting.errorMessage + ". Falling back to xrt.ini settings.");
           useXdpJson = false;
+        } else {
+          // Process only AIE_TRACE plugin configuration
+          auto it = xdpJsonSetting.plugins.find(info::aie_trace);
+          if (it != xdpJsonSetting.plugins.end()) {
+            pluginSettings = it->second;
+            useXdpJson = true;
+          } else {
+            xrt_core::message::send(severity_level::info, "XRT",
+               "No valid aie_trace configuration found in JSON settings. Falling back to xrt.ini settings.");
+            useXdpJson = false;
+          }
         }
       }
     }
@@ -165,22 +180,16 @@ namespace xdp {
     }
 
     // ============================================================================
-    // From this point on, only xrt.ini settings are processed
+    // From this point on, either the blob (event_trace) or xrt.ini settings
+    // are processed, per usingBlob.
     // ============================================================================
 
-    // Process AIE_trace_settings metrics from xrt.ini
-    auto aieTileMetricsSettings = 
-        getSettingsVector(xrt_core::config::get_aie_trace_settings_tile_based_aie_tile_metrics());
-    auto aieGraphMetricsSettings = 
-        getSettingsVector(xrt_core::config::get_aie_trace_settings_graph_based_aie_tile_metrics());
-    auto memTileMetricsSettings = 
-        getSettingsVector(xrt_core::config::get_aie_trace_settings_tile_based_memory_tile_metrics());
-    auto memGraphMetricsSettings = 
-        getSettingsVector(xrt_core::config::get_aie_trace_settings_graph_based_memory_tile_metrics());
-    auto shimTileMetricsSettings = 
-        getSettingsVector(xrt_core::config::get_aie_trace_settings_tile_based_interface_tile_metrics());
-    auto shimGraphMetricsSettings = 
-        getSettingsVector(xrt_core::config::get_aie_trace_settings_graph_based_interface_tile_metrics());
+    auto aieTileMetricsSettings = getSettingsVector(profiling_runtime_config::resolveTileBasedAieTileMetrics());
+    auto aieGraphMetricsSettings = getSettingsVector(profiling_runtime_config::resolveGraphBasedAieTileMetrics());
+    auto memTileMetricsSettings = getSettingsVector(profiling_runtime_config::resolveTileBasedMemoryTileMetrics());
+    auto memGraphMetricsSettings = getSettingsVector(profiling_runtime_config::resolveGraphBasedMemoryTileMetrics());
+    auto shimTileMetricsSettings = getSettingsVector(profiling_runtime_config::resolveTileBasedInterfaceTileMetrics());
+    auto shimGraphMetricsSettings = getSettingsVector(profiling_runtime_config::resolveGraphBasedInterfaceTileMetrics());
 
     if (aieTileMetricsSettings.empty() && aieGraphMetricsSettings.empty()
         && memTileMetricsSettings.empty() && memGraphMetricsSettings.empty()
@@ -194,8 +203,34 @@ namespace xdp {
       setTraceStartControl(compilerOptions.graph_iterator_event);
     }
 
-    xrt_core::message::send(severity_level::info,
-                            "XRT", "Finished Parsing AIE Trace Metadata using xrt.ini settings.");
+    xrt_core::message::send(severity_level::info, "XRT",
+        usingBlob
+            ? "Finished Parsing AIE Trace Metadata using Debug.profiling_runtime_config.event_trace."
+            : "Finished Parsing AIE Trace Metadata using xrt.ini settings.");
+  }
+
+  // Resolve every setting through the shared blob-or-ini decision in
+  // profiling_runtime_config (xdp::profiling_runtime_config::resolveXxx()):
+  // each one already knows whether Debug.profiling_runtime_config.event_trace
+  // is present and, if so, returns the blob's (already-defaulted) value
+  // instead of the matching xrt.ini value. This class never needs to branch
+  // on usingBlob itself for these settings.
+  void AieTraceMetadata::resolveSettings()
+  {
+    counterScheme = profiling_runtime_config::resolveCounterScheme();
+    pollingInterval = profiling_runtime_config::resolvePollTimersIntervalUs();
+    maxTimerSamples = profiling_runtime_config::resolveMaxTimerSamples();
+    continuousTrace = profiling_runtime_config::resolvePeriodicOffload();
+    aie_trace_file_dump_int_s = profiling_runtime_config::resolveFileDumpIntervalS();
+    startLayer = profiling_runtime_config::resolveStartLayer();
+    traceStartBroadcast = profiling_runtime_config::resolveTraceStartBroadcast();
+    configOnePartitionSetting = profiling_runtime_config::resolveConfigOnePartition();
+    reuseBufferSetting = profiling_runtime_config::resolveReuseBuffer();
+    enableSystemTimeline = profiling_runtime_config::resolveEnableSystemTimeline();
+    bufferSizeStr = profiling_runtime_config::resolveBufferSize();
+    startTypeSetting = profiling_runtime_config::resolveStartType();
+    startTimeSetting = profiling_runtime_config::resolveStartTime();
+    startIterationSetting = profiling_runtime_config::resolveStartIteration();
   }
 
   // **************************************************************************
@@ -255,7 +290,7 @@ namespace xdp {
     useGraphIterator = false;
     useUserControl = false;
 
-    auto startType = xrt_core::config::get_aie_trace_settings_start_type();
+    auto startType = startTypeSetting;
 
     if (startType == "time") {
       // Use number of cycles to start trace
@@ -265,7 +300,7 @@ namespace xdp {
       std::smatch pieces_match;
       uint64_t cycles_per_sec = static_cast<uint64_t>(freqMhz * uint_constants::one_million);
 
-      std::string start_str = xrt_core::config::get_aie_trace_settings_start_time();
+      std::string start_str = startTimeSetting;
 
       // Catch cases like "1Ms" "1NS"
       std::transform(start_str.begin(), start_str.end(), start_str.begin(),
@@ -316,7 +351,7 @@ namespace xdp {
       }
       else {
         // Start trace when graph iterator reaches a threshold
-        iterationCount = xrt_core::config::get_aie_trace_settings_start_iteration();
+        iterationCount = startIterationSetting;
         useGraphIterator = (iterationCount != 0);
       }
     } else if (startType == "kernel_event0") {

@@ -583,7 +583,7 @@ void AIETraceOffload::checkCircularBufferSupport()
     return;
   #endif
 
-  mEnCircularBuf = xrt_core::config::get_aie_trace_settings_reuse_buffer();
+  mEnCircularBuf = AieTraceMetadata::reuseBufferEnabled();
   if (!mEnCircularBuf)
     return;
 

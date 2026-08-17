@@ -26,6 +26,7 @@
 #include "xdp/profile/device/aie_trace/aie_trace_logger.h"
 #include "xdp/profile/device/aie_trace/aie_trace_offload.h"
 #include "xdp/profile/device/pl_device_intf.h"
+#include "xdp/profile/plugin/aie_trace/aie_trace_metadata.h"
 #include "xdp/profile/plugin/aie_trace/x86/aie_trace_kernel_config.h"
 
 /*
@@ -433,7 +434,8 @@ bool AIETraceOffload::isTraceBufferFull()
 
 void AIETraceOffload::checkCircularBufferSupport()
 {
-  mEnCircularBuf = xrt_core::config::get_aie_trace_settings_reuse_buffer();
+  // Check if reuse buffer is enabled either through xrt.ini or vitisai_config.json
+  mEnCircularBuf = AieTraceMetadata::reuseBufferEnabled();
   if (!mEnCircularBuf)
     return;
 

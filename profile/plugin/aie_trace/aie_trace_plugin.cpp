@@ -113,7 +113,7 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
 
   // In a multipartition scenario, if the user wants to trace one specific partition
   // and we have already configured one partition, we can skip the rest of them
-  if ((xrt_core::config::get_aie_trace_settings_config_one_partition()) && (configuredOnePartition)) {
+  if ((AieTraceMetadata::configOnePartitionEnabled()) && (configuredOnePartition)) {
     xrt_core::message::send(severity_level::warning, "XRT",
       "AIE Trace: A previous partition has already been configured. Skipping current partition due to 'config_one_partition=true' setting.");
     return;
@@ -190,7 +190,7 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
   AIEData.valid = true;
 
   // If there are tiles configured for this xclbin, then we have configured the first matching xclbin and will not configure any upcoming ones
-  if ((xrt_core::config::get_aie_trace_settings_config_one_partition()) && !(AIEData.metadata->configMetricsEmpty()))
+  if ((AIEData.metadata->getConfigOnePartitionSetting()) && !(AIEData.metadata->configMetricsEmpty()))
     configuredOnePartition = true;
 
 #ifdef XDP_CLIENT_BUILD
@@ -285,7 +285,7 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
   AIEData.offloadManager->createTraceWriters(numStreamsPLIO, numStreamsGMIO, writers);
 
   // Ensure trace buffer size is appropriate
-  uint64_t aieTraceBufSize = GetTS2MMBufSize(true /*isAIETrace*/);
+  uint64_t aieTraceBufSize = GetTS2MMBufSize(AIEData.metadata->getBufferSizeStr());
   // uint64_t aieTraceBufSizePLIO = aieTraceBufSize;
   // uint64_t aieTraceBufSizeGMIO = aieTraceBufSize;
   if (isPLIO && !configuredOnePlioPartition) {
@@ -345,8 +345,7 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
 
   // System timeline: enable on single-partition designs
   // (load_xclbin and register_xclbin / hw_context flows). 
-  const bool iniEnableTimeline =
-      xrt_core::config::get_aie_trace_settings_enable_system_timeline();
+  const bool iniEnableTimeline = AIEData.metadata->getEnableSystemTimeline();
   const auto &overlayCols = AIEData.metadata->getPartitionOverlayStartCols();
   const bool multipartitionDesign = (overlayCols.size() > 1);
   const bool enableSystemTimeline = iniEnableTimeline && !multipartitionDesign;

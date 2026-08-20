@@ -5,12 +5,19 @@
 
 #include "xdp/profile/plugin/aie_dtrace/util/aie_dtrace_util.h"
 
+#include "core/common/config_reader.h"
+#include "core/common/message.h"
+
 #include <map>
+#include <mutex>
 #include <regex>
 
 namespace xdp::aie::dtrace {
 
   namespace {
+    using severity_level = xrt_core::message::severity_level;
+
+    static constexpr unsigned int DEFAULT_COALESCE_RESULT_MEMORY_MB = 256;
 
     void addPortCounterPair(std::vector<L2L2CounterPoint>& points,
                             uint8_t column,
@@ -37,6 +44,30 @@ namespace xdp::aie::dtrace {
 
   } // namespace
 
+  void
+  initDtraceOutputConfig()
+  {
+    static std::once_flag once;
+    std::call_once(once, []() {
+      try {
+        xrt_core::config::detail::set("Debug.dtrace_output_json_format", "true");
+        xrt_core::config::detail::set("Debug.dtrace_coalesce_result", "true");
+        xrt_core::config::detail::set("Debug.dtrace_coalesce_result_memory_mb",
+                                      std::to_string(DEFAULT_COALESCE_RESULT_MEMORY_MB));
+      }
+      catch (const std::exception& e) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            std::string("AIE dtrace: could not apply default dtrace output settings: ")
+            + e.what());
+        return;
+      }
+
+      xrt_core::message::send(severity_level::info, "XRT",
+          "AIE dtrace: enabled JSON dtrace_dump output with coalesced results "
+          "(dtrace_dump_ctx_<slot>_<timestamp>.json on hw context teardown)");
+    });
+  }
+
   std::map<std::string, std::vector<XAie_Events>>
   getBandwidthInterfaceTileEventSets(int hwGen)
   {
@@ -62,13 +93,14 @@ namespace xdp::aie::dtrace {
     if (spec.empty())
       return points;
 
-    static const std::regex pointRegex(R"(\{\s*(\d+)\s*,\s*(\d+)\s*\})");
+    // Format: {column,row:port} — row is accepted for INI readability only (ignored).
+    static const std::regex pointRegex(R"(\{\s*(\d+)\s*,\s*(\d+)\s*:\s*(\d+)\s*\})");
     const auto begin = std::sregex_iterator(spec.begin(), spec.end(), pointRegex);
     const auto end = std::sregex_iterator();
     for (auto it = begin; it != end; ++it) {
       try {
         const unsigned long column = std::stoul((*it)[1].str());
-        const unsigned long dstPort = std::stoul((*it)[2].str());
+        const unsigned long dstPort = std::stoul((*it)[3].str());
         if (column > 255 || (dstPort != 1 && dstPort != 2))
           continue;
 

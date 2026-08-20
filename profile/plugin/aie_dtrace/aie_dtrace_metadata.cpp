@@ -89,7 +89,8 @@ namespace xdp {
       if (designPoints.empty()) {
         xrt_core::message::send(severity_level::warning, "XRT",
             "AIE dtrace: L2-L2 is enabled but AIE_dtrace_settings.l2_l2_design_points is "
-            "empty or invalid. L2-L2 counters will not be appended to the CT.");
+            "empty or invalid (expected {column,row:port} entries). "
+            "L2-L2 counters will not be appended to the CT.");
       }
     }
 

@@ -88,6 +88,35 @@ extendLastUcToMaxConfiguredColumn(std::vector<ASMFileInfo>& asmFileInfoList,
     last.colEnd = std::max(last.colEnd, maxCfgCol);
 }
 
+void
+writeBandwidthMetadataCounterLine(std::ostream& out, const CTCounterInfo& ctr)
+{
+  out << "#     {\"col\": " << static_cast<int>(ctr.column)
+      << ", \"row\": " << static_cast<int>(ctr.row)
+      << ", \"ctr\": " << static_cast<int>(ctr.counterNumber)
+      << ", \"ch\": " << static_cast<int>(ctr.channel);
+
+  out << ", \"dir\": ";
+  if (ctr.portDirection == "input")
+    out << "\"i\"";
+  else if (ctr.portDirection == "output")
+    out << "\"o\"";
+  else
+    out << "null";
+
+  if (!ctr.eventType.empty()) {
+    out << ", \"event\": ";
+    if (ctr.eventType == "running")
+      out << "\"r\"";
+    else if (ctr.eventType == "stalled")
+      out << "\"s\"";
+    else
+      out << "\"" << ctr.eventType << "\"";
+  }
+
+  out << "}";
+}
+
 } // namespace
 
 using severity_level = xrt_core::message::severity_level;
@@ -1097,80 +1126,44 @@ bool AieDtraceCTWriter::writeBandwidthCTFile(
   ctFile << "# COUNTER_METADATA_BEGIN\n";
   ctFile << "# {\n";
 
-  // Per-UC counter metadata groupings only
+  // Per-UC counter metadata: shim bandwidth + memtile L2-L2 merged by column within each stamp.
   std::vector<const ASMFileInfo*> metaGroups;
   for (const auto& asmFileInfo : asmFileInfoList) {
-    if (!asmFileInfo.counters.empty())
+    if (!asmFileInfo.counters.empty() || !asmFileInfo.l2l2Counters.empty())
       metaGroups.push_back(&asmFileInfo);
   }
 
   for (size_t g = 0; g < metaGroups.size(); g++) {
     const auto& asmFileInfo = *metaGroups[g];
+    std::vector<const CTCounterInfo*> mergedMetadata;
+    mergedMetadata.reserve(asmFileInfo.counters.size() + asmFileInfo.l2l2Counters.size());
+    for (const auto& ctr : asmFileInfo.counters)
+      mergedMetadata.push_back(&ctr);
+    for (const auto& ctr : asmFileInfo.l2l2Counters)
+      mergedMetadata.push_back(&ctr);
+
+    std::sort(mergedMetadata.begin(), mergedMetadata.end(),
+              [](const CTCounterInfo* a, const CTCounterInfo* b) {
+                if (a->column != b->column)
+                  return a->column < b->column;
+                if (a->row != b->row)
+                  return a->row < b->row;
+                return a->counterNumber < b->counterNumber;
+              });
+
     ctFile << "#   \"" << asmFileInfo.asmId << "\": [\n";
 
-    for (size_t c = 0; c < asmFileInfo.counters.size(); c++) {
-      const auto& ctr = asmFileInfo.counters[c];
-      ctFile << "#     {\"col\": " << static_cast<int>(ctr.column)
-             << ", \"row\": " << static_cast<int>(ctr.row)
-             << ", \"ctr\": " << static_cast<int>(ctr.counterNumber)
-             << ", \"ch\": " << static_cast<int>(ctr.channel)
-             << ", \"dir\": ";
-
-      if (ctr.portDirection == "input")
-        ctFile << "\"i\"";
-      else if (ctr.portDirection == "output")
-        ctFile << "\"o\"";
-      else
-        ctFile << "null";
-
-      // Add event type for peak bandwidth metrics
-      if (!ctr.eventType.empty()) {
-        ctFile << ", \"event\": ";
-        if (ctr.eventType == "running")
-          ctFile << "\"r\"";
-        else if (ctr.eventType == "stalled")
-          ctFile << "\"s\"";
-        else
-          ctFile << "\"" << ctr.eventType << "\"";
-      }
-
-      ctFile << "}";
-      if (c < asmFileInfo.counters.size() - 1)
+    for (size_t c = 0; c < mergedMetadata.size(); c++) {
+      writeBandwidthMetadataCounterLine(ctFile, *mergedMetadata[c]);
+      if (c + 1 < mergedMetadata.size())
         ctFile << ",";
       ctFile << "\n";
     }
 
     ctFile << "#   ]";
-    if (g < metaGroups.size() - 1)
+    if (g + 1 < metaGroups.size())
       ctFile << ",";
     ctFile << "\n";
-  }
-
-  if (!allL2l2Counters.empty()) {
-    if (!metaGroups.empty())
-      ctFile << ",\n";
-    ctFile << "#   \"l2_l2\": [\n";
-    for (size_t i = 0; i < allL2l2Counters.size(); ++i) {
-      const auto& ctr = allL2l2Counters[i];
-      ctFile << "#     {\"col\": " << static_cast<int>(ctr.column)
-             << ", \"row\": " << static_cast<int>(ctr.row)
-             << ", \"ctr\": " << static_cast<int>(ctr.counterNumber)
-             << ", \"module\": \"" << ctr.module << "\"";
-      if (!ctr.eventType.empty()) {
-        ctFile << ", \"event\": ";
-        if (ctr.eventType == "running")
-          ctFile << "\"r\"";
-        else if (ctr.eventType == "stalled")
-          ctFile << "\"s\"";
-        else
-          ctFile << "\"" << ctr.eventType << "\"";
-      }
-      ctFile << "}";
-      if (i + 1 < allL2l2Counters.size())
-        ctFile << ",";
-      ctFile << "\n";
-    }
-    ctFile << "#   ]\n";
   }
 
   ctFile << "# }\n";
@@ -1202,15 +1195,23 @@ bool AieDtraceCTWriter::writeBandwidthCTFile(
     ctFile << "{\n";
     ctFile << "    ts_" << asmFileInfo.asmId << " = timestamp32()\n";
 
-    for (size_t i = 0; i < asmFileInfo.counters.size(); i++) {
-      const auto& ctr = asmFileInfo.counters[i];
-      ctFile << "    _ = read_reg(" << formatAddress(ctr.address) << ")\n";
-    }
+    std::vector<const CTCounterInfo*> mergedProbes;
+    mergedProbes.reserve(asmFileInfo.counters.size() + asmFileInfo.l2l2Counters.size());
+    for (const auto& ctr : asmFileInfo.counters)
+      mergedProbes.push_back(&ctr);
+    for (const auto& ctr : asmFileInfo.l2l2Counters)
+      mergedProbes.push_back(&ctr);
+    std::sort(mergedProbes.begin(), mergedProbes.end(),
+              [](const CTCounterInfo* a, const CTCounterInfo* b) {
+                if (a->column != b->column)
+                  return a->column < b->column;
+                if (a->row != b->row)
+                  return a->row < b->row;
+                return a->counterNumber < b->counterNumber;
+              });
 
-    for (size_t i = 0; i < asmFileInfo.l2l2Counters.size(); i++) {
-      const auto& ctr = asmFileInfo.l2l2Counters[i];
-      ctFile << "    _ = read_reg(" << formatAddress(ctr.address) << ")\n";
-    }
+    for (const CTCounterInfo* ctr : mergedProbes)
+      ctFile << "    _ = read_reg(" << formatAddress(ctr->address) << ")\n";
 
     ctFile << "}\n\n";
   }
@@ -1306,8 +1307,6 @@ bool AieDtraceCTWriter::generateBandwidthCT(
     return false;
   }
 
-  extendLastUcToMaxConfiguredColumn(asmFileInfoList, allCounters);
-
   // ========================================= L2-L2 transfer metrics ==========================================
   std::vector<CTCounterInfo> allL2l2Counters;
   std::vector<CTRegisterWrite> l2l2BeginBlockWrites;
@@ -1337,7 +1336,7 @@ bool AieDtraceCTWriter::generateBandwidthCT(
           info.column = point.column;
           info.row = point.row;
           info.counterNumber = point.counterNumber;
-          info.channel = 0;
+          info.channel = point.portIndex;
           info.module = "memory_tile";
           info.address = calculateCounterAddress(point.column, point.row, point.counterNumber,
                                                  "memory_tile");
@@ -1356,7 +1355,7 @@ bool AieDtraceCTWriter::generateBandwidthCT(
         std::stringstream l2Msg;
         l2Msg << "AIE dtrace: L2-L2 design points are invalid for this partition (start_col="
               << static_cast<int>(partitionStartCol) << ", num_cols=" << numCols
-              << "). Check l2_l2_design_points column indices and dst paths per memtile (max "
+              << "). Check l2_l2_design_points {column,row:dstPort} entries per memtile (max "
               << static_cast<int>(aie::dtrace::L2L2_MAX_DST_PATHS_PER_COLUMN)
               << "). Skipping L2-L2 CT append.";
         xrt_core::message::send(severity_level::warning, "XRT", l2Msg.str());
@@ -1364,6 +1363,11 @@ bool AieDtraceCTWriter::generateBandwidthCT(
     }
   }
   // ========================================= L2-L2 transfer metrics ==========================================
+
+  if (!allL2l2Counters.empty())
+    extendLastUcToMaxConfiguredColumn(asmFileInfoList, allL2l2Counters);
+  if (!allCounters.empty())
+    extendLastUcToMaxConfiguredColumn(asmFileInfoList, allCounters);
 
   for (auto& asmFileInfo : asmFileInfoList) {
     asmFileInfo.counters = filterCountersByColumn(allCounters, asmFileInfo.colStart, asmFileInfo.colEnd);
@@ -1397,11 +1401,6 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateMemtilePerfCounterConfig
   const uint8_t row = counterPoints.front().row;
   uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
                          (static_cast<uint64_t>(row) << rowShift);
-
-  xrt_core::message::send(severity_level::debug, "XRT",
-      "AIE dtrace L2-L2: memtile perf config col=" + std::to_string(column)
-      + " row=" + std::to_string(+row)
-      + " tileAddr=" + formatAddress(tileAddress));
 
   uint8_t counterEvents[4] = {0, 0, 0, 0};
   bool counterUsed[4] = {false, false, false, false};

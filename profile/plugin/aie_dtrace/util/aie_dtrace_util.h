@@ -40,7 +40,8 @@ namespace xdp::aie::dtrace {
     std::string eventType;         // "running" or "stalled"
   };
 
-  // Parses AIE_dtrace_settings.l2_l2_design_points, e.g. "{1,2},{5,1},{5,2}".
+  // Parses AIE_dtrace_settings.l2_l2_design_points, e.g. "{1,1:2},{5,1:1},{5,1:2}".
+  // INI uses {column,row:port} for readability; row is ignored — counters use MEM_TILE_ROW_START.
   std::vector<L2L2InstrumentPoint> parseL2L2DesignPoints(const std::string& spec);
 
   // Builds running+stalled counter pairs from xrt.ini design points within the partition.
@@ -50,6 +51,10 @@ namespace xdp::aie::dtrace {
       const std::vector<L2L2InstrumentPoint>& instrumentPoints);
 
   // ========================================================================================
+
+  // Enable JSON dtrace_dump output with coalesced results by default.
+  // Must run before XRT creates the first dtrace module (config keys lock on first read).
+  void initDtraceOutputConfig();
 
 } // namespace xdp::aie::dtrace
 

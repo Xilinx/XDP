@@ -51,7 +51,7 @@ elseif (XDP_VE2_BUILD_CMAKE STREQUAL "yes")
     "${PROFILE_DIR}/device/common/ve2/ve2_transaction.cpp")
   add_dependencies(xdp_aie_halt_plugin xdp_core xrt_coreutil)
 
-  target_link_libraries(xdp_aie_halt_plugin PRIVATE xdp_core xrt_coreutil aie_codegen aiebu_library_objects)
+  target_link_libraries(xdp_aie_halt_plugin PRIVATE xdp_core xrt_coreutil aie_codegen aiebu_static)
   # -Bsymbolic: ensures XAie_* calls within this plugin resolve to the
   # statically-linked aie_codegen rather than being interposed by the
   # system libxaiengine.so.3 (required by libxrt_core.so.2)

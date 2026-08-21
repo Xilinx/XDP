@@ -106,7 +106,7 @@ else()
 
     add_library(xdp_aie_trace_plugin_xdna SHARED ${AIE_TRACE_PLUGIN_FILES} ${AIE_TRACE_COMPONENT_FILES} ${AIE_TRACE_UTIL_FILES} ${AIE_TRACE_CONFIG_FILES} ${AIE_JSON_PARSER_FILES} "${PROFILE_DIR}/device/common/ve2/ve2_transaction.cpp")
     add_dependencies(xdp_aie_trace_plugin_xdna xdp_core xrt_coreutil)
-    target_link_libraries(xdp_aie_trace_plugin_xdna PRIVATE xdp_core xrt_coreutil aie_codegen aiebu_library_objects)
+    target_link_libraries(xdp_aie_trace_plugin_xdna PRIVATE xdp_core xrt_coreutil aie_codegen aiebu_static)
     target_link_options(xdp_aie_trace_plugin_xdna PRIVATE -Wl,-Bsymbolic)
     target_compile_definitions(xdp_aie_trace_plugin_xdna PRIVATE XDP_VE2_BUILD=1 XDP_USE_AIE_CODEGEN=1 XAIE_FEATURE_MSVC FAL_LINUX="on")
     target_include_directories(xdp_aie_trace_plugin_xdna PRIVATE

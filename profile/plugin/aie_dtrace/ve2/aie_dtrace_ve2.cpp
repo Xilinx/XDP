@@ -6,7 +6,6 @@
 #include "xdp/profile/plugin/aie_dtrace/ve2/aie_dtrace_ve2.h"
 #include "xdp/profile/plugin/aie_dtrace/ve2/aie_dtrace_ct_writer.h"
 #include "xdp/profile/plugin/aie_dtrace/ve2/elf_helper.h"
-#include "xdp/profile/plugin/aie_dtrace/util/aie_dtrace_util.h"
 
 #include "core/common/api/hw_context_int.h"
 #include "core/common/api/kernel_int.h"
@@ -154,8 +153,6 @@ namespace xdp {
                              includeBandwidth, bandwidthMetricSet, bandwidthChannel,
                              includeComputeIoBound))
       return;
-
-    aie::dtrace::initDtraceOutputConfig();
 
     std::stringstream genMsg;
     genMsg << "AIE dtrace: CT generated for kernel '" << kernel_name << "' (";

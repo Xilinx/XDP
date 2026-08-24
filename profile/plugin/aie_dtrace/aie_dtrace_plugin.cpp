@@ -4,7 +4,6 @@
 #define XDP_PLUGIN_SOURCE
 
 #include "xdp/profile/plugin/aie_dtrace/aie_dtrace_plugin.h"
-#include "xdp/profile/plugin/aie_dtrace/util/aie_dtrace_util.h"
 
 #include "core/common/api/hw_context_int.h"
 #include "core/common/config_reader.h"
@@ -31,9 +30,6 @@ namespace xdp {
     : XDPPlugin()
   {
     AieDtracePlugin::live = true;
-
-    if (xrt_core::config::get_aie_dtrace())
-      aie::dtrace::initDtraceOutputConfig();
 
     db->registerPlugin(this);
     db->registerInfo(info::aie_dtrace);
@@ -71,8 +67,6 @@ namespace xdp {
 
     if (!xrt_core::config::get_aie_dtrace())
       return;
-
-    aie::dtrace::initDtraceOutputConfig();
 
     if (!handle)
       return;

@@ -1285,11 +1285,11 @@ bool AieDtraceCTWriter::appendBandwidthConfig(
 void AieDtraceCTWriter::appendComputeIoBoundConfig(
     std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites)
 {
-  // The metric uses both modules of one tile. Only control registers it fully owns are
-  // written, which limits the core module to counters 2 and 3 (Performance_Control1);
-  // the four individual stalls are broadcast to the memory module, whose counters 0-3
-  // are all free on AIE tiles. The listing/metadata use relative core rows, so the first
-  // core row's absolute row is aie_tile_row_start.
+  // The metric spans two tiles. The first uses both modules: only control registers it
+  // fully owns are written, which limits the core module to counters 2 and 3
+  // (Performance_Control1); the four individual stalls are broadcast to the memory
+  // module, whose counters 0-3 are all free on AIE tiles. The listing/metadata use
+  // relative core rows, so the first core row's absolute row is aie_tile_row_start.
   const uint8_t row = coreRowStart;
 
   struct CounterLayout {
@@ -1327,6 +1327,42 @@ void AieDtraceCTWriter::appendComputeIoBoundConfig(
 
   auto memoryWrites = generateComputeMemoryConfig(COMPUTE_IO_CORE_COL, row);
   beginWrites.insert(beginWrites.end(), memoryWrites.begin(), memoryWrites.end());
+
+  // The tile above adds the lock-stall-with-starvation pair. All four counters of the
+  // first tile's memory module are already taken, and these events belong to the DMA of
+  // whichever tile hosts them, so they need a tile of their own.
+  const uint8_t lockStarvationRow =
+      static_cast<uint8_t>(coreRowStart + LOCK_STARVATION_ROW_OFFSET);
+
+  const CounterLayout lockStarvationLayout[] = {
+    {"aie_memory", 0, "lock_starvation_ch0"},
+    {"aie_memory", 1, "lock_starvation_ch1"}
+  };
+
+  for (const auto& entry : lockStarvationLayout) {
+    CTCounterInfo info;
+    info.column = COMPUTE_IO_CORE_COL;
+    info.row = lockStarvationRow;
+    info.counterNumber = entry.counterNumber;
+    info.channel = entry.counterNumber;  // counter N monitors S2MM channel N
+    info.module = entry.module;
+    info.address = calculateCounterAddress(COMPUTE_IO_CORE_COL, lockStarvationRow,
+                                           entry.counterNumber, entry.module);
+    info.metricSet = "compute_io_bound";
+    info.portDirection = "";
+    info.eventType = entry.eventType;
+    counters.push_back(info);
+  }
+
+  auto lockStarvationCoreWrites =
+      generateLockStarvationCoreConfig(COMPUTE_IO_CORE_COL, lockStarvationRow);
+  beginWrites.insert(beginWrites.end(),
+                     lockStarvationCoreWrites.begin(), lockStarvationCoreWrites.end());
+
+  auto lockStarvationMemoryWrites =
+      generateLockStarvationMemoryConfig(COMPUTE_IO_CORE_COL, lockStarvationRow);
+  beginWrites.insert(beginWrites.end(),
+                     lockStarvationMemoryWrites.begin(), lockStarvationMemoryWrites.end());
 }
 
 bool AieDtraceCTWriter::generateCT(
@@ -1336,7 +1372,7 @@ bool AieDtraceCTWriter::generateCT(
     bool includeBandwidth,
     const std::string& bandwidthMetricSet,
     uint8_t bandwidthChannel,
-    bool includeComputeIoBound)
+    const std::string& coreMetricSet)
 {
   if (opLocations.empty()) {
     xrt_core::message::send(severity_level::debug, "XRT",
@@ -1355,14 +1391,18 @@ bool AieDtraceCTWriter::generateCT(
   std::vector<CTRegisterWrite> beginBlockWrites;
 
   // Both metric families can be emitted into the same CT file. Bandwidth counters live
-  // on shim tiles (row 0); the compute_io_bound counters live on the core and memory
-  // modules of a single tile (col 0, first core row). filterCountersByColumn keys by
-  // column, so both land in the matching UC group and read distinct addresses.
+  // on shim tiles (row 0); the core-tile metric sets live on the core and memory modules
+  // of tiles in column 0. filterCountersByColumn keys by column, so both land in the
+  // matching UC group and read distinct addresses.
   if (includeBandwidth)
     appendBandwidthConfig(hwctx, bandwidthMetricSet, bandwidthChannel, allCounters, beginBlockWrites);
 
-  if (includeComputeIoBound)
+  if (coreMetricSet == "compute_io_bound")
     appendComputeIoBoundConfig(allCounters, beginBlockWrites);
+  else if (!coreMetricSet.empty())
+    xrt_core::message::send(severity_level::warning, "XRT",
+        "AIE dtrace: Unsupported core (aie) tile metric set '" + coreMetricSet
+        + "'; no core tile counters configured.");
 
   if (allCounters.empty()) {
     xrt_core::message::send(severity_level::warning, "XRT",
@@ -1388,7 +1428,7 @@ bool AieDtraceCTWriter::generateBandwidthCT(
 {
   return generateCT(outputPath, hwctx, opLocations,
                     /*includeBandwidth=*/true, metricSet, channel,
-                    /*includeComputeIoBound=*/false);
+                    /*coreMetricSet=*/"");
 }
 
 namespace {
@@ -1558,6 +1598,88 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateComputeMemoryConfig(
            "PerfCtrl2 @ " + loc + " (ctr2 = Broadcast"
            + std::to_string(CASCADE_STALL_BCAST_CHANNEL) + " cascade stall, ctr3 = Broadcast"
            + std::to_string(LOCK_STALL_BCAST_CHANNEL) + " lock stall)");
+
+  return writes;
+}
+
+std::vector<CTRegisterWrite> AieDtraceCTWriter::generateLockStarvationCoreConfig(
+    uint8_t column, uint8_t row)
+{
+  std::vector<CTRegisterWrite> writes;
+
+  uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
+                         (static_cast<uint64_t>(row) << rowShift);
+
+  std::string loc = "core (" + std::to_string(column) + "," + std::to_string(row) + ")";
+
+  // A combo event can only combine events of one module, and the DMA starvation events
+  // belong to the memory module, so the lock stall has to travel there as a broadcast.
+  CTRegisterWrite w;
+  w.address = tileAddress + CM_EVENT_BROADCAST0 + 4 * LOCK_STALL_BCAST_CHANNEL;
+  w.value = LOCK_STALL_EVENT;
+  w.comment = "Event_Broadcast" + std::to_string(LOCK_STALL_BCAST_CHANNEL) + " @ " + loc
+            + " = lock stall";
+  writes.push_back(w);
+
+  // East is the core module's internal link to the memory module; the broadcast must
+  // not escape the tile in any other direction.
+  appendBroadcastBlockConfig(CM_BCAST_BLOCK_BASE, BCAST_DIR_EAST, loc, tileAddress, writes);
+
+  return writes;
+}
+
+std::vector<CTRegisterWrite> AieDtraceCTWriter::generateLockStarvationMemoryConfig(
+    uint8_t column, uint8_t row)
+{
+  std::vector<CTRegisterWrite> writes;
+
+  uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
+                         (static_cast<uint64_t>(row) << rowShift);
+
+  auto addWrite = [&](uint64_t offset, uint32_t value, const std::string& comment) {
+    CTRegisterWrite w;
+    w.address = tileAddress + offset;
+    w.value = value;
+    w.comment = comment;
+    writes.push_back(w);
+  };
+
+  std::string loc = "memory (" + std::to_string(column) + "," + std::to_string(row) + ")";
+
+  appendBroadcastBlockConfig(MM_BCAST_BLOCK_BASE, -1, loc, tileAddress, writes);
+
+  const uint8_t lockEvent  = MEM_BROADCAST_0_EVENT + LOCK_STALL_BCAST_CHANNEL;
+  const uint8_t ch0Starved = MEM_DMA_S2MM_0_STREAM_STARVATION_EVENT;
+  const uint8_t ch1Starved = MEM_DMA_S2MM_0_STREAM_STARVATION_EVENT + 1;
+
+  // Combo 0 pairs inputs A and B, combo 1 pairs C and D, so the broadcast lock stall is
+  // fed in twice, once against each channel's starvation.
+  addWrite(MM_COMBO_EVENT_INPUTS,
+           (static_cast<uint32_t>(lockEvent)  & 0x7F)
+             | ((static_cast<uint32_t>(ch0Starved) & 0x7F) << 8)
+             | ((static_cast<uint32_t>(lockEvent)  & 0x7F) << 16)
+             | ((static_cast<uint32_t>(ch1Starved) & 0x7F) << 24),
+           "Combo_Event_Inputs @ " + loc + " (A,C = Broadcast"
+           + std::to_string(LOCK_STALL_BCAST_CHANNEL)
+           + " lock stall, B = s2mm ch0 starvation, D = s2mm ch1 starvation)");
+
+  // Both combos AND their pair, so each counter accumulates only the cycles where the
+  // core was lock stalled while that channel was starved.
+  addWrite(MM_COMBO_EVENT_CONTROL,
+           COMBO_AND | (COMBO_AND << 8),
+           "Combo_Event_Control @ " + loc + " (combo0 = A AND B, combo1 = C AND D)");
+
+  addWrite(MM_PERF_COUNTER0 + 0, 0, "Reset PerfCounter0 @ " + loc);
+  addWrite(MM_PERF_COUNTER0 + 4, 0, "Reset PerfCounter1 @ " + loc);
+
+  // Performance_Control0: [6:0]=Cnt0_Start, [14:8]=Cnt0_Stop, [22:16]=Cnt1_Start, [30:24]=Cnt1_Stop.
+  // Counters 2 and 3 are unused here, so Performance_Control2 is left alone.
+  addWrite(MM_PERF_CTRL0,
+           counterEventPair(MEM_COMBO_EVENT_0_EVENT, 0)
+             | counterEventPair(MEM_COMBO_EVENT_1_EVENT, 16),
+           "PerfCtrl0 @ " + loc
+           + " (ctr0 = Combo_Event_0 lock stall & ch0 starvation, "
+           + "ctr1 = Combo_Event_1 lock stall & ch1 starvation)");
 
   return writes;
 }

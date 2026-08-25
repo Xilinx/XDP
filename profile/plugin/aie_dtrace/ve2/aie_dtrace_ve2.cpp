@@ -110,14 +110,12 @@ namespace xdp {
     AieDtraceCTWriter ctWriter(db, metadata, deviceID, partitionStartCol);
 
     // Determine which metric families are configured for this run. Both the
-    // interface-tile bandwidth metrics and the core-tile compute_io_bound metric
-    // can be emitted into the same per-run CT file.
-    bool includeComputeIoBound = false;
+    // interface-tile bandwidth metrics and one core-tile metric set can be
+    // emitted into the same per-run CT file.
+    std::string coreMetricSet;
     for (const auto& tc : metadata->getConfigMetricsVec(CORE_MODULE_IDX)) {
-      if (tc.second == "compute_io_bound") {
-        includeComputeIoBound = true;
-        break;
-      }
+      coreMetricSet = tc.second;
+      break;
     }
 
     // Interface-tile bandwidth metrics are configured by default unless the user
@@ -143,7 +141,7 @@ namespace xdp {
           + std::to_string(bandwidthChannel) + ") from configuration");
     }
 
-    if (!includeBandwidth && !includeComputeIoBound) {
+    if (!includeBandwidth && coreMetricSet.empty()) {
       xrt_core::message::send(severity_level::info, "XRT",
           "AIE dtrace: No metrics configured; skipping CT generation.");
       return;
@@ -151,17 +149,17 @@ namespace xdp {
 
     if (!ctWriter.generateCT(outputPath, hwctx, it->second,
                              includeBandwidth, bandwidthMetricSet, bandwidthChannel,
-                             includeComputeIoBound))
+                             coreMetricSet))
       return;
 
     std::stringstream genMsg;
     genMsg << "AIE dtrace: CT generated for kernel '" << kernel_name << "' (";
     if (includeBandwidth)
       genMsg << "interface_tile=" << bandwidthMetricSet;
-    if (includeBandwidth && includeComputeIoBound)
+    if (includeBandwidth && !coreMetricSet.empty())
       genMsg << ", ";
-    if (includeComputeIoBound)
-      genMsg << "aie_tile=compute_io_bound (core tiles 0_0 and 0_1)";
+    if (!coreMetricSet.empty())
+      genMsg << "aie_tile=" << coreMetricSet;
     genMsg << ")";
     xrt_core::message::send(severity_level::debug, "XRT", genMsg.str());
 

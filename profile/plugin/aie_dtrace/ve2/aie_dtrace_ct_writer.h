@@ -171,12 +171,12 @@ public:
                            uint8_t channel = 0);
 
   /**
-   * @brief Generate a self-contained CT file combining bandwidth and/or
-   *        compute_io_bound metrics into a single begin block + counter reads.
+   * @brief Generate a self-contained CT file combining bandwidth and/or a
+   *        core-tile metric set into a single begin block + counter reads.
    *
    * Either family can be enabled independently; when both are enabled the shim
-   * bandwidth counters and the core compute_io_bound counters are emitted into
-   * the same CT file.
+   * bandwidth counters and the core-tile counters are emitted into the same CT
+   * file.
    *
    * @param outputPath Full path for the generated CT file
    * @param hwctx Hardware context handle for partition info access
@@ -184,7 +184,8 @@ public:
    * @param includeBandwidth Emit interface-tile bandwidth counters
    * @param bandwidthMetricSet Bandwidth metric set (used when includeBandwidth)
    * @param bandwidthChannel DMA channel for detailed_ddr_*_bandwidth sets
-   * @param includeComputeIoBound Emit the core-tile compute_io_bound counters
+   * @param coreMetricSet Core (aie) tile metric set to emit, or empty for none.
+   *                      Supported: compute_io_bound
    * @return true if CT file was generated successfully, false otherwise
    */
   bool generateCT(const std::string& outputPath,
@@ -193,7 +194,7 @@ public:
                   bool includeBandwidth,
                   const std::string& bandwidthMetricSet,
                   uint8_t bandwidthChannel,
-                  bool includeComputeIoBound);
+                  const std::string& coreMetricSet);
 
 private:
   /**
@@ -347,6 +348,32 @@ private:
       std::vector<CTRegisterWrite>& beginWrites);
 
   /**
+   * @brief Generate the core module config for the compute_io_bound lock/starvation tile
+   *
+   * Drives the core's lock stall onto a broadcast channel and confines it to the tile,
+   * so the memory module can combine it with its own DMA starvation events.
+   *
+   * @param column Partition-relative core tile column
+   * @param row Absolute core tile row
+   * @return Vector of register writes for the begin block
+   */
+  std::vector<CTRegisterWrite> generateLockStarvationCoreConfig(uint8_t column, uint8_t row);
+
+  /**
+   * @brief Generate the memory module config for the compute_io_bound lock/starvation tile
+   *
+   * Counters 0 and 1 count two combo events: the broadcast lock stall ANDed with S2MM
+   * channel 0 starvation, and the same ANDed with S2MM channel 1 starvation. Each counter
+   * uses Start == Stop so it accumulates the cycles its combo is asserted. Counters 2 and
+   * 3 are left unprogrammed.
+   *
+   * @param column Partition-relative core tile column
+   * @param row Absolute core tile row
+   * @return Vector of register writes for the begin block
+   */
+  std::vector<CTRegisterWrite> generateLockStarvationMemoryConfig(uint8_t column, uint8_t row);
+
+  /**
    * @brief Generate the core module config for the compute_io_bound tile
    *
    * Counters 2 and 3 count total execution cycles (PC_Range_2-3 over [0, PROG_MEM_END])
@@ -481,6 +508,24 @@ private:
   // individual stalls arriving as broadcasts. Only registers this metric fully owns are
   // written, so no counter shares a control register with another owner.
   static constexpr uint8_t COMPUTE_IO_CORE_COL = 0;
+
+  // compute_io_bound also programs a second tile, one core row above the first, whose
+  // memory module counts the core's lock stall ANDed with each S2MM channel's starvation.
+  // Channel 0 carries the IFM and channel 1 the weights, so the two counters say which
+  // input the core was waiting on.
+  static constexpr uint8_t LOCK_STARVATION_ROW_OFFSET = 1;
+
+  // aie2ps memory module DMA events (xaie_events_aie2ps.h), channel N at base + N.
+  static constexpr uint8_t MEM_DMA_S2MM_0_STREAM_STARVATION_EVENT = 35;
+
+  // Combo_Event_Inputs packs four 7-bit event ids: A at 0, B at 8, C at 16, D at 24.
+  // Combo_Event_Control holds one 2-bit op per combo, 8 bits apart, and 0 selects AND
+  // (XAIE_EVENT_COMBO_E1_AND_E2). Combo 0 is A op B and combo 1 is C op D.
+  static constexpr uint64_t MM_COMBO_EVENT_INPUTS  = 0x00014400;
+  static constexpr uint64_t MM_COMBO_EVENT_CONTROL = 0x00014404;
+  static constexpr uint32_t COMBO_AND = 0;
+  static constexpr uint8_t  MEM_COMBO_EVENT_0_EVENT = 7;
+  static constexpr uint8_t  MEM_COMBO_EVENT_1_EVENT = 8;
 
   // Bandwidth monitoring constants
   static constexpr uint8_t NUM_BANDWIDTH_COUNTERS = 4;

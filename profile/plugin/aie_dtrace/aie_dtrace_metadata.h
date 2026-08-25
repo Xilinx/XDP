@@ -22,10 +22,10 @@ class AieDtraceMetadata {
     static constexpr int NUM_MODULES = static_cast<int>(module_type::num_types);
 
     // Placeholder tile used only as the config-map key that enables the metric.
-    // The CT writer picks the core tiles compute_io_bound actually programs and
-    // derives their absolute rows from driver_config.aie_tile_row_start.
-    static constexpr uint8_t COMPUTE_IO_CORE_COL = 0;
-    static constexpr uint8_t COMPUTE_IO_CORE_ROW = 3;
+    // The CT writer picks the core tiles the chosen metric set actually programs
+    // and derives their absolute rows from driver_config.aie_tile_row_start.
+    static constexpr uint8_t CORE_METRIC_COL = 0;
+    static constexpr uint8_t CORE_METRIC_ROW = 3;
 
     uint64_t deviceID = 0;
     double clockFreqMhz = 0.0;

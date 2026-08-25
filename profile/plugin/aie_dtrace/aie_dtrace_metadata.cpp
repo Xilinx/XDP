@@ -62,7 +62,7 @@ namespace xdp {
     }
 
     // Core (aie) tile metrics (e.g. compute_io_bound). Only used to enable the
-    // metric; the tile itself is fixed to the first column / first core row.
+    // metric; the tiles themselves are fixed to the first column.
     std::vector<std::string> aieMetricsSettings;
     if (usingBlob && ci.aie_tile.has_value() && !ci.aie_tile->empty()) {
       xrt_core::message::send(severity_level::info, "XRT",
@@ -153,7 +153,7 @@ namespace xdp {
       return;
 
     // These settings only enable/disable the metric; the tiles themselves are
-    // fixed, and the CT writer decides which ones compute_io_bound needs.
+    // fixed, and the CT writer decides which ones the chosen metric set needs.
     std::string metricSet;
     for (const auto& setting : metricsSettings) {
       std::vector<std::string> parts;
@@ -177,8 +177,8 @@ namespace xdp {
       return;
 
     tile_type tile;
-    tile.col = COMPUTE_IO_CORE_COL;
-    tile.row = COMPUTE_IO_CORE_ROW;
+    tile.col = CORE_METRIC_COL;
+    tile.row = CORE_METRIC_ROW;
     tile.active_core = true;
     configMetrics[moduleIdx][tile] = metricSet;
 

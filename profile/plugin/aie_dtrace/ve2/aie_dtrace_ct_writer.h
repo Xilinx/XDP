@@ -97,6 +97,18 @@ struct BandwidthCounterConfig {
 };
 
 /**
+ * @brief A set of broadcast channels and the one direction they may leave by
+ *
+ * A module can carry several such groups at once, each headed a different way. They are
+ * programmed together so that every direction is written once, with the union of the
+ * groups it blocks, rather than once per group.
+ */
+struct BroadcastChannelGroup {
+  uint32_t channels;  // Mask of the broadcast channels in this group
+  int openDir;        // Direction to leave unblocked, or -1 to block all four
+};
+
+/**
  * @class AieDtraceCTWriter
  * @brief Generates CT (CERT Tracing) files for VE2 AIE profiling
  *
@@ -411,19 +423,22 @@ private:
   std::vector<CTRegisterWrite> generateComputeMemoryConfig(uint8_t column, uint8_t row);
 
   /**
-   * @brief Append broadcast block writes for a set of compute_io_bound channels
+   * @brief Append the broadcast block writes for a module's compute_io_bound channels
    *
-   * The Set/Clr registers are write-1-to-set and write-1-to-clear, so a call only affects
-   * the channels in its mask and sets carrying different masks cannot disturb each other.
+   * Each direction is written at most once: its Set register takes the union of every
+   * group that must not escape that way, and its Clr register the union of the groups
+   * headed through it. Taking all the groups at once is what keeps a direction from being
+   * written twice, which would otherwise leave the file relying on the Set/Clr registers
+   * being write-1-to-set and write-1-to-clear to accumulate rather than replace.
    *
    * @param blockBase Module's Event_Broadcast_Block_South_Set offset
-   * @param channels Mask of the broadcast channels this call owns
-   * @param openDir Direction index to leave unblocked, or -1 to block all four
+   * @param groups The channel groups this module carries
    * @param loc Human-readable location for the generated comments
    * @param writes [in,out] Accumulated begin-block register writes
    */
-  void appendBroadcastBlockConfig(uint64_t blockBase, uint32_t channels, int openDir,
-      const std::string& loc, uint64_t tileAddress, std::vector<CTRegisterWrite>& writes);
+  void appendBroadcastBlockConfig(uint64_t blockBase,
+      const std::vector<BroadcastChannelGroup>& groups, const std::string& loc,
+      uint64_t tileAddress, std::vector<CTRegisterWrite>& writes);
 
   /**
    * @brief Write a self-contained counter CT file with begin-block register writes

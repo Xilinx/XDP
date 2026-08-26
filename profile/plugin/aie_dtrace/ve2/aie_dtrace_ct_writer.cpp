@@ -1457,33 +1457,41 @@ counterEventPair(uint8_t event, unsigned startShift)
 } // namespace
 
 void AieDtraceCTWriter::appendBroadcastBlockConfig(
-    uint64_t blockBase, uint32_t channels, int openDir, const std::string& loc,
-    uint64_t tileAddress, std::vector<CTRegisterWrite>& writes)
+    uint64_t blockBase, const std::vector<BroadcastChannelGroup>& groups,
+    const std::string& loc, uint64_t tileAddress, std::vector<CTRegisterWrite>& writes)
 {
   static const char* dirNames[BCAST_NUM_DIRS] = {"south", "west", "north", "east"};
 
-  auto addWrite = [&](uint64_t offset, uint32_t value, const std::string& comment) {
+  auto addWrite = [&](uint64_t offset, uint32_t value, const std::string& what) {
+    std::stringstream comment;
+    comment << what << " " << loc << " (channels 0x" << std::hex << std::setfill('0')
+            << std::setw(4) << value << ")";
+
     CTRegisterWrite w;
     w.address = tileAddress + offset;
     w.value = value;
-    w.comment = comment;
+    w.comment = comment.str();
     writes.push_back(w);
   };
 
   for (int dir = 0; dir < BCAST_NUM_DIRS; dir++) {
     const uint64_t dirBase = blockBase + static_cast<uint64_t>(dir) * BCAST_BLOCK_DIR_STRIDE;
 
-    // The Set/Clr registers are write-1-to-set and write-1-to-clear, so writing the
-    // channel mask leaves every channel outside it alone.
-    if (dir == openDir) {
-      addWrite(dirBase + BCAST_BLOCK_CLR_OFFSET, channels,
-               "Unblock " + std::string(dirNames[dir]) + " broadcast @ " + loc
-               + " (internal link to the other module)");
+    uint32_t blocked = 0;
+    uint32_t opened = 0;
+    for (const auto& group : groups) {
+      if (group.openDir == dir)
+        opened |= group.channels;
+      else
+        blocked |= group.channels;
     }
-    else {
-      addWrite(dirBase, channels,
-               "Block " + std::string(dirNames[dir]) + " broadcast @ " + loc);
-    }
+
+    if (blocked)
+      addWrite(dirBase, blocked, "Block " + std::string(dirNames[dir]) + " broadcast @");
+    if (opened)
+      addWrite(dirBase + BCAST_BLOCK_CLR_OFFSET, opened,
+               "Unblock " + std::string(dirNames[dir])
+               + " broadcast (internal link to the other module) @");
   }
 }
 
@@ -1533,7 +1541,8 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateComputeCoreConfig(
 
   // East is the core module's internal link to the memory module; the broadcast must
   // not escape the tile in any other direction.
-  appendBroadcastBlockConfig(CM_BCAST_BLOCK_BASE, STALL_BCAST_CHANNELS, BCAST_DIR_EAST,
+  appendBroadcastBlockConfig(CM_BCAST_BLOCK_BASE,
+                             {{STALL_BCAST_CHANNELS, BCAST_DIR_EAST}},
                              loc, tileAddress, writes);
 
   addWrite(CM_PERF_COUNTER0 + 8, 0, "Reset PerfCounter2 @ " + loc);
@@ -1572,7 +1581,7 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateComputeMemoryConfig(
 
   // Blocking west as well does not stop this module observing the broadcast, it only
   // stops it re-driving the signal back into the core module's east interface.
-  appendBroadcastBlockConfig(MM_BCAST_BLOCK_BASE, STALL_BCAST_CHANNELS, -1,
+  appendBroadcastBlockConfig(MM_BCAST_BLOCK_BASE, {{STALL_BCAST_CHANNELS, -1}},
                              loc, tileAddress, writes);
 
   addWrite(MM_PERF_COUNTER0 + 0, 0, "Reset PerfCounter0 @ " + loc);
@@ -1627,16 +1636,14 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateLockStarvationCoreConfig
            "Event_Broadcast" + std::to_string(LOCK_STALL_BCAST_CHANNEL) + " @ " + loc
            + " = lock stall");
 
-  // East is the core module's internal link to the memory module; the broadcast must
-  // not escape the tile in any other direction.
-  appendBroadcastBlockConfig(CM_BCAST_BLOCK_BASE, STALL_BCAST_CHANNELS, BCAST_DIR_EAST,
-                             loc, tileAddress, writes);
-
-  // The memory backpressure pair is counted here instead, because this module's two
-  // combos are free while the memory module's are both spent on the starvation pair.
-  // Blocking all four directions does not stop this module observing the incoming
-  // broadcasts, it only stops it re-driving them back into the memory module.
-  appendBroadcastBlockConfig(CM_BCAST_BLOCK_BASE, S2MM_BP_BCAST_CHANNELS, -1,
+  // The lock stall leaves east, the core module's internal link to the memory module, and
+  // nowhere else. The memory backpressure pair arrives the other way and is counted here,
+  // because this module's two combos are free while the memory module's are both spent on
+  // the starvation pair; blocking all four directions does not stop this module observing
+  // those broadcasts, it only stops it re-driving them back into the memory module.
+  appendBroadcastBlockConfig(CM_BCAST_BLOCK_BASE,
+                             {{STALL_BCAST_CHANNELS, BCAST_DIR_EAST},
+                              {S2MM_BP_BCAST_CHANNELS, -1}},
                              loc, tileAddress, writes);
 
   const uint8_t ch0Blocked = CORE_BROADCAST_0_EVENT + S2MM_BP_CH0_BCAST_CHANNEL;
@@ -1692,9 +1699,6 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateLockStarvationMemoryConf
 
   std::string loc = "memory (" + std::to_string(column) + "," + std::to_string(row) + ")";
 
-  appendBroadcastBlockConfig(MM_BCAST_BLOCK_BASE, STALL_BCAST_CHANNELS, -1,
-                             loc, tileAddress, writes);
-
   // The core module counts the same lock stall against each channel's memory
   // backpressure, and a combo event cannot reach across modules either, so these two
   // memory module DMA events make the return trip as broadcasts.
@@ -1708,10 +1712,14 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateLockStarvationMemoryConf
            "Event_Broadcast" + std::to_string(S2MM_BP_CH1_BCAST_CHANNEL) + " @ " + loc
            + " = s2mm ch1 memory backpressure");
 
-  // West is the memory module's internal link to the core module. These channels reset
-  // unblocked, so the other three directions have to be closed explicitly or the events
-  // would leave the tile.
-  appendBroadcastBlockConfig(MM_BCAST_BLOCK_BASE, S2MM_BP_BCAST_CHANNELS, BCAST_DIR_WEST,
+  // West is the memory module's internal link to the core module, so the backpressure
+  // pair leaves that way and is blocked everywhere else; these channels reset unblocked,
+  // so the other three directions have to be closed explicitly. The incoming lock stall
+  // is blocked in all four directions, which stops this module re-driving it without
+  // stopping it counting.
+  appendBroadcastBlockConfig(MM_BCAST_BLOCK_BASE,
+                             {{STALL_BCAST_CHANNELS, -1},
+                              {S2MM_BP_BCAST_CHANNELS, BCAST_DIR_WEST}},
                              loc, tileAddress, writes);
 
   const uint8_t lockEvent  = MEM_BROADCAST_0_EVENT + LOCK_STALL_BCAST_CHANNEL;

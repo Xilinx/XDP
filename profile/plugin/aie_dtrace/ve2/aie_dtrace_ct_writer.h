@@ -348,10 +348,15 @@ private:
       std::vector<CTRegisterWrite>& beginWrites);
 
   /**
-   * @brief Generate the core module config for the compute_io_bound lock/starvation tile
+   * @brief Generate the core module config for the compute_io_bound lock correlation tile
    *
-   * Drives the core's lock stall onto a broadcast channel and confines it to the tile,
-   * so the memory module can combine it with its own DMA starvation events.
+   * Drives the core's lock stall onto a broadcast channel and confines it to the tile, so
+   * the memory module can combine it with its own DMA starvation events. Counters 2 and 3
+   * then count the other half of the correlation locally: the lock stall ANDed with each
+   * S2MM channel's memory backpressure, arriving from the memory module as broadcasts.
+   * Both use Start == Stop so each accumulates the cycles its combo is asserted. This
+   * module hosts the backpressure pair because the memory module's two combos are both
+   * spent on the starvation pair.
    *
    * @param column Partition-relative core tile column
    * @param row Absolute core tile row
@@ -360,12 +365,14 @@ private:
   std::vector<CTRegisterWrite> generateLockStarvationCoreConfig(uint8_t column, uint8_t row);
 
   /**
-   * @brief Generate the memory module config for the compute_io_bound lock/starvation tile
+   * @brief Generate the memory module config for the compute_io_bound lock correlation tile
    *
    * Counters 0 and 1 count two combo events: the broadcast lock stall ANDed with S2MM
    * channel 0 starvation, and the same ANDed with S2MM channel 1 starvation. Each counter
    * uses Start == Stop so it accumulates the cycles its combo is asserted. Counters 2 and
-   * 3 are left unprogrammed.
+   * 3 are left unprogrammed. This module also drives each S2MM channel's memory
+   * backpressure onto a broadcast channel for the core module to pair with the same lock
+   * stall.
    *
    * @param column Partition-relative core tile column
    * @param row Absolute core tile row
@@ -404,14 +411,19 @@ private:
   std::vector<CTRegisterWrite> generateComputeMemoryConfig(uint8_t column, uint8_t row);
 
   /**
-   * @brief Append broadcast block writes for the compute_io_bound channels
+   * @brief Append broadcast block writes for a set of compute_io_bound channels
+   *
+   * The Set/Clr registers are write-1-to-set and write-1-to-clear, so a call only affects
+   * the channels in its mask and sets carrying different masks cannot disturb each other.
+   *
    * @param blockBase Module's Event_Broadcast_Block_South_Set offset
+   * @param channels Mask of the broadcast channels this call owns
    * @param openDir Direction index to leave unblocked, or -1 to block all four
    * @param loc Human-readable location for the generated comments
    * @param writes [in,out] Accumulated begin-block register writes
    */
-  void appendBroadcastBlockConfig(uint64_t blockBase, int openDir, const std::string& loc,
-      uint64_t tileAddress, std::vector<CTRegisterWrite>& writes);
+  void appendBroadcastBlockConfig(uint64_t blockBase, uint32_t channels, int openDir,
+      const std::string& loc, uint64_t tileAddress, std::vector<CTRegisterWrite>& writes);
 
   /**
    * @brief Write a self-contained counter CT file with begin-block register writes
@@ -479,12 +491,15 @@ private:
   static constexpr uint8_t  CASCADE_STALL_EVENT = 25;
   static constexpr uint8_t  LOCK_STALL_EVENT   = 26;
 
-  // Memory module event Broadcast_N is MEM_BROADCAST_0_EVENT + N.
-  static constexpr uint8_t  MEM_BROADCAST_0_EVENT = 107;
+  // Memory module event Broadcast_N is MEM_BROADCAST_0_EVENT + N, and likewise
+  // CORE_BROADCAST_0_EVENT + N in the core module.
+  static constexpr uint8_t  MEM_BROADCAST_0_EVENT  = 107;
+  static constexpr uint8_t  CORE_BROADCAST_0_EVENT = 107;
 
   // Event_Broadcast0 registers (channel N at +4*N) and the broadcast block registers,
   // laid out as base + direction * BCAST_BLOCK_DIR_STRIDE with Set at +0 and Clr at +4.
   static constexpr uint64_t CM_EVENT_BROADCAST0    = 0x00034010;
+  static constexpr uint64_t MM_EVENT_BROADCAST0    = 0x00014010;
   static constexpr uint64_t CM_BCAST_BLOCK_BASE    = 0x00034050;
   static constexpr uint64_t MM_BCAST_BLOCK_BASE    = 0x00014050;
   static constexpr uint64_t BCAST_BLOCK_DIR_STRIDE = 0x10;
@@ -503,29 +518,51 @@ private:
   static constexpr uint8_t  LOCK_STALL_BCAST_CHANNEL    = 13;
   static constexpr uint8_t  MEMORY_STALL_BCAST_CHANNEL  = 12;
 
+  // Broadcast channels carrying the two S2MM memory backpressure events the other way,
+  // from the memory module to the core module. They continue the block above so this
+  // metric owns a contiguous 10-15, clear of the driver's channels and of the fixed 6-9
+  // the aie_trace windowed-trace and core-to-memory networks use.
+  static constexpr uint8_t  S2MM_BP_CH0_BCAST_CHANNEL = 11;
+  static constexpr uint8_t  S2MM_BP_CH1_BCAST_CHANNEL = 10;
+
+  // The two directions are blocked independently, so each carries its own channel mask.
+  static constexpr uint32_t STALL_BCAST_CHANNELS =
+      (1u << STREAM_STALL_BCAST_CHANNEL) | (1u << CASCADE_STALL_BCAST_CHANNEL)
+    | (1u << LOCK_STALL_BCAST_CHANNEL)   | (1u << MEMORY_STALL_BCAST_CHANNEL);
+  static constexpr uint32_t S2MM_BP_BCAST_CHANNELS =
+      (1u << S2MM_BP_CH0_BCAST_CHANNEL) | (1u << S2MM_BP_CH1_BCAST_CHANNEL);
+
   // compute_io_bound uses a single tile: core module counters 2 and 3 for total
   // execution cycles and group stall, memory module counters 0-3 for the four
   // individual stalls arriving as broadcasts. Only registers this metric fully owns are
   // written, so no counter shares a control register with another owner.
   static constexpr uint8_t COMPUTE_IO_CORE_COL = 0;
 
-  // compute_io_bound also programs a second tile, one core row above the first, whose
-  // memory module counts the core's lock stall ANDed with each S2MM channel's starvation.
-  // Channel 0 carries the IFM and channel 1 the weights, so the two counters say which
-  // input the core was waiting on.
+  // compute_io_bound also programs a second tile, one core row above the first, which
+  // pairs the core's lock stall with each S2MM channel's starvation on its memory module
+  // counters, and with each channel's memory backpressure on its core module counters.
+  // Channel 0 carries the IFM and channel 1 the weights, so the counters say which input
+  // the core was waiting on, and whether that input was late from the stream (starvation)
+  // or arrived but could not be written into local memory (backpressure).
   static constexpr uint8_t LOCK_STARVATION_ROW_OFFSET = 1;
 
   // aie2ps memory module DMA events (xaie_events_aie2ps.h), channel N at base + N.
-  static constexpr uint8_t MEM_DMA_S2MM_0_STREAM_STARVATION_EVENT = 35;
+  static constexpr uint8_t MEM_DMA_S2MM_0_STREAM_STARVATION_EVENT   = 35;
+  static constexpr uint8_t MEM_DMA_S2MM_0_MEMORY_BACKPRESSURE_EVENT = 39;
 
   // Combo_Event_Inputs packs four 7-bit event ids: A at 0, B at 8, C at 16, D at 24.
   // Combo_Event_Control holds one 2-bit op per combo, 8 bits apart, and 0 selects AND
-  // (XAIE_EVENT_COMBO_E1_AND_E2). Combo 0 is A op B and combo 1 is C op D.
+  // (XAIE_EVENT_COMBO_E1_AND_E2). Combo 0 is A op B and combo 1 is C op D, so a module
+  // has only two independent pairs: combo 2 just recombines those two results.
   static constexpr uint64_t MM_COMBO_EVENT_INPUTS  = 0x00014400;
   static constexpr uint64_t MM_COMBO_EVENT_CONTROL = 0x00014404;
+  static constexpr uint64_t CM_COMBO_EVENT_INPUTS  = 0x00034400;
+  static constexpr uint64_t CM_COMBO_EVENT_CONTROL = 0x00034404;
   static constexpr uint32_t COMBO_AND = 0;
-  static constexpr uint8_t  MEM_COMBO_EVENT_0_EVENT = 7;
-  static constexpr uint8_t  MEM_COMBO_EVENT_1_EVENT = 8;
+  static constexpr uint8_t  MEM_COMBO_EVENT_0_EVENT  = 7;
+  static constexpr uint8_t  MEM_COMBO_EVENT_1_EVENT  = 8;
+  static constexpr uint8_t  CORE_COMBO_EVENT_0_EVENT = 9;
+  static constexpr uint8_t  CORE_COMBO_EVENT_1_EVENT = 10;
 
   // Bandwidth monitoring constants
   static constexpr uint8_t NUM_BANDWIDTH_COUNTERS = 4;

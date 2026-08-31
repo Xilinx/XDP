@@ -64,7 +64,6 @@ namespace xdp {
       // Only 1 device and xclbin is supported now.
       return;
     }
-    mHwCtxImpl = hwCtxImpl;
 
 #if defined(XDP_VE2_BUILD)
     const std::string deviceName = "ve2_device";
@@ -72,23 +71,29 @@ namespace xdp {
     const std::string deviceName = "win_device";
 #endif
 
-    xrt::hw_context hwContext = xrt_core::hw_context_int::create_hw_context_from_implementation(mHwCtxImpl);
+    xrt::hw_context hwContext = xrt_core::hw_context_int::create_hw_context_from_implementation(hwCtxImpl);
     std::shared_ptr<xrt_core::device> coreDevice = xrt_core::hw_context_int::get_core_device(hwContext);
 
-    // Full ELF flow carries AIE metadata in an xrt::elf (no xclbin).
+    xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", "Identify flow type");
+
     bool isFullELFFlow = false;
     try {
       isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
     } catch (const std::exception& e) {
       std::stringstream msg;
-      msg << e.what() << " AIE Halt cannot be enabled before complete configuration.";
+      msg << e.what() << " AIE Halt cannot be enabled before complete configuration." << std::endl;
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
       return;
     }
 
     uint64_t deviceId = 0;
     if (isFullELFFlow) {
-      deviceId = (db->getStaticInfo()).getHwCtxImplUidElf(mHwCtxImpl);
+      /* For Full ELF flow, AIE metadata is carried in an xrt::elf registered
+       * with the HWCtx instead of an xclbin.
+       */
+      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "In Full ELF flow");
+
+      deviceId = (db->getStaticInfo()).getHwCtxImplUidElf(hwCtxImpl);
       auto elfMap = xrt_core::hw_context_int::get_elf_map(hwContext);
       if (elfMap.empty()) {
         xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
@@ -100,11 +105,13 @@ namespace xdp {
         return;
       (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(deviceId, coreDevice, std::move(*elf));
     } else {
-      // Only one device for the Client/VE2 device flow
+      // xclbin flow : only one device for the Client/VE2 device flow
       deviceId = db->addDevice(deviceName);
       (db->getStaticInfo()).updateDeviceFromCoreDevice(deviceId, coreDevice, false);
     }
     (db->getStaticInfo()).setDeviceName(deviceId, deviceName);
+
+    mHwCtxImpl = hwCtxImpl;
 
     DeviceDataEntry.valid = true;
 #if defined(XDP_VE2_BUILD)

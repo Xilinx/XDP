@@ -23,11 +23,26 @@ namespace xdp::aie::dtrace {
   {
     static std::once_flag once;
     std::call_once(once, []() {
+      static constexpr const char* k_json = "Debug.dtrace_output_json_format";
+      static constexpr const char* k_coalesce = "Debug.dtrace_coalesce_result";
+      static constexpr const char* k_coalesce_mb = "Debug.dtrace_coalesce_result_memory_mb";
+
       try {
-        xrt_core::config::detail::set("Debug.dtrace_output_json_format", "true");
-        xrt_core::config::detail::set("Debug.dtrace_coalesce_result", "true");
-        xrt_core::config::detail::set("Debug.dtrace_coalesce_result_memory_mb",
-                                      std::to_string(DEFAULT_COALESCE_RESULT_MEMORY_MB));
+        const auto ini = xrt_core::config::detail::get_ini_values();
+        auto already_set = [&](const char* key) {
+          if (!xrt_core::config::detail::get_env_value(key).empty())
+            return true;
+          return ini.find(key) != ini.end();
+        };
+
+        // xrt.ini / env win. Fill in only keys the user did not specify.
+        if (!already_set(k_json))
+          xrt_core::config::detail::set(k_json, "true");
+        if (!already_set(k_coalesce))
+          xrt_core::config::detail::set(k_coalesce, "true");
+        if (!already_set(k_coalesce_mb))
+          xrt_core::config::detail::set(k_coalesce_mb,
+                                        std::to_string(DEFAULT_COALESCE_RESULT_MEMORY_MB));
       }
       catch (const std::exception& e) {
         xrt_core::message::send(severity_level::warning, "XRT",
@@ -36,9 +51,21 @@ namespace xdp::aie::dtrace {
         return;
       }
 
-      xrt_core::message::send(severity_level::info, "XRT",
-          "AIE dtrace: enabled JSON dtrace_dump output with coalesced results "
-          "(dtrace_dump_ctx_<slot>_<timestamp>.json on hw context teardown)");
+      const bool json = xrt_core::config::get_dtrace_output_json_format();
+      const bool coalesce = xrt_core::config::get_dtrace_coalesce_result();
+      if (json && coalesce) {
+        xrt_core::message::send(severity_level::info, "XRT",
+            "AIE dtrace: JSON dtrace_dump with coalesced results "
+            "(dtrace_dump_ctx_<slot>_<timestamp>.json on hw context teardown)");
+      }
+      else if (json) {
+        xrt_core::message::send(severity_level::info, "XRT",
+            "AIE dtrace: JSON dtrace_dump enabled (per-run dtrace_dump_ctx_*_run_*.json)");
+      }
+      else {
+        xrt_core::message::send(severity_level::info, "XRT",
+            "AIE dtrace: Python dtrace_dump enabled (per-run dtrace_dump_ctx_*_run_*.py)");
+      }
     });
   }
 

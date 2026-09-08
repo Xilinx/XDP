@@ -37,12 +37,10 @@ namespace xdp {
     } 
   } 
 
-  static void aieHaltRunStart(void* run_impl_ptr, void* hwctx,
-                              uint32_t run_uid, const char* kernel_name)
+  static void aieHaltRunStart(void* hwctx, const char* kernel_name)
   {
     if (AIEHaltPlugin::alive())
-      aieHaltPluginInstance.runStartHook(run_impl_ptr, hwctx, run_uid,
-                                          kernel_name ? kernel_name : "");
+      aieHaltPluginInstance.runStartHook(nullptr, hwctx, 0, kernel_name ? kernel_name : "");
   }
 
 } // end namespace xdp
@@ -60,8 +58,7 @@ void finishflushDeviceAIEHalt(void* hwCtxImpl)
 }
 
 extern "C"
-void aieHaltRunStart(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
-                     const char* kernel_name)
+void aieHaltRunStart(void* hwctx, const char* kernel_name)
 {
-  xdp::aieHaltRunStart(run_impl_ptr, hwctx, run_uid, kernel_name);
+  xdp::aieHaltRunStart(hwctx, kernel_name);
 }

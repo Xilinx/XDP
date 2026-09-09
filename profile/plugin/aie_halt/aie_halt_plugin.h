@@ -37,7 +37,14 @@ namespace xdp {
 
     static bool alive();
 
+    protected:
+    void runStartImpl(void* run_impl_ptr, void* hwCtxImpl,
+                      uint32_t run_uid,
+                      const std::string& kernel_name) override;
+
     private:
+    void configureDevice();
+
     static bool live;
 
     struct DeviceData {
@@ -46,7 +53,7 @@ namespace xdp {
     } DeviceDataEntry;
 
     void* mHwCtxImpl = nullptr;
-
+    bool mDeferredConfiguration = false;
   };
 
 } // end namespace xdp

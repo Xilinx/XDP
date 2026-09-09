@@ -105,8 +105,8 @@ namespace xdp {
     getConfigMetricsForInterfaceTiles(SHIM_MODULE_IDX, metricsSettings);
 
     // Memory tile / L2-L2: blob and xrt.ini are separate config sources. If either
-    // mem_tile or memory_tile_input_ports appears in control_instrumentation, the
-    // whole mem-tile L2-L2 config must come from the blob (both fields). Otherwise
+    // mem_tile or memory_tile_input_ports is present and non-empty in control_instrumentation,
+    // the whole mem-tile L2-L2 config must come from the blob (both fields). Otherwise
     // both tile_based_memory_tile_metrics and memory_tile_input_ports must be in xrt.ini.
     const std::string memTileSettings =
         xrt_core::config::get_aie_dtrace_settings_tile_based_memory_tile_metrics();

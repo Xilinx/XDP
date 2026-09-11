@@ -141,7 +141,7 @@ namespace xdp {
           + std::to_string(bandwidthChannel) + ") from configuration");
     }
 
-    if (!includeBandwidth && coreMetricSet.empty()) {
+    if (!includeBandwidth && coreMetricSet.empty() && !metadata->isL2L2Enabled()) {
       xrt_core::message::send(severity_level::info, "XRT",
           "AIE dtrace: No metrics configured; skipping CT generation.");
       return;
@@ -156,10 +156,14 @@ namespace xdp {
     genMsg << "AIE dtrace: CT generated for kernel '" << kernel_name << "' (";
     if (includeBandwidth)
       genMsg << "interface_tile=" << bandwidthMetricSet;
-    if (includeBandwidth && !coreMetricSet.empty())
+    if (includeBandwidth && (!coreMetricSet.empty() || metadata->isL2L2Enabled()))
       genMsg << ", ";
     if (!coreMetricSet.empty())
       genMsg << "aie_tile=" << coreMetricSet;
+    if (!coreMetricSet.empty() && metadata->isL2L2Enabled())
+      genMsg << ", ";
+    if (metadata->isL2L2Enabled())
+      genMsg << "memtile=input_ports";
     genMsg << ")";
     xrt_core::message::send(severity_level::debug, "XRT", genMsg.str());
 

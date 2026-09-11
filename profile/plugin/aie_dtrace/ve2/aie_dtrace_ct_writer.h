@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "aiebu/aiebu_assembler.h"
+#include "xdp/profile/plugin/aie_dtrace/util/aie_dtrace_util.h"
 
 namespace xdp {
 
@@ -360,6 +361,16 @@ private:
       std::vector<CTRegisterWrite>& beginWrites);
 
   /**
+   * @brief Append memtile L2-L2 counters and begin-block writes from design points
+   * @param hwctx Hardware context handle for partition column bounds
+   * @param counters [in,out] Accumulated counter list
+   * @param beginWrites [in,out] Accumulated begin-block register writes
+   */
+  void appendL2L2Config(void* hwctx,
+      std::vector<CTCounterInfo>& counters,
+      std::vector<CTRegisterWrite>& beginWrites);
+
+  /**
    * @brief Generate the core module config for the compute_io_bound lock correlation tile
    *
    * Drives the core's lock stall onto a broadcast channel and confines it to the tile, so
@@ -453,6 +464,10 @@ private:
                           const std::vector<CTRegisterWrite>& beginBlockWrites,
                           const std::string& outputPath);
 
+  std::vector<CTRegisterWrite> generateMemtilePerfCounterConfig(
+      uint8_t column,
+      const std::vector<aie::dtrace::L2L2CounterPoint>& counterPoints);
+
 private:
   VPDatabase* db;
   std::shared_ptr<AieDtraceMetadata> metadata;
@@ -472,7 +487,12 @@ private:
 
   // Stream switch and performance counter configuration offsets
   static constexpr uint64_t STREAM_SWITCH_EVENT_PORT_SEL_OFFSET = 0x0003FF00;
+  static constexpr uint64_t MEM_TILE_PERF_CTRL0_OFFSET          = 0x00091000;
+  static constexpr uint64_t MEM_TILE_PERF_CTRL1_OFFSET          = 0x00091004;
   static constexpr uint64_t PERF_CTRL_OFFSET = 0x00031000;
+
+  static constexpr uint8_t PORT_RUNNING_0_MEM_TILE_EVENT = 80;  // PORT_RUNNING_N = 80 + 4*N
+  static constexpr uint8_t PORT_STALLED_0_MEM_TILE_EVENT = 81;  // PORT_STALLED_N = 81 + 4*N
 
   // Core (aie) module offsets for the compute_io_bound metric (aie2ps).
   // Performance_Control0 (0x00037500) is deliberately never written: it holds counter

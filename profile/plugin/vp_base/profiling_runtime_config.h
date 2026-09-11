@@ -26,7 +26,8 @@
 // load-time gate.
 //
 // Example blob:
-//   {"control_instrumentation":{"aie_tile":"func_stalls","mem_tile":"","interface_tile":"ddr_bandwidth"},"event_trace":{"tile_based_aie_tile_metrics":"all:functions"}}
+//   {"control_instrumentation":{"aie_tile":"func_stalls","mem_tile":"input_ports","interface_tile":"ddr_bandwidth",
+//    "memory_tile_input_ports":"{1,1:2},{5,1:1}"},"event_trace":{"tile_based_aie_tile_metrics":"all:functions"}}
 
 namespace xdp::profiling_runtime_config {
 
@@ -34,6 +35,7 @@ namespace xdp::profiling_runtime_config {
     std::optional<std::string> aie_tile;       // maps to "core" module internally
     std::optional<std::string> mem_tile;       // maps to "mem_tile" module internally
     std::optional<std::string> interface_tile; // maps to "shim" module internally
+    std::optional<std::string> memory_tile_input_ports; // L2-L2 {column,row:port} list
   };
 
   // Mirrors the AIE_trace_settings.* xrt.ini keys 1:1. When event_trace is
@@ -106,12 +108,18 @@ namespace xdp::profiling_runtime_config {
   XDP_CORE_EXPORT bool is_set();
 
   // True when is_set() and the blob contained a control_instrumentation object
-  // with at least one recognized key (aie_tile / mem_tile / interface_tile).
+  // with at least one recognized key (aie_tile / mem_tile / interface_tile /
+  // memory_tile_input_ports).
   XDP_CORE_EXPORT bool has_control_instrumentation();
 
   // Returns the cached control_instrumentation view. Safe to call even when
   // has_control_instrumentation() is false (all members will be empty).
   XDP_CORE_EXPORT const control_instrumentation_t& control_instrumentation();
+
+  // When control_instrumentation carries mem_tile or memory_tile_input_ports,
+  // ports come only from the blob (requires mem_tile "input_ports"). Otherwise
+  // AIE_dtrace_settings.memory_tile_input_ports from xrt.ini is used.
+  XDP_CORE_EXPORT std::string resolveMemoryTileInputPorts();
 
   // True when is_set() and the blob contained an "event_trace" object (even
   // if empty). Note this only reflects presence in the blob - it is NOT an

@@ -77,7 +77,7 @@ namespace xdp::profiling_runtime_config {
     parse_control_instrumentation(const pt::ptree& ci_tree)
     {
       static const std::set<std::string> known_keys{
-        "aie_tile", "mem_tile", "interface_tile"
+        "aie_tile", "mem_tile", "interface_tile", "memory_tile_input_ports"
       };
 
       control_instrumentation_t ci;
@@ -100,6 +100,12 @@ namespace xdp::profiling_runtime_config {
           ci.interface_tile = value;
           if (!value.empty())
             info("profiling_runtime_config.control_instrumentation.interface_tile='" + value + "'");
+        }
+        else if (key == "memory_tile_input_ports") {
+          ci.memory_tile_input_ports = value;
+          if (!value.empty())
+            info("profiling_runtime_config.control_instrumentation.memory_tile_input_ports='"
+                 + value + "'");
         }
         else {
           std::stringstream msg;
@@ -198,7 +204,8 @@ namespace xdp::profiling_runtime_config {
             out.ci = parse_control_instrumentation(*ci_opt);
             out.has_ci = out.ci.aie_tile.has_value()
                      || out.ci.mem_tile.has_value()
-                     || out.ci.interface_tile.has_value();
+                     || out.ci.interface_tile.has_value()
+                     || out.ci.memory_tile_input_ports.has_value();
           }
 
           if (const auto et_opt = root.get_child_optional("event_trace")) {
@@ -250,6 +257,31 @@ namespace xdp::profiling_runtime_config {
   control_instrumentation()
   {
     return get_parsed().ci;
+  }
+
+  std::string
+  resolveMemoryTileInputPorts()
+  {
+    static constexpr const char* INPUT_PORTS_METRIC_SET = "input_ports";
+
+    if (has_control_instrumentation()) {
+      const auto& ci = control_instrumentation();
+      const bool memTileFieldFromBlob = ci.mem_tile.has_value() && !ci.mem_tile->empty();
+      const bool blobPortsSet = ci.memory_tile_input_ports.has_value()
+                             && !ci.memory_tile_input_ports->empty();
+      const bool memTileUsesBlob = memTileFieldFromBlob || blobPortsSet;
+
+      if (memTileFieldFromBlob && *ci.mem_tile == INPUT_PORTS_METRIC_SET) {
+        if (blobPortsSet)
+          return *ci.memory_tile_input_ports;
+        return {};
+      }
+
+      // Partial blob mem-tile config: do not fall back to xrt.ini ports.
+      if (memTileUsesBlob)
+        return {};
+    }
+    return xrt_core::config::get_aie_dtrace_settings_memory_tile_input_ports();
   }
 
   bool

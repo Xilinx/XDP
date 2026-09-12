@@ -17,6 +17,11 @@ namespace xdp::aie::dtrace {
   // Shim bandwidth metric sets used for Debug.aie_dtrace (not part of standard aie_profile ini).
   std::map<std::string, std::vector<XAie_Events>> getBandwidthInterfaceTileEventSets(int hwGen);
 
+  // Apply JSON + coalesced dtrace_dump defaults when those keys are absent.
+  // Values already present in xrt.ini or the environment are left unchanged.
+  // Must run before XRT creates the first dtrace module (config keys lock on first read).
+  void initDtraceOutputConfig();
+
 } // namespace xdp::aie::dtrace
 
 #endif

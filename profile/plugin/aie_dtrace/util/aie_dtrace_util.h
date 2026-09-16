@@ -45,9 +45,8 @@ namespace xdp::aie::dtrace {
   std::vector<L2L2InstrumentPoint> parseL2L2DesignPoints(const std::string& spec);
 
   // Builds running+stalled counter pairs from design points within the partition.
-  // startCol is reserved for diagnostics; columns in instrumentPoints are relative.
+  // Columns in instrumentPoints are partition-relative (0 .. numCols-1).
   std::vector<L2L2CounterPoint> getL2L2CounterPoints(
-      uint32_t startCol,
       uint32_t numCols,
       const std::vector<L2L2InstrumentPoint>& instrumentPoints);
 

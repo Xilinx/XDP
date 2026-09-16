@@ -87,7 +87,6 @@ namespace xdp::aie::dtrace {
   }
 
   std::vector<L2L2CounterPoint> getL2L2CounterPoints(
-      uint32_t startCol,
       uint32_t numCols,
       const std::vector<L2L2InstrumentPoint>& instrumentPoints)
   {
@@ -115,7 +114,6 @@ namespace xdp::aie::dtrace {
       nextCounter = static_cast<uint8_t>(nextCounter + 2);
     }
 
-    (void)startCol;
     return points;
   }
 

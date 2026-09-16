@@ -1420,8 +1420,7 @@ void AieDtraceCTWriter::appendL2L2Config(
   if (instrumentPoints.empty())
     return;
 
-  auto counterPoints = aie::dtrace::getL2L2CounterPoints(
-      partitionStartCol, numCols, instrumentPoints);
+  auto counterPoints = aie::dtrace::getL2L2CounterPoints(numCols, instrumentPoints);
   if (counterPoints.size() != instrumentPoints.size() * 2) {
     std::stringstream l2Msg;
     l2Msg << "AIE dtrace: L2-L2 design points are invalid for this partition (start_col="

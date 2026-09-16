@@ -15,6 +15,9 @@
 namespace xdp::aie::dtrace {
 
   namespace {
+    using severity_level = xrt_core::message::severity_level;
+
+    static constexpr unsigned int DEFAULT_COALESCE_RESULT_MEMORY_MB = 256;
 
     void addPortCounterPair(std::vector<L2L2CounterPoint>& points,
                             uint8_t column,
@@ -39,10 +42,6 @@ namespace xdp::aie::dtrace {
       points.push_back(stalled);
     }
 
-  } // namespace
-    using severity_level = xrt_core::message::severity_level;
-
-    static constexpr unsigned int DEFAULT_COALESCE_RESULT_MEMORY_MB = 256;
   } // anonymous namespace
 
   void

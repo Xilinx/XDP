@@ -51,6 +51,10 @@ namespace xdp::aie::dtrace {
       const std::vector<L2L2InstrumentPoint>& instrumentPoints);
 
   // ========================================================================================
+  // Apply JSON + coalesced dtrace_dump defaults when those keys are absent.
+  // Values already present in xrt.ini or the environment are left unchanged.
+  // Must run before XRT creates the first dtrace module (config keys lock on first read).
+  void initDtraceOutputConfig();
 
 } // namespace xdp::aie::dtrace
 

@@ -202,10 +202,12 @@ namespace xdp {
     mlImpl->updateDevice(hwCtxImpl, deviceId);
 
     try {
-      xrt::hw_context::cfg_type hwCtxCfgMap = xrt_core::hw_context_int::get_cfg_map(hwContext);
-      auto itr = hwCtxCfgMap.find("hw_context_name");
-      if (hwCtxCfgMap.end() != itr) {
-        mlImpl->setHWContextName(itr->second);
+      if (!isFullELFFlow) {
+        xrt::hw_context::cfg_type hwCtxCfgMap = xrt_core::hw_context_int::get_cfg_map(hwContext);
+        auto itr = hwCtxCfgMap.find("hw_context_name");
+        if (hwCtxCfgMap.end() != itr) {
+          mlImpl->setHWContextName(itr->second);
+        }
       }
     } catch (const std::exception& e) {
       std::stringstream msg;
@@ -293,10 +295,12 @@ namespace xdp {
     mlImpl->updateDevice(hwCtxImpl, deviceId);
 
     try {
-      xrt::hw_context::cfg_type hwCtxCfgMap = xrt_core::hw_context_int::get_cfg_map(hwContext);
-      auto itr = hwCtxCfgMap.find("hw_context_name");
-      if (hwCtxCfgMap.end() != itr) {
-        mlImpl->setHWContextName(itr->second);
+      if (!isFullELFFlow) {
+        xrt::hw_context::cfg_type hwCtxCfgMap = xrt_core::hw_context_int::get_cfg_map(hwContext);
+        auto itr = hwCtxCfgMap.find("hw_context_name");
+        if (hwCtxCfgMap.end() != itr) {
+          mlImpl->setHWContextName(itr->second);
+        }
       }
     } catch (const std::exception& e) {
       std::stringstream msg;

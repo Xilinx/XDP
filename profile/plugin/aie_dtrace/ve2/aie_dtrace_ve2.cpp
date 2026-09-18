@@ -25,6 +25,7 @@ namespace xdp {
 
   static constexpr int SHIM_MODULE_IDX = static_cast<int>(module_type::shim);
   static constexpr int CORE_MODULE_IDX = static_cast<int>(module_type::core);
+  static constexpr int MEM_TILE_MODULE_IDX = static_cast<int>(module_type::mem_tile);
 
   AieDtrace_VE2Impl::AieDtrace_VE2Impl(VPDatabase* database,
                                          std::shared_ptr<AieDtraceMetadata> metadata,
@@ -119,6 +120,27 @@ namespace xdp {
       break;
     }
 
+    // Mem tile (L2) metrics carry the MM2S channel to monitor in configChannel0, the
+    // same way the detailed_ddr_*_bandwidth sets carry theirs. Every configured mem tile
+    // shares one metric set and one channel, so the first entry speaks for all of them.
+    std::string memTileMetricSet;
+    uint8_t memTileChannel = 0;
+    auto memTileConfigMetrics = metadata->getConfigMetricsVec(MEM_TILE_MODULE_IDX);
+    if (!memTileConfigMetrics.empty()) {
+      memTileMetricSet = memTileConfigMetrics.front().second;
+      auto memTileChannels = metadata->getConfigChannel0();
+      const auto& memTile = memTileConfigMetrics.front().first;
+      for (const auto& tc : memTileChannels) {
+        if ((tc.first.col == memTile.col) && (tc.first.row == memTile.row)) {
+          memTileChannel = tc.second;
+          break;
+        }
+      }
+      xrt_core::message::send(severity_level::info, "XRT",
+          "AIE dtrace: Using mem tile metric set '" + memTileMetricSet + "' (MM2S channel "
+          + std::to_string(memTileChannel) + ") from configuration");
+    }
+
     // Interface-tile bandwidth metrics are configured by default unless the user
     // turned interface tiles off (which leaves the shim config map empty).
     auto shimConfigMetrics = metadata->getConfigMetricsVec(SHIM_MODULE_IDX);
@@ -142,7 +164,8 @@ namespace xdp {
           + std::to_string(bandwidthChannel) + ") from configuration");
     }
 
-    if (!includeBandwidth && coreMetricSet.empty() && !metadata->isL2L2Enabled()) {
+    if (!includeBandwidth && coreMetricSet.empty() && memTileMetricSet.empty()
+        && !metadata->isL2L2Enabled()) {
       xrt_core::message::send(severity_level::info, "XRT",
           "AIE dtrace: No metrics configured; skipping CT generation.");
       return;
@@ -150,7 +173,7 @@ namespace xdp {
 
     if (!ctWriter.generateCT(outputPath, hwctx, it->second,
                              includeBandwidth, bandwidthMetricSet, bandwidthChannel,
-                             coreMetricSet))
+                             coreMetricSet, memTileMetricSet, memTileChannel))
       return;
 
     aie::dtrace::initDtraceOutputConfig();
@@ -167,6 +190,10 @@ namespace xdp {
       genMsg << ", ";
     if (metadata->isL2L2Enabled())
       genMsg << "memtile=input_ports";
+    if (!memTileMetricSet.empty())
+      genMsg << ((includeBandwidth || !coreMetricSet.empty()) ? ", " : "")
+             << "memtile=" << memTileMetricSet << ":ch"
+             << static_cast<int>(memTileChannel);
     genMsg << ")";
     xrt_core::message::send(severity_level::debug, "XRT", genMsg.str());
 

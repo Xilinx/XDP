@@ -68,15 +68,32 @@ namespace xdp {
 
     const bool usingBlob = profiling_runtime_config::has_control_instrumentation();
     const auto& ci = profiling_runtime_config::control_instrumentation();
+    const auto& runs = ci.profile_runs;
+
+    const bool useProfileRuns = usingBlob && ci.has_explicit_profile_runs && !runs.empty();
+    multiInference = useProfileRuns;
+    startInference = usingBlob ? ci.start_inference : 1;
+
+    // configMetrics describes the hardware context as a whole: it is what
+    // isConfigured() gates on and what createAIEProfileConfig() reports. A
+    // profile_runs sequence has no single answer for it, so resolve it from the
+    // first inference (falling back to any top-level key the sequence omits)
+    // and let the per-inference differences live in metricSelections instead.
+    const auto& effAieTile = (useProfileRuns && runs[0].aie_tile.has_value())
+        ? runs[0].aie_tile : ci.aie_tile;
+    const auto& effInterfaceTile = (useProfileRuns && runs[0].interface_tile.has_value())
+        ? runs[0].interface_tile : ci.interface_tile;
+    const auto& effMemTile = (useProfileRuns && runs[0].mem_tile.has_value())
+        ? runs[0].mem_tile : ci.mem_tile;
 
     // Core (aie) tile metrics (e.g. compute_io_bound). Only used to enable the
     // metric; the tiles themselves are fixed to the first column.
     std::vector<std::string> aieMetricsSettings;
-    if (usingBlob && ci.aie_tile.has_value() && !ci.aie_tile->empty()) {
+    if (usingBlob && effAieTile.has_value() && !effAieTile->empty()) {
       xrt_core::message::send(severity_level::info, "XRT",
-          "AIE dtrace: using aie_tile metric '" + *ci.aie_tile
+          "AIE dtrace: using aie_tile metric '" + *effAieTile
           + "' from Debug.profiling_runtime_config.");
-      aieMetricsSettings = getSettingsVector("all:" + *ci.aie_tile);
+      aieMetricsSettings = getSettingsVector("all:" + *effAieTile);
     }
     else {
       const std::string tileBasedAie =
@@ -87,11 +104,11 @@ namespace xdp {
     getConfigMetricsForAIETiles(CORE_MODULE_IDX, aieMetricsSettings);
 
     std::vector<std::string> metricsSettings;
-    if (usingBlob && ci.interface_tile.has_value() && !ci.interface_tile->empty()) {
+    if (usingBlob && effInterfaceTile.has_value() && !effInterfaceTile->empty()) {
       xrt_core::message::send(severity_level::info, "XRT",
-          "AIE dtrace: using interface_tile metric '" + *ci.interface_tile
+          "AIE dtrace: using interface_tile metric '" + *effInterfaceTile
           + "' from Debug.profiling_runtime_config.");
-      metricsSettings = getSettingsVector("all:" + *ci.interface_tile);
+      metricsSettings = getSettingsVector("all:" + *effInterfaceTile);
     }
     else {
       const std::string tileBased =
@@ -115,23 +132,46 @@ namespace xdp {
     const std::string iniPorts =
         xrt_core::config::get_aie_dtrace_settings_memory_tile_input_ports();
     const bool iniPortsSet = !iniPorts.empty();
+    // The design points (which memory tile ports exist) are a property of the
+    // design, so they stay global even when the metric sets vary per inference;
+    // only whether to instrument them in a given inference is per-entry.
+    const bool anyRunWantsL2L2 = useProfileRuns
+        && std::any_of(runs.begin(), runs.end(), [](const auto& r) {
+             return r.mem_tile.has_value() && *r.mem_tile == INPUT_PORTS_METRIC_SET;
+           });
+
+    if (useProfileRuns
+        && std::any_of(runs.begin(), runs.end(), [](const auto& r) {
+             return r.memory_tile_input_ports.has_value() && !r.memory_tile_input_ports->empty();
+           })) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+          "AIE dtrace: memory_tile_input_ports inside a profile_runs entry is not supported; "
+          "design points are taken from control_instrumentation.memory_tile_input_ports "
+          "(or AIE_dtrace_settings.memory_tile_input_ports) for every inference.");
+    }
+
     const bool blobPortsSet = usingBlob && ci.memory_tile_input_ports.has_value()
                            && !ci.memory_tile_input_ports->empty();
-    const bool memTileFieldFromBlob = usingBlob && ci.mem_tile.has_value()
-                                   && !ci.mem_tile->empty();
-    const bool memTileUsesBlob = usingBlob && (memTileFieldFromBlob || blobPortsSet);
+    const bool memTileFieldFromBlob = usingBlob && effMemTile.has_value()
+                                   && !effMemTile->empty();
+    const bool memTileUsesBlob = usingBlob
+                              && (memTileFieldFromBlob || blobPortsSet || anyRunWantsL2L2);
 
     bool l2L2FromBlob = false;
     if (memTileUsesBlob) {
-      if (memTileFieldFromBlob && *ci.mem_tile == INPUT_PORTS_METRIC_SET) {
+      const bool blobEnablesL2L2 = anyRunWantsL2L2
+          || (memTileFieldFromBlob && *effMemTile == INPUT_PORTS_METRIC_SET);
+
+      if (blobEnablesL2L2) {
         l2L2TransferEnabled = true;
         l2L2FromBlob = true;
         xrt_core::message::send(severity_level::info, "XRT",
-            "AIE dtrace: enabling L2-L2 via mem_tile metric '" + *ci.mem_tile
+            "AIE dtrace: enabling L2-L2 via mem_tile metric '"
+            + std::string(INPUT_PORTS_METRIC_SET)
             + "' from Debug.profiling_runtime_config.");
       } else if (memTileFieldFromBlob) {
         xrt_core::message::send(severity_level::info, "XRT",
-            "AIE dtrace: mem tile metric '" + *ci.mem_tile
+            "AIE dtrace: mem tile metric '" + *effMemTile
             + "' from profiling_runtime_config will be supported in a follow-up.");
       }
     }
@@ -184,7 +224,145 @@ namespace xdp {
       }
     }
 
+    // Built last so it sees the final l2L2TransferEnabled, which the design
+    // point validation above can still turn back off.
+    if (useProfileRuns) {
+      metricSelections.reserve(runs.size());
+      for (size_t i = 0; i < runs.size(); ++i)
+        metricSelections.push_back(buildSelectionFromProfileRun(runs[i], i));
+
+      std::stringstream msg;
+      msg << "AIE dtrace: profiling " << metricSelections.size()
+          << " inferences starting at inference " << startInference << ":";
+      for (size_t i = 0; i < metricSelections.size(); ++i)
+        msg << "\n  inference " << (startInference + i) << ": "
+            << metricSelections[i].describe();
+      xrt_core::message::send(severity_level::info, "XRT", msg.str());
+    }
+    else {
+      metricSelections.push_back(buildSelectionFromConfigMetrics());
+    }
+
     xrt_core::message::send(severity_level::info, "XRT", "Finished parsing AIE dtrace metadata.");
+  }
+
+  std::string MetricSelection::describe() const
+  {
+    std::stringstream msg;
+    const char* sep = "";
+
+    if (includeBandwidth) {
+      msg << "interface_tile=" << bandwidthMetricSet
+          << ":" << static_cast<int>(bandwidthChannel);
+      sep = ", ";
+    }
+    if (!coreMetricSet.empty()) {
+      msg << sep << "aie_tile=" << coreMetricSet;
+      sep = ", ";
+    }
+    if (includeL2L2)
+      msg << sep << "mem_tile=" << INPUT_PORTS_METRIC_SET;
+
+    const std::string out = msg.str();
+    return out.empty() ? std::string("no metrics") : out;
+  }
+
+  // Reduce the whole-context config maps to the one selection that every
+  // inference shares. This is the single-configuration form: the CT is the same
+  // no matter how many times the kernel runs.
+  MetricSelection AieDtraceMetadata::buildSelectionFromConfigMetrics()
+  {
+    MetricSelection selection;
+
+    for (const auto& tc : getConfigMetricsVec(CORE_MODULE_IDX)) {
+      selection.coreMetricSet = tc.second;
+      break;
+    }
+
+    // Interface-tile bandwidth metrics are configured by default unless the user
+    // turned interface tiles off, which leaves the shim config map empty.
+    const auto shimConfigMetrics = getConfigMetricsVec(SHIM_MODULE_IDX);
+    selection.includeBandwidth = !shimConfigMetrics.empty();
+
+    if (selection.includeBandwidth) {
+      selection.bandwidthMetricSet = shimConfigMetrics.front().second;
+      // The detailed_ddr_*_bandwidth metric sets carry a DMA channel in their
+      // ":<channel>" suffix, which getConfigMetricsForInterfaceTiles stored in
+      // configChannel0 keyed by tile.
+      const auto& shimTile = shimConfigMetrics.front().first;
+      for (const auto& tc : configChannel0) {
+        if ((tc.first.col == shimTile.col) && (tc.first.row == shimTile.row)) {
+          selection.bandwidthChannel = tc.second;
+          break;
+        }
+      }
+    }
+
+    selection.includeL2L2 = l2L2TransferEnabled;
+    return selection;
+  }
+
+  // Resolve one profile_runs entry. Unlike the single-configuration form these
+  // are not routed through getConfigMetricsFor*Tiles: the CT writer derives its
+  // own tiles, so all that is needed here is the metric set names and the DMA
+  // channel carried in the interface tile's ":<channel>" suffix.
+  MetricSelection
+  AieDtraceMetadata::buildSelectionFromProfileRun(
+      const profiling_runtime_config::profile_run_t& run, size_t index) const
+  {
+    const std::string scope = "profile_runs[" + std::to_string(index) + "]";
+    MetricSelection selection;
+
+    if (run.interface_tile.has_value() && !run.interface_tile->empty()) {
+      std::vector<std::string> parts;
+      boost::split(parts, *run.interface_tile, boost::is_any_of(":"));
+      const std::string& metricSet = parts.front();
+
+      if (!isBandwidthMetricSet(metricSet)) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: " + scope + ".interface_tile='" + *run.interface_tile
+            + "' is not a known interface tile metric set; no bandwidth counters "
+              "will be programmed for that inference.");
+      }
+      else if (metricSet != "off") {
+        selection.includeBandwidth = true;
+        selection.bandwidthMetricSet = metricSet;
+
+        if (parts.size() > 1) {
+          try {
+            selection.bandwidthChannel = aie::convertStringToUint8(parts[1]);
+          }
+          catch (const std::invalid_argument&) {
+            xrt_core::message::send(severity_level::warning, "XRT",
+                "AIE dtrace: channel '" + parts[1] + "' in " + scope
+                + ".interface_tile is not an integer; using channel 0.");
+          }
+        }
+      }
+    }
+
+    if (run.aie_tile.has_value() && !run.aie_tile->empty()) {
+      // Accept "all:<metric>" as well as a bare "<metric>", matching what
+      // getConfigMetricsForAIETiles allows for the single-configuration form.
+      std::vector<std::string> parts;
+      boost::split(parts, *run.aie_tile, boost::is_any_of(":"));
+      const std::string& metricSet = parts.back();
+
+      if (!isCoreMetricSet(metricSet)) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: " + scope + ".aie_tile='" + *run.aie_tile
+            + "' is not a known core (aie) tile metric set. Supported: compute_io_bound, off.");
+      }
+      else if (metricSet != "off") {
+        selection.coreMetricSet = metricSet;
+      }
+    }
+
+    selection.includeL2L2 = l2L2TransferEnabled
+                         && run.mem_tile.has_value()
+                         && *run.mem_tile == INPUT_PORTS_METRIC_SET;
+
+    return selection;
   }
 
   void AieDtraceMetadata::checkDtraceSettings()

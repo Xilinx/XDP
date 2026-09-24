@@ -678,14 +678,14 @@ std::vector<uint8_t> AieDtraceCTWriter::getShimTileColumns(void* hwctx)
   }
 
   try {
-    boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(hwctx);
-    if (aiePartitionPt.empty()) {
+    const auto partition = aie::dtrace::getPartitionGeometry(hwctx);
+    if (!partition.valid) {
       xrt_core::message::send(severity_level::debug, "XRT",
           "AIE dtrace: No partition info available");
       return columns;
     }
 
-    uint8_t numCols = static_cast<uint8_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols"));
+    const uint8_t numCols = static_cast<uint8_t>(partition.numCols);
 
     // Return relative columns (0, 1, 2, ...) for hardware configuration
     for (uint8_t i = 0; i < numCols; ++i) {
@@ -1393,10 +1393,11 @@ void AieDtraceCTWriter::appendComputeIoBoundConfig(
 
 void AieDtraceCTWriter::appendL2L2Config(
     void* hwctx,
+    bool includeL2L2,
     std::vector<CTCounterInfo>& counters,
     std::vector<CTRegisterWrite>& beginWrites)
 {
-  if (!metadata || !metadata->isL2L2Enabled())
+  if (!includeL2L2)
     return;
 
   if (!hwctx) {
@@ -1405,22 +1406,11 @@ void AieDtraceCTWriter::appendL2L2Config(
     return;
   }
 
-  boost::property_tree::ptree aiePartitionPt;
-  try {
-    aiePartitionPt = xdp::aie::getAIEPartitionInfo(hwctx);
-  }
-  catch (const std::exception& e) {
-    xrt_core::message::send(severity_level::warning, "XRT",
-        std::string("AIE dtrace: Error getting partition info for L2-L2: ") + e.what());
-    return;
-  }
-  if (aiePartitionPt.empty())
+  const auto partition = aie::dtrace::getPartitionGeometry(hwctx);
+  if (!partition.valid || partition.numCols == 0)
     return;
 
-  const uint32_t numCols =
-      static_cast<uint32_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols", 0));
-  if (numCols == 0)
-    return;
+  const uint32_t numCols = partition.numCols;
   const auto instrumentPoints = aie::dtrace::parseL2L2DesignPoints(
       profiling_runtime_config::resolveMemoryTileInputPorts());
   if (instrumentPoints.empty())
@@ -1475,10 +1465,7 @@ bool AieDtraceCTWriter::generateCT(
     const std::string& outputPath,
     void* hwctx,
     const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
-    bool includeBandwidth,
-    const std::string& bandwidthMetricSet,
-    uint8_t bandwidthChannel,
-    const std::string& coreMetricSet)
+    const MetricSelection& selection)
 {
   if (opLocations.empty()) {
     xrt_core::message::send(severity_level::debug, "XRT",
@@ -1501,17 +1488,18 @@ bool AieDtraceCTWriter::generateCT(
   // of tiles in column 0. Memtile L2-L2 counters are appended when enabled.
   // filterCountersByColumn keys by column, so all land in the matching UC group and read
   // distinct addresses.
-  if (includeBandwidth)
-    appendBandwidthConfig(hwctx, bandwidthMetricSet, bandwidthChannel, allCounters, beginBlockWrites);
+  if (selection.includeBandwidth)
+    appendBandwidthConfig(hwctx, selection.bandwidthMetricSet, selection.bandwidthChannel,
+                          allCounters, beginBlockWrites);
 
-  if (coreMetricSet == "compute_io_bound")
+  if (selection.coreMetricSet == "compute_io_bound")
     appendComputeIoBoundConfig(allCounters, beginBlockWrites);
-  else if (!coreMetricSet.empty())
+  else if (!selection.coreMetricSet.empty())
     xrt_core::message::send(severity_level::warning, "XRT",
-        "AIE dtrace: Unsupported core (aie) tile metric set '" + coreMetricSet
+        "AIE dtrace: Unsupported core (aie) tile metric set '" + selection.coreMetricSet
         + "'; no core tile counters configured.");
 
-  appendL2L2Config(hwctx, allCounters, beginBlockWrites);
+  appendL2L2Config(hwctx, selection.includeL2L2, allCounters, beginBlockWrites);
 
   if (allCounters.empty()) {
     xrt_core::message::send(severity_level::warning, "XRT",
@@ -1535,9 +1523,12 @@ bool AieDtraceCTWriter::generateBandwidthCT(
     const std::string& metricSet,
     uint8_t channel)
 {
-  return generateCT(outputPath, hwctx, opLocations,
-                    /*includeBandwidth=*/true, metricSet, channel,
-                    /*coreMetricSet=*/"");
+  MetricSelection selection;
+  selection.includeBandwidth = true;
+  selection.bandwidthMetricSet = metricSet;
+  selection.bandwidthChannel = channel;
+
+  return generateCT(outputPath, hwctx, opLocations, selection);
 }
 
 namespace {

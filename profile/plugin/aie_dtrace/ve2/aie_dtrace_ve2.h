@@ -6,7 +6,7 @@
 
 #include <cstdint>
 #include <map>
-#include <set>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -30,19 +30,42 @@ namespace xdp {
 
       void updateDevice() override;
 
-      void generateCTForRun(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
-                           const std::string& kernel_name,
-                           void* elf_handle) override;
+      void generateCTsForRun(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
+                             const std::string& kernel_name,
+                             void* elf_handle) override;
+
+      void applyCTForRun(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
+                         const std::string& kernel_name) override;
+
+      void reportUnusedSelections() override;
 
     private:
+      // Callers must hold m_mutex.
       void computeOpLocations(void* elf_handle, const std::string& kernel_name);
+      void generateCTFiles(void* hwctx, uint32_t run_uid, const std::string& kernel_name,
+                           void* elf_handle);
+      const std::vector<std::string>* findCTFiles(const std::string& kernel_name) const;
+
+      // Serializes every mutable member below. One instance exists per hardware
+      // context, but XRT lets an application construct and start runs on the
+      // same context from several threads.
+      mutable std::mutex m_mutex;
 
       std::map<std::string, std::vector<aiebu::aiebu_assembler::op_loc>> m_op_locations_cache;
 
-      // run_start fires on every submission of a run object, but the CT file is
-      // a property of the run itself. Track which runs have been handled so a
-      // repeatedly started run is configured only once.
-      std::set<uint32_t> m_ct_generated_runs;
+      // Kernel name -> one CT path per configured inference, in execution
+      // order. An entry is empty when that inference's CT could not be
+      // generated. Generated once per kernel at run construction and then
+      // shared by every run object of that kernel, since the ELF, and so the
+      // SAVE_TIMESTAMPS locations, are identical across them.
+      std::map<std::string, std::vector<std::string>> m_ct_files;
+
+      // Kernel name -> inferences started so far on this hardware context.
+      // Counted at start rather than at construction because an application is
+      // free to reuse one run object for every inference, or to build a pool of
+      // run objects up front. Only used for a multi-inference sequence; a
+      // single metric set is programmed at construction and never re-selected.
+      std::map<std::string, uint64_t> m_inference_counts;
   };
 
 }

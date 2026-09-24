@@ -7,6 +7,7 @@
 #include <climits>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "xdp/config.h"
 
@@ -28,14 +29,55 @@
 // Example blob:
 //   {"control_instrumentation":{"aie_tile":"func_stalls","mem_tile":"input_ports","interface_tile":"ddr_bandwidth",
 //    "memory_tile_input_ports":"{1,1:2},{5,1:1}"},"event_trace":{"tile_based_aie_tile_metrics":"all:functions"}}
+//
+// control_instrumentation may instead carry "profile_runs", which collects the
+// metric sets that used to require one design run each into a single run: entry
+// N is applied to the Nth profiled inference. Either an explicit array:
+//   "control_instrumentation": {
+//     "start_inference": "1",
+//     "profile_runs": [
+//       {"aie_tile":"compute_io_bound","interface_tile":"detailed_ddr_read_bandwidth:0"},
+//       {"interface_tile":"detailed_ddr_read_bandwidth:1"},
+//       {"interface_tile":"detailed_ddr_write_bandwidth:0"},
+//       {"interface_tile":"detailed_ddr_write_bandwidth:1"}]}
+// or the super-metric-set shorthand that expands to that same sequence:
+//   "control_instrumentation": {"profile_runs": "compute_io_bound"}
 
 namespace xdp::profiling_runtime_config {
+
+  // One inference's metric selection. Carries the same four tile keys as the
+  // single-configuration form, so an entry of "profile_runs" is parsed exactly
+  // like control_instrumentation itself.
+  struct profile_run_t {
+    std::optional<std::string> aie_tile;       // maps to "core" module internally
+    std::optional<std::string> mem_tile;       // maps to "mem_tile" module internally
+    std::optional<std::string> interface_tile; // maps to "shim" module internally
+    std::optional<std::string> memory_tile_input_ports; // L2-L2 {column,row:port} list
+  };
 
   struct control_instrumentation_t {
     std::optional<std::string> aie_tile;       // maps to "core" module internally
     std::optional<std::string> mem_tile;       // maps to "mem_tile" module internally
     std::optional<std::string> interface_tile; // maps to "shim" module internally
     std::optional<std::string> memory_tile_input_ports; // L2-L2 {column,row:port} list
+
+    // Per-inference metric selections in execution order: the Nth inference
+    // that XDP profiles uses profile_runs[N]. Populated from the "profile_runs"
+    // array, or from its super-metric-set shorthand. When the blob carries no
+    // "profile_runs" this holds a single entry synthesized from the four fields
+    // above, so a consumer can always iterate it rather than special-casing
+    // the single-configuration form.
+    std::vector<profile_run_t> profile_runs;
+
+    // True when "profile_runs" came from the blob rather than being synthesized
+    // from the four fields above. Distinguishes "the user asked for multiple
+    // inferences" from "the user gave one configuration the old way".
+    bool has_explicit_profile_runs = false;
+
+    // 1-based index of the first inference to profile. Inferences before it are
+    // not profiled, and profiling covers start_inference through
+    // start_inference + profile_runs.size() - 1.
+    unsigned int start_inference = 1;
   };
 
   // Mirrors the AIE_trace_settings.* xrt.ini keys 1:1. When event_trace is
@@ -115,6 +157,13 @@ namespace xdp::profiling_runtime_config {
   // Returns the cached control_instrumentation view. Safe to call even when
   // has_control_instrumentation() is false (all members will be empty).
   XDP_CORE_EXPORT const control_instrumentation_t& control_instrumentation();
+
+  // Per-inference metric selections. Empty when the blob carried no
+  // control_instrumentation at all; otherwise it always has at least one entry.
+  XDP_CORE_EXPORT const std::vector<profile_run_t>& profile_runs();
+
+  // 1-based index of the first inference to profile (default 1).
+  XDP_CORE_EXPORT unsigned int start_inference();
 
   // When control_instrumentation carries mem_tile or memory_tile_input_ports,
   // ports come only from the blob (requires mem_tile "input_ports"). Otherwise

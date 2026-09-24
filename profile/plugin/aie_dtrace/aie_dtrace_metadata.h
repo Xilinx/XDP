@@ -12,8 +12,29 @@
 
 #include "xdp/profile/database/static_info/aie_constructs.h"
 #include "xdp/profile/database/static_info/filetypes/base_filetype_impl.h"
+#include "xdp/profile/plugin/vp_base/profiling_runtime_config.h"
 
 namespace xdp {
+
+// Everything that distinguishes one inference's CT file from another's. The
+// Nth profiled inference of a kernel is programmed with metricSelections[N],
+// so this has to be self-contained rather than something the CT writer reads
+// back off the shared, whole-context config maps.
+struct MetricSelection {
+  bool includeBandwidth = false;
+  std::string bandwidthMetricSet = "peak_read_bandwidth";
+  uint8_t bandwidthChannel = 0;
+  std::string coreMetricSet;     // empty means no core (aie) tile metrics
+  bool includeL2L2 = false;
+
+  bool empty() const {
+    return !includeBandwidth && coreMetricSet.empty() && !includeL2L2;
+  }
+
+  // Human-readable "interface_tile=..., aie_tile=..." form used in log
+  // messages and to distinguish CT files in diagnostics.
+  std::string describe() const;
+};
 
 class AieDtraceMetadata {
   private:
@@ -37,9 +58,18 @@ class AieDtraceMetadata {
     std::map<tile_type, uint8_t> configChannel0;
     std::map<tile_type, uint8_t> configChannel1;
 
+    // One entry per inference to profile, in execution order. Always holds at
+    // least one entry once the metadata is configured.
+    std::vector<MetricSelection> metricSelections;
+    unsigned int startInference = 1;
+    bool multiInference = false;
+
     const aie::BaseFiletypeImpl* metadataReader = nullptr;
 
     void checkDtraceSettings();
+    MetricSelection buildSelectionFromProfileRun(
+        const profiling_runtime_config::profile_run_t& run, size_t index) const;
+    MetricSelection buildSelectionFromConfigMetrics();
     void getConfigMetricsForInterfaceTiles(int moduleIdx,
                                            const std::vector<std::string>& metricsSettings);
     void getConfigMetricsForAIETiles(int moduleIdx,
@@ -64,7 +94,15 @@ class AieDtraceMetadata {
 
     bool isConfigOnePartition() const { return configOnePartition; }
 
-    bool isL2L2Enabled() const { return l2L2TransferEnabled; }
+    // Per-inference metric selections, in execution order.
+    const std::vector<MetricSelection>& getMetricSelections() const { return metricSelections; }
+
+    // 1-based index of the first inference of a kernel that gets profiled.
+    unsigned int getStartInference() const { return startInference; }
+
+    // True when the user asked for a "profile_runs" sequence rather than a
+    // single configuration applied to every inference.
+    bool isMultiInference() const { return multiInference; }
 
     bool aieMetadataEmpty() { return metadataReader == nullptr; }
 

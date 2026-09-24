@@ -21,6 +21,7 @@ namespace xdp {
 class VPDatabase;
 class AieDtraceMetadata;
 struct AIECounter;
+struct MetricSelection;
 
 /**
  * @brief Information about a SAVE_TIMESTAMPS instruction found in ASM files
@@ -191,23 +192,20 @@ public:
    * bandwidth counters and the core-tile counters are emitted into the same CT
    * file.
    *
+   * The selection is passed in rather than read back off the metadata because
+   * a single hardware context can generate one CT per inference, each with a
+   * different set of counters.
+   *
    * @param outputPath Full path for the generated CT file
    * @param hwctx Hardware context handle for partition info access
    * @param opLocations Vector of op_loc from aiebu_assembler::get_op_locations
-   * @param includeBandwidth Emit interface-tile bandwidth counters
-   * @param bandwidthMetricSet Bandwidth metric set (used when includeBandwidth)
-   * @param bandwidthChannel DMA channel for detailed_ddr_*_bandwidth sets
-   * @param coreMetricSet Core (aie) tile metric set to emit, or empty for none.
-   *                      Supported: compute_io_bound
+   * @param selection Metric sets and DMA channel for this one CT file
    * @return true if CT file was generated successfully, false otherwise
    */
   bool generateCT(const std::string& outputPath,
                   void* hwctx,
                   const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
-                  bool includeBandwidth,
-                  const std::string& bandwidthMetricSet,
-                  uint8_t bandwidthChannel,
-                  const std::string& coreMetricSet);
+                  const MetricSelection& selection);
 
 private:
   /**
@@ -367,6 +365,7 @@ private:
    * @param beginWrites [in,out] Accumulated begin-block register writes
    */
   void appendL2L2Config(void* hwctx,
+      bool includeL2L2,
       std::vector<CTCounterInfo>& counters,
       std::vector<CTRegisterWrite>& beginWrites);
 

@@ -18,6 +18,21 @@ namespace xdp::aie::dtrace {
   // Shim bandwidth metric sets used for Debug.aie_dtrace (not part of standard aie_profile ini).
   std::map<std::string, std::vector<XAie_Events>> getBandwidthInterfaceTileEventSets(int hwGen);
 
+  // ============================ Partition geometry ===========================
+
+  // The columns one hardware context owns.
+  struct PartitionGeometry {
+    bool valid = false;
+    uint8_t startCol = 0;
+    uint32_t numCols = 0;
+  };
+
+  // Resolves the partition belonging to this hardware context. The underlying
+  // aie_partition_info query is device-wide, so it also reports partitions of
+  // other contexts and other processes; picking the wrong one puts every
+  // counter address in the CT file in somebody else's columns.
+  PartitionGeometry getPartitionGeometry(void* hwctx);
+
   // ===========================L2L2 transfer metrics ==========================================
 
   // Inter-stamp memtile halo dst paths; design points come from xrt.ini.

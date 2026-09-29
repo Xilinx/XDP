@@ -199,6 +199,9 @@ public:
    * @param bandwidthChannel DMA channel for detailed_ddr_*_bandwidth sets
    * @param coreMetricSet Core (aie) tile metric set to emit, or empty for none.
    *                      Supported: compute_io_bound
+   * @param memTileMetricSet Mem tile (L2) metric set to emit, or empty for none.
+   *                      Supported: output_channels_details, mm2s_channels_details
+   * @param memTileChannel MM2S channel (0-5) monitored by the mem tile metric set
    * @return true if CT file was generated successfully, false otherwise
    */
   bool generateCT(const std::string& outputPath,
@@ -207,7 +210,9 @@ public:
                   bool includeBandwidth,
                   const std::string& bandwidthMetricSet,
                   uint8_t bandwidthChannel,
-                  const std::string& coreMetricSet);
+                  const std::string& coreMetricSet,
+                  const std::string& memTileMetricSet = "",
+                  uint8_t memTileChannel = 0);
 
 private:
   /**
@@ -369,6 +374,82 @@ private:
   void appendL2L2Config(void* hwctx,
       std::vector<CTCounterInfo>& counters,
       std::vector<CTRegisterWrite>& beginWrites);
+
+  /**
+   * @brief Append the mem tile (L2) MM2S counters and begin-block writes
+   *
+   * Programs the first-row mem tile of every selected column with three counters
+   * measuring one MM2S channel: memory starvation, stream backpressure, and the lock
+   * stall that coincides with neither of them.
+   *
+   * @param hwctx Hardware context handle for partition column discovery
+   * @param metricSet Mem tile metric set
+   * @param channel MM2S channel (0-5) to monitor
+   * @param counters [in,out] Accumulated counter list
+   * @param beginWrites [in,out] Accumulated begin-block register writes
+   * @return true if mem tile config was appended
+   */
+  bool appendMemTileConfig(void* hwctx, const std::string& metricSet, uint8_t channel,
+      std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites);
+
+  /**
+   * @brief Absolute mem tile rows, from driver_config mem_row_start / mem_num_rows
+   */
+  std::vector<uint8_t> getMemTileRows();
+
+  /**
+   * @brief Point the DMA event selector at one MM2S channel
+   *
+   * Selector 0 of DMA_Event_Channel_Selection carries the channel, so every
+   * DMA_MM2S_SEL0_* event on the tile refers to it. The register is written in full: the
+   * fields this metric does not use have no other owner while it is running.
+   *
+   * @param column Partition-relative mem tile column
+   * @param row Absolute mem tile row
+   * @param channel MM2S channel (0-5)
+   * @return Vector of register writes for the begin block
+   */
+  std::vector<CTRegisterWrite> generateMemTileChannelSelectConfig(uint8_t column,
+      uint8_t row, uint8_t channel);
+
+  /**
+   * @brief Build the lock stall term that excludes starvation and backpressure
+   *
+   * COMBO0 ANDs the lock stall with itself, which is just the lock stall; COMBO1 ORs
+   * the channel's starvation and backpressure; COMBO2 is COMBO0 AND NOT COMBO1. The
+   * driver fixes that operand order (for XAIE_EVENT_COMBO2, Event1 is COMBO0 and Event2
+   * is COMBO1) and COMBO2 consumes no input slots of its own. Every input is native to
+   * the mem tile module, so unlike compute_io_bound no broadcast relay is needed.
+   *
+   * @param column Partition-relative mem tile column
+   * @param row Absolute mem tile row
+   * @return Vector of register writes for the begin block
+   */
+  std::vector<CTRegisterWrite> generateMemTileComboConfig(uint8_t column, uint8_t row);
+
+  /**
+   * @brief Zero the mem tile counters and point three of them at the metric's events
+   *
+   * Counters 0-2 take memory starvation, stream backpressure and the combo residual,
+   * each with Start == Stop so it accumulates the cycles its event is asserted. The
+   * remaining counters are left unprogrammed.
+   *
+   * @param column Partition-relative mem tile column
+   * @param row Absolute mem tile row
+   * @return Vector of register writes for the begin block
+   */
+  std::vector<CTRegisterWrite> generateMemTilePerfCounterConfig(uint8_t column, uint8_t row);
+
+  /**
+   * @brief Build the counter metadata for every mem tile being programmed
+   * @param columns Partition-relative mem tile columns
+   * @param rows Absolute mem tile rows
+   * @param metricSet Mem tile metric set
+   * @param channel MM2S channel being monitored
+   * @return Vector of CTCounterInfo for all mem tile counters
+   */
+  std::vector<CTCounterInfo> generateMemTileCounters(const std::vector<uint8_t>& columns,
+      const std::vector<uint8_t>& rows, const std::string& metricSet, uint8_t channel);
 
   /**
    * @brief Generate the core module config for the compute_io_bound lock correlation tile
@@ -598,6 +679,35 @@ private:
   static constexpr uint8_t  MEM_COMBO_EVENT_1_EVENT  = 8;
   static constexpr uint8_t  CORE_COMBO_EVENT_0_EVENT = 9;
   static constexpr uint8_t  CORE_COMBO_EVENT_1_EVENT = 10;
+
+  // Mem tile (L2) offsets (aie2ps). The bundled aie-codegen register database reports
+  // MaxCounterVal = 4 for the mem tile module, which is stale against the spec: there
+  // are six counters, with 4 and 5 controlled by Performance_Control3. Note the layout
+  // differs from the shim module, where counters 2 and 3 sit at +0xC from the control
+  // base; on a mem tile +0xC is counters 4 and 5.
+  static constexpr uint64_t MT_PERF_CTRL0    = 0x00091000;  // Counters 0,1 start/stop
+  static constexpr uint64_t MT_PERF_CTRL1    = 0x00091004;  // Counters 2,3 start/stop
+  static constexpr uint64_t MT_PERF_COUNTER0 = 0x00091020;  // Counter 0 (Counter N at +4*N)
+  static constexpr uint8_t  MT_NUM_PERF_COUNTERS = 3;
+
+  static constexpr uint64_t MT_COMBO_EVENT_INPUTS    = 0x00094400;
+  static constexpr uint64_t MT_COMBO_EVENT_CONTROL   = 0x00094404;
+  static constexpr uint64_t MT_DMA_EVENT_CHANNEL_SEL = 0x000A06A0;
+
+  // MM2S_SEL0 channel field of DMA_Event_Channel_Selection (3 bits at [18:16]). Only
+  // selector 0 is used, so the S2MM and SEL1 fields are written as zero.
+  static constexpr unsigned MT_DMA_CHANNEL_SEL_MM2S_SEL0_SHIFT = 16;
+
+  // aie2ps mem tile events (xaie_events_aie2ps.h). The lock stall is never counted on its
+  // own; it is only a combo input, which is why it has no counter of its own below.
+  static constexpr uint8_t MT_COMBO_EVENT_2_EVENT                    = 11;
+  static constexpr uint8_t MT_DMA_MM2S_SEL0_STALLED_LOCK_EVENT       = 35;
+  static constexpr uint8_t MT_DMA_MM2S_SEL0_STREAM_BACKPRESSURE_EVENT = 39;
+  static constexpr uint8_t MT_DMA_MM2S_SEL0_MEMORY_STARVATION_EVENT  = 43;
+
+  // XAie_EventComboOps: AND is 0 (COMBO_AND above), E1 AND NOT E2 is 1, OR is 2.
+  static constexpr uint32_t COMBO_AND_NOT_E2 = 1;
+  static constexpr uint32_t COMBO_OR         = 2;
 
   // Bandwidth monitoring constants
   static constexpr uint8_t NUM_BANDWIDTH_COUNTERS = 4;

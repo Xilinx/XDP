@@ -1471,6 +1471,60 @@ void AieDtraceCTWriter::appendL2L2Config(
 }
 //============================================================================================================
 
+bool AieDtraceCTWriter::appendMemTileConfig(
+    void* hwctx, const std::string& metricSet, uint8_t channel,
+    std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites)
+{
+  // Mem tiles occupy the same columns as the shim tiles, so the partition column
+  // discovery is shared. A setting that named one column instead of "all" leaves those
+  // columns in the config map.
+  std::vector<uint8_t> columns;
+  if (metadata->isMemTileAllColumns()) {
+    columns = getShimTileColumns(hwctx);
+  }
+  else {
+    for (const auto& tileMetric :
+         metadata->getConfigMetricsVec(static_cast<int>(module_type::mem_tile)))
+      columns.push_back(tileMetric.first.col);
+  }
+
+  if (columns.empty()) {
+    xrt_core::message::send(severity_level::warning, "XRT",
+        "AIE dtrace: No mem tile columns found in partition. Skipping mem tile counters.");
+    return false;
+  }
+
+  auto rows = getMemTileRows();
+  if (rows.empty()) {
+    xrt_core::message::send(severity_level::warning, "XRT",
+        "AIE dtrace: No mem tile rows in driver config. Skipping mem tile counters.");
+    return false;
+  }
+
+  auto memTileCounters = generateMemTileCounters(columns, rows, metricSet, channel);
+  if (memTileCounters.empty()) {
+    xrt_core::message::send(severity_level::warning, "XRT",
+        "AIE dtrace: No mem tile counters generated");
+    return false;
+  }
+  counters.insert(counters.end(), memTileCounters.begin(), memTileCounters.end());
+
+  for (uint8_t column : columns) {
+    for (uint8_t row : rows) {
+      auto channelWrites = generateMemTileChannelSelectConfig(column, row, channel);
+      beginWrites.insert(beginWrites.end(), channelWrites.begin(), channelWrites.end());
+
+      auto comboWrites = generateMemTileComboConfig(column, row);
+      beginWrites.insert(beginWrites.end(), comboWrites.begin(), comboWrites.end());
+
+      auto perfWrites = generateMemTilePerfCounterConfig(column, row);
+      beginWrites.insert(beginWrites.end(), perfWrites.begin(), perfWrites.end());
+    }
+  }
+
+  return true;
+}
+
 bool AieDtraceCTWriter::generateCT(
     const std::string& outputPath,
     void* hwctx,
@@ -1478,7 +1532,9 @@ bool AieDtraceCTWriter::generateCT(
     bool includeBandwidth,
     const std::string& bandwidthMetricSet,
     uint8_t bandwidthChannel,
-    const std::string& coreMetricSet)
+    const std::string& coreMetricSet,
+    const std::string& memTileMetricSet,
+    uint8_t memTileChannel)
 {
   if (opLocations.empty()) {
     xrt_core::message::send(severity_level::debug, "XRT",
@@ -1511,7 +1567,21 @@ bool AieDtraceCTWriter::generateCT(
         "AIE dtrace: Unsupported core (aie) tile metric set '" + coreMetricSet
         + "'; no core tile counters configured.");
 
+  // Both mem tile families program the same performance counters, so at most one of
+  // them is ever configured: the metadata resolves the contention and clears the
+  // per-tile metric set when L2-L2 wins.
   appendL2L2Config(hwctx, allCounters, beginBlockWrites);
+
+  // Mem tile counters live on rows between the shim and the core tiles, so they land in
+  // the same column-keyed UC groups as the other two families.
+  if ((memTileMetricSet == "output_channels_details")
+      || (memTileMetricSet == "mm2s_channels_details"))
+    appendMemTileConfig(hwctx, memTileMetricSet, memTileChannel, allCounters,
+                        beginBlockWrites);
+  else if (!memTileMetricSet.empty())
+    xrt_core::message::send(severity_level::warning, "XRT",
+        "AIE dtrace: Unsupported mem tile metric set '" + memTileMetricSet
+        + "'; no mem tile counters configured.");
 
   if (allCounters.empty()) {
     xrt_core::message::send(severity_level::warning, "XRT",
@@ -1920,6 +1990,177 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateLockStarvationMemoryConf
            + "ctr1 = Combo_Event_1 lock stall & ch1 starvation)");
 
   return writes;
+}
+
+namespace {
+
+// The mem tile module's performance control and combo input registers both use 8-bit
+// event fields, unlike the 7-bit fields of the core and memory modules.
+uint32_t
+memTileCounterEventPair(uint8_t event, unsigned startShift)
+{
+  return (static_cast<uint32_t>(event) << startShift)
+       | (static_cast<uint32_t>(event) << (startShift + 8));
+}
+
+} // namespace
+
+std::vector<uint8_t> AieDtraceCTWriter::getMemTileRows()
+{
+  std::vector<uint8_t> rows;
+
+  // Only the first mem tile row is instrumented, even on parts with several. Every row
+  // costs another five counter reads at every probe point, and the first row is the one
+  // the L2-L2 metric also measures, so the two stay comparable.
+  auto driverConfig = metadata->getAIEConfigMetadata();
+  if (driverConfig.mem_num_rows > 0)
+    rows.push_back(driverConfig.mem_row_start);
+
+  return rows;
+}
+
+std::vector<CTRegisterWrite> AieDtraceCTWriter::generateMemTileChannelSelectConfig(
+    uint8_t column, uint8_t row, uint8_t channel)
+{
+  std::vector<CTRegisterWrite> writes;
+
+  uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
+                         (static_cast<uint64_t>(row) << rowShift);
+
+  // Selector 0 carries the channel, so every DMA_MM2S_SEL0_* event on this tile refers
+  // to it. The S2MM selectors and MM2S_SEL1 go to zero: this metric owns the register
+  // for the duration of the run and uses neither.
+  CTRegisterWrite w;
+  w.address = tileAddress + MT_DMA_EVENT_CHANNEL_SEL;
+  w.value = static_cast<uint32_t>(channel) << MT_DMA_CHANNEL_SEL_MM2S_SEL0_SHIFT;
+  w.comment = "DMA_Event_Channel_Selection @ memtile (" + std::to_string(column) + ","
+            + std::to_string(row) + ") (mm2s sel0 = ch" + std::to_string(channel) + ")";
+  writes.push_back(w);
+
+  return writes;
+}
+
+std::vector<CTRegisterWrite> AieDtraceCTWriter::generateMemTileComboConfig(
+    uint8_t column, uint8_t row)
+{
+  std::vector<CTRegisterWrite> writes;
+
+  uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
+                         (static_cast<uint64_t>(row) << rowShift);
+
+  auto addWrite = [&](uint64_t offset, uint32_t value, const std::string& comment) {
+    CTRegisterWrite w;
+    w.address = tileAddress + offset;
+    w.value = value;
+    w.comment = comment;
+    writes.push_back(w);
+  };
+
+  std::string loc = "memtile (" + std::to_string(column) + "," + std::to_string(row) + ")";
+
+  // Combo 0 pairs inputs A and B, combo 1 pairs C and D. The lock stall is fed into both
+  // A and B so combo 0 reduces to the lock stall itself, leaving C and D free for the
+  // two events it has to be measured against.
+  addWrite(MT_COMBO_EVENT_INPUTS,
+           static_cast<uint32_t>(MT_DMA_MM2S_SEL0_STALLED_LOCK_EVENT)
+             | (static_cast<uint32_t>(MT_DMA_MM2S_SEL0_STALLED_LOCK_EVENT) << 8)
+             | (static_cast<uint32_t>(MT_DMA_MM2S_SEL0_MEMORY_STARVATION_EVENT) << 16)
+             | (static_cast<uint32_t>(MT_DMA_MM2S_SEL0_STREAM_BACKPRESSURE_EVENT) << 24),
+           "Combo_Event_Inputs @ " + loc + " (A,B = mm2s lock stall, "
+           + "C = mm2s memory starvation, D = mm2s stream backpressure)");
+
+  // Combo 2 recombines the first two results, and the driver fixes its operands as
+  // Event1 = combo 0 and Event2 = combo 1, so AND NOT lands the right way round.
+  addWrite(MT_COMBO_EVENT_CONTROL,
+           COMBO_AND | (COMBO_OR << 8) | (COMBO_AND_NOT_E2 << 16),
+           "Combo_Event_Control @ " + loc + " (combo0 = A AND B = lock stall, "
+           + "combo1 = C OR D = starvation or backpressure, "
+           + "combo2 = combo0 AND NOT combo1)");
+
+  return writes;
+}
+
+std::vector<CTRegisterWrite> AieDtraceCTWriter::generateMemTilePerfCounterConfig(
+    uint8_t column, uint8_t row)
+{
+  std::vector<CTRegisterWrite> writes;
+
+  uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
+                         (static_cast<uint64_t>(row) << rowShift);
+
+  auto addWrite = [&](uint64_t offset, uint32_t value, const std::string& comment) {
+    CTRegisterWrite w;
+    w.address = tileAddress + offset;
+    w.value = value;
+    w.comment = comment;
+    writes.push_back(w);
+  };
+
+  std::string loc = "memtile (" + std::to_string(column) + "," + std::to_string(row) + ")";
+
+  for (uint8_t i = 0; i < MT_NUM_PERF_COUNTERS; ++i)
+    addWrite(MT_PERF_COUNTER0 + 4 * i, 0,
+             "Reset PerfCounter" + std::to_string(i) + " @ " + loc);
+
+  // Performance_Control0: [7:0]=Cnt0_Start, [15:8]=Cnt0_Stop, [23:16]=Cnt1_Start,
+  // [31:24]=Cnt1_Stop. Start == Stop makes each counter accumulate the cycles its event
+  // is asserted, the same convention aie_profile uses for its stall metric sets.
+  addWrite(MT_PERF_CTRL0,
+           memTileCounterEventPair(MT_DMA_MM2S_SEL0_MEMORY_STARVATION_EVENT, 0)
+             | memTileCounterEventPair(MT_DMA_MM2S_SEL0_STREAM_BACKPRESSURE_EVENT, 16),
+           "PerfCtrl0 @ " + loc + " (ctr0 = memory starvation, ctr1 = stream backpressure)");
+
+  // Performance_Control1 holds counters 2 and 3 on a mem tile, not Performance_Control2.
+  // Counter 3 is left unprogrammed.
+  addWrite(MT_PERF_CTRL1,
+           memTileCounterEventPair(MT_COMBO_EVENT_2_EVENT, 0),
+           "PerfCtrl1 @ " + loc
+           + " (ctr2 = Combo_Event_2 lock stall excluding starvation and backpressure)");
+
+  return writes;
+}
+
+std::vector<CTCounterInfo> AieDtraceCTWriter::generateMemTileCounters(
+    const std::vector<uint8_t>& columns, const std::vector<uint8_t>& rows,
+    const std::string& metricSet, uint8_t channel)
+{
+  std::vector<CTCounterInfo> counters;
+
+  struct MemTileCounterLayout {
+    uint8_t counterNumber;
+    const char* eventType;
+  };
+
+  // The labels are what vaianalyze keys on to tell the three apart within an interval.
+  const MemTileCounterLayout layout[] = {
+    {0, "memtile_memory_starvation"},
+    {1, "memtile_stream_backpressure"},
+    {2, "memtile_lock_excl"}
+  };
+
+  for (uint8_t column : columns) {
+    for (uint8_t row : rows) {
+      for (const auto& entry : layout) {
+        CTCounterInfo info;
+        info.column = column;
+        info.row = row;
+        info.counterNumber = entry.counterNumber;
+        info.channel = channel;
+        info.module = "memory_tile";
+        info.address = calculateCounterAddress(column, row, entry.counterNumber,
+                                               "memory_tile");
+        info.metricSet = metricSet;
+        // MM2S moves data out of the tile, so the direction is genuinely output. Consumers
+        // that read direction as a DDR read or write must gate on the module being a shim
+        // tile rather than on the direction alone.
+        info.portDirection = "output";
+        info.eventType = entry.eventType;
+        counters.push_back(info);
+      }
+    }
+  }
+
+  return counters;
 }
 
 } // namespace xdp

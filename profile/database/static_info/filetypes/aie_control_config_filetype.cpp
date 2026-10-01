@@ -429,13 +429,15 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
                     "). Unable to store port name.");
               }
             }
-            // For GMIOs, also populate mm2s_names and s2mm_names using channelNum
-            if (type == io_type::GMIO) {
-                if (channelNum < NUM_MEM_CHANNELS) {
+            // Populate mm2s_names/s2mm_names for SelTraceConfig (hwanalyze uses these,
+            // not PortTraceConfig.names). GMIO is indexed by DMA channel; PLIO by streamId.
+            {
+                uint8_t nameIdx = (type == io_type::GMIO) ? channelNum : streamId;
+                if (nameIdx < NUM_MEM_CHANNELS) {
                     if (isMaster)
-                        it->s2mm_names[channelNum] = name;
+                        it->s2mm_names[nameIdx] = name;
                     else
-                        it->mm2s_names[channelNum] = name;
+                        it->mm2s_names[nameIdx] = name;
                 }
             }
         }
@@ -463,13 +465,15 @@ AIEControlConfigFiletype::getInterfaceTiles(const std::string& graphName,
                     "). Unable to store port name.");
             }
 
-            // For GMIOs, also populate mm2s_names and s2mm_names using channelNum
-            if (type == io_type::GMIO) {
-                if (channelNum < NUM_MEM_CHANNELS) {
+            // Populate mm2s_names/s2mm_names for SelTraceConfig (hwanalyze uses these,
+            // not PortTraceConfig.names). GMIO is indexed by DMA channel; PLIO by streamId.
+            {
+                uint8_t nameIdx = (type == io_type::GMIO) ? channelNum : streamId;
+                if (nameIdx < NUM_MEM_CHANNELS) {
                     if (isMaster)
-                        tile.s2mm_names[channelNum] = name;
+                        tile.s2mm_names[nameIdx] = name;
                     else
-                        tile.mm2s_names[channelNum] = name;
+                        tile.mm2s_names[nameIdx] = name;
                 }
             }
 

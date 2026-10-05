@@ -14,8 +14,6 @@
 #include "core/common/message.h"
 #include "core/common/shim/hwctx_handle.h"
 
-#include <cctype>
-
 #include "xdp/profile/database/static_info/aie_util.h"
 
 #include <boost/property_tree/ptree.hpp>
@@ -29,21 +27,6 @@ namespace xdp {
   using severity_level = xrt_core::message::severity_level;
 
   namespace {
-
-    // Kernel names reach the filesystem as part of the CT file name and may
-    // contain separators or other characters the host filesystem rejects.
-    std::string sanitizeForFilename(const std::string& name)
-    {
-      if (name.empty())
-        return "kernel";
-
-      std::string out;
-      out.reserve(name.size());
-      for (const char c : name)
-        out.push_back((std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-')
-                      ? c : '_');
-      return out;
-    }
 
     // Hands a CT file to XRT for this run object. "what" names the caller's
     // unit of work for the log line, since this runs both at run construction
@@ -203,8 +186,7 @@ namespace xdp {
       }
 
       const std::string filename = "aie_dtrace_ctx_" + std::to_string(slotIdx)
-                                 + "_" + sanitizeForFilename(kernel_name)
-                                 + "_inference_"
+                                 + "_inf_"
                                  + std::to_string(metadata->getStartInference() + i)
                                  + ".ct";
       const auto finalPath = std::filesystem::current_path() / filename;

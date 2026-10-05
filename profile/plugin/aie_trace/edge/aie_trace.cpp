@@ -105,7 +105,10 @@ namespace xdp {
     // Memory/interface tile trace is flushed at end of run
     memoryTileTraceStartEvent = XAIE_EVENT_TRUE_MEM_TILE;
     memoryTileTraceEndEvent = XAIE_EVENT_USER_EVENT_1_MEM_TILE;
-    interfaceTileTraceStartEvent = XAIE_EVENT_TRUE_PL;
+    // Start on a user event so trace doesn't restart after the end-of-run flush
+    // Only apply this for VCK190 as VEK280 only has user events 0 and 1
+    interfaceTileTraceStartEvent = xdp::aie::isAIE1(hwGen) ? XAIE_EVENT_USER_EVENT_2_PL
+                                                           : XAIE_EVENT_TRUE_PL;
     interfaceTileTraceEndEvent = XAIE_EVENT_USER_EVENT_1_PL;
   }
 
@@ -942,6 +945,12 @@ namespace xdp {
       // NOTE: Do not access cfgTile after this
       (db->getStaticInfo()).addAIECfgTile(deviceId, cfgTile);
     }  // For tiles
+
+    // Start interface tile trace now that all tiles are configured
+    if (interfaceTileTraceStartEvent != XAIE_EVENT_TRUE_PL) {
+      for (const auto& loc : interfaceTileTraceFlushLocs)
+        XAie_EventGenerate(aieDevInst, loc, XAIE_PL_MOD, interfaceTileTraceStartEvent);
+    }
 
     // Report and store trace events per tile
     for (int m = 0; m < static_cast<int>(module_type::num_types); ++m) {

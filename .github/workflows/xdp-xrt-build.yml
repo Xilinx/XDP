@@ -202,11 +202,11 @@ jobs:
       group: xdp-ve2-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: true
     env:
-      # Self-hosted runner paths for VE2 Yocto cache (Telluride rev-b / vek385).
-      VE2_YOCTO_CACHE_ROOT: /scratch/snigupta/ve2_yocto_cache
-      VE2_YOCTO_CACHE_TTL_DAYS: '7'
-      VE2_MACHINE: amd-cortexa78-mali-common
-      VE2_YOCTO_DIR: /scratch/snigupta/ve2_yocto_cache/Vitis-AI-Telluride/versal_2ve/reference_design/vek385/rev-b/sw/yocto
+      # Persistent checkout. build_ve2.sh writes Yocto to ../../yocto/edf
+      # relative to xdna-driver/build, so RPMs land in VE2_RPM_DIR.
+      XDNA_DIR: /scratch/snigupta/xdp_ci/xdna-driver
+      XDNA_BRANCH: ve2_accel
+      VE2_RPM_DIR: /scratch/snigupta/yocto/edf/rpms
 
     steps:
       - name: Checkout XDP
@@ -215,59 +215,52 @@ jobs:
           path: xdp-pr
           fetch-depth: 0
 
-      - name: Ensure Yocto workspace cache
+      - name: Prepare xdna-driver and overlay this PR
         run: |
-          chmod +x xdp-pr/ci/ve2/ensure_yocto_cache.sh
-          xdp-pr/ci/ve2/ensure_yocto_cache.sh
-
-      - name: Build XRT RPMs with XDP overlay
-        env:
-          YOCTO_DIR: ${{ env.VE2_YOCTO_DIR }}
-          MACHINE: ${{ env.VE2_MACHINE }}
-        run: |
-          cd "${YOCTO_DIR}"
-          source edf-init-build-env
-
-          if [ ! -d build/workspace/sources/xrt ]; then
-            MACHINE="${MACHINE}" devtool modify xrt
+          set -euo pipefail
+          if [ ! -d "${XDNA_DIR}/.git" ]; then
+            git clone --recurse-submodules https://github.com/amd/xdna-driver "${XDNA_DIR}"
           fi
+          git -C "${XDNA_DIR}" fetch origin "${XDNA_BRANCH}"
+          git -C "${XDNA_DIR}" checkout "${XDNA_BRANCH}"
+          git -C "${XDNA_DIR}" pull --ff-only origin "${XDNA_BRANCH}"
+          git -C "${XDNA_DIR}" submodule update --init --recursive
 
-          XDP_TARGET="build/workspace/sources/xrt/xrt/src/runtime_src/xdp"
-          rm -rf "${XDP_TARGET}"
-          mkdir -p "$(dirname "${XDP_TARGET}")"
-          cp -r "${{ github.workspace }}/xdp-pr" "${XDP_TARGET}"
+          # First-time Yocto setup would otherwise reset xrt and drop the overlay.
+          sed -i 's/^[[:space:]]*git submodule update --init --recursive --force/# git submodule update --init --recursive --force/' \
+            "${XDNA_DIR}/build/build_ve2.sh"
 
-          MACHINE="${MACHINE}" bitbake xrt -c cleanall
-          MACHINE="${MACHINE}" bitbake xrt -c package_write_rpm -f
+          rm -rf "${XDNA_DIR}/xrt/src/runtime_src/xdp"
+          cp -a "${GITHUB_WORKSPACE}/xdp-pr" "${XDNA_DIR}/xrt/src/runtime_src/xdp"
+
+      - name: Build VE2 RPMs
+        run: |
+          set -euo pipefail
+          cd "${XDNA_DIR}/build"
+          bash build_ve2.sh
 
       - name: Validate build outputs
-        env:
-          YOCTO_DIR: ${{ env.VE2_YOCTO_DIR }}
         run: |
-          RPM_DIR="${YOCTO_DIR}/build/tmp/deploy/rpm"
-          find "${RPM_DIR}"/cortexa* -name 'xrt*.rpm' | tee /tmp/ve2-rpms.txt
+          set -euo pipefail
+          find "${VE2_RPM_DIR}" -name 'xrt*.rpm' | tee /tmp/ve2-rpms.txt
           test -s /tmp/ve2-rpms.txt
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: xrt-ve2-build-${{ github.event.pull_request.number || github.run_id }}
-          path: ${{ env.VE2_YOCTO_DIR }}/build/tmp/deploy/rpm/cortexa*/xrt*.rpm
+          path: /scratch/snigupta/yocto/edf/rpms/xrt*.rpm
           retention-days: 1
 
       - name: Build summary
         if: always()
-        env:
-          YOCTO_DIR: ${{ env.VE2_YOCTO_DIR }}
         run: |
-          RPM_DIR="${YOCTO_DIR}/build/tmp/deploy/rpm"
           echo "## XDP VE2 Build" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- PR: #${{ github.event.pull_request.number }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Platform: VE2 (Yocto RPM)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Machine: ${{ env.VE2_MACHINE }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Yocto cache: ${{ env.VE2_YOCTO_CACHE_ROOT }}" >> "$GITHUB_STEP_SUMMARY"
-          if find "${RPM_DIR}"/cortexa* -name 'xrt*.rpm' 2>/dev/null | grep -q .; then
+          echo "- Platform: VE2 (xdna-driver ${XDNA_BRANCH})" >> "$GITHUB_STEP_SUMMARY"
+          echo "- RPM directory: ${VE2_RPM_DIR}" >> "$GITHUB_STEP_SUMMARY"
+          if find "${VE2_RPM_DIR}" -name 'xrt*.rpm' 2>/dev/null | grep -q .; then
             echo "- Result: success" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "- Result: failed" >> "$GITHUB_STEP_SUMMARY"
@@ -302,11 +295,13 @@ jobs:
       group: xdp-board-ve2-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: true
     env:
-      VE2_YOCTO_CACHE_ROOT: /scratch/snigupta/ve2_yocto_cache
-      VE2_YOCTO_DIR: /scratch/snigupta/ve2_yocto_cache/Vitis-AI-Telluride/versal_2ve/reference_design/vek385/rev-b/sw/yocto
+      VE2_RPM_DIR: /scratch/snigupta/yocto/edf/rpms
       CSR_ROOT: /wrk/csr/snigupta/xdp_ci
+      CSR_SPEC: /proj/testcases/xtc/HEAD/auto/ymls/config/VAI_6_4_GEN2_REGRESSION.yml
+      CSR_SUPER_SUITE: VAI_6_4_GEN2_REGRESSION
+      CSR_DAY: sunday
       XDP_CSR_SUBMIT_MODE: local
-      XDP_CSR_SINGLE_TEST: ResNet18_MLTimeline
+      XDP_CSR_SINGLE_TEST: ml_timeline
       XDP_CSR_USE_DOCKER: "0"
       JENKINS_USER: ${{ secrets.JENKINS_USER }}
       JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
@@ -321,7 +316,8 @@ jobs:
             XDP ${{ github.event_name }} ${{ github.ref_name }} @ ${{ github.sha }}
         run: |
           bash ci/csr/run_ve2_board_test.sh \
-            --run-id '${{ github.event.pull_request.number || github.run_id }}-${{ github.run_id }}'
+            --run-id '${{ github.event.pull_request.number || github.run_id }}-${{ github.run_id }}' \
+            --rpm-source "${VE2_RPM_DIR}"
 
       - name: Board test summary
         if: always()
@@ -330,7 +326,8 @@ jobs:
           echo "## XDP VE2 Board Test (CSR)" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Trigger: ${{ github.event_name }} (${{ github.ref_name }})" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Suite: VE2_XDP (hw), single test: ResNet18_MLTimeline" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Suite: VE2_XDP (hw), single test block: ml_timeline" >> "$GITHUB_STEP_SUMMARY"
+          echo "- RPMs: ${VE2_RPM_DIR}" >> "$GITHUB_STEP_SUMMARY"
           echo "- vaiml compile: native FlexML (XDP_CSR_USE_DOCKER=0)" >> "$GITHUB_STEP_SUMMARY"
           echo "- CSR workspace: ${CSR_ROOT}/pr-${RUN_ID}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Submit mode: local RDI (set XDP_CSR_SUBMIT_MODE=jenkins when Job/Build granted)" >> "$GITHUB_STEP_SUMMARY"

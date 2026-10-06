@@ -6,6 +6,7 @@
 #include "xdp/profile/plugin/aie_dtrace/ve2/aie_dtrace_ve2.h"
 #include "xdp/profile/plugin/aie_dtrace/ve2/aie_dtrace_ct_writer.h"
 #include "xdp/profile/plugin/aie_dtrace/ve2/elf_helper.h"
+#include "xdp/profile/plugin/aie_dtrace/util/aie_dtrace_util.h"
 
 #include "core/common/api/hw_context_int.h"
 #include "core/common/api/kernel_int.h"
@@ -23,6 +24,8 @@ namespace xdp {
   using severity_level = xrt_core::message::severity_level;
 
   static constexpr int SHIM_MODULE_IDX = static_cast<int>(module_type::shim);
+  static constexpr int CORE_MODULE_IDX = static_cast<int>(module_type::core);
+  static constexpr int MEM_TILE_MODULE_IDX = static_cast<int>(module_type::mem_tile);
 
   AieDtrace_VE2Impl::AieDtrace_VE2Impl(VPDatabase* database,
                                          std::shared_ptr<AieDtraceMetadata> metadata,
@@ -108,10 +111,43 @@ namespace xdp {
 
     AieDtraceCTWriter ctWriter(db, metadata, deviceID, partitionStartCol);
 
+    // Determine which metric families are configured for this run. Both the
+    // interface-tile bandwidth metrics and one core-tile metric set can be
+    // emitted into the same per-run CT file.
+    std::string coreMetricSet;
+    for (const auto& tc : metadata->getConfigMetricsVec(CORE_MODULE_IDX)) {
+      coreMetricSet = tc.second;
+      break;
+    }
+
+    // Mem tile (L2) metrics carry the MM2S channel to monitor in configChannel0, the
+    // same way the detailed_ddr_*_bandwidth sets carry theirs. Every configured mem tile
+    // shares one metric set and one channel, so the first entry speaks for all of them.
+    std::string memTileMetricSet;
+    uint8_t memTileChannel = 0;
+    auto memTileConfigMetrics = metadata->getConfigMetricsVec(MEM_TILE_MODULE_IDX);
+    if (!memTileConfigMetrics.empty()) {
+      memTileMetricSet = memTileConfigMetrics.front().second;
+      auto memTileChannels = metadata->getConfigChannel0();
+      const auto& memTile = memTileConfigMetrics.front().first;
+      for (const auto& tc : memTileChannels) {
+        if ((tc.first.col == memTile.col) && (tc.first.row == memTile.row)) {
+          memTileChannel = tc.second;
+          break;
+        }
+      }
+      xrt_core::message::send(severity_level::info, "XRT",
+          "AIE dtrace: Using mem tile metric set '" + memTileMetricSet + "' (MM2S channel "
+          + std::to_string(memTileChannel) + ") from configuration");
+    }
+
+    // Interface-tile bandwidth metrics are configured by default unless the user
+    // turned interface tiles off (which leaves the shim config map empty).
+    auto shimConfigMetrics = metadata->getConfigMetricsVec(SHIM_MODULE_IDX);
+    bool includeBandwidth = !shimConfigMetrics.empty();
     std::string bandwidthMetricSet = "peak_read_bandwidth";
     uint8_t bandwidthChannel = 0;
-    auto shimConfigMetrics = metadata->getConfigMetricsVec(SHIM_MODULE_IDX);
-    if (!shimConfigMetrics.empty()) {
+    if (includeBandwidth) {
       bandwidthMetricSet = shimConfigMetrics.front().second;
       // The detailed_ddr_*_bandwidth metric sets carry a DMA channel in their
       // ":<channel>" suffix (stored in configChannel0). Match by column/row.
@@ -124,19 +160,42 @@ namespace xdp {
         }
       }
       xrt_core::message::send(severity_level::info, "XRT",
-          "AIE dtrace: Using metric set '" + bandwidthMetricSet + "' (channel "
+          "AIE dtrace: Using interface tile metric set '" + bandwidthMetricSet + "' (channel "
           + std::to_string(bandwidthChannel) + ") from configuration");
-    } else {
-      xrt_core::message::send(severity_level::info, "XRT",
-          "AIE dtrace: No interface tile metrics configured, using default 'peak_read_bandwidth'");
     }
 
-    if (!ctWriter.generateBandwidthCT(outputPath, hwctx, it->second, bandwidthMetricSet, bandwidthChannel))
+    if (!includeBandwidth && coreMetricSet.empty() && memTileMetricSet.empty()
+        && !metadata->isL2L2Enabled()) {
+      xrt_core::message::send(severity_level::info, "XRT",
+          "AIE dtrace: No metrics configured; skipping CT generation.");
+      return;
+    }
+
+    if (!ctWriter.generateCT(outputPath, hwctx, it->second,
+                             includeBandwidth, bandwidthMetricSet, bandwidthChannel,
+                             coreMetricSet, memTileMetricSet, memTileChannel))
       return;
 
-    xrt_core::message::send(severity_level::debug, "XRT",
-        "AIE dtrace: Bandwidth CT generated for kernel '" + kernel_name
-        + "' with metric set '" + bandwidthMetricSet + "'");
+    aie::dtrace::initDtraceOutputConfig();
+
+    std::stringstream genMsg;
+    genMsg << "AIE dtrace: CT generated for kernel '" << kernel_name << "' (";
+    if (includeBandwidth)
+      genMsg << "interface_tile=" << bandwidthMetricSet;
+    if (includeBandwidth && (!coreMetricSet.empty() || metadata->isL2L2Enabled()))
+      genMsg << ", ";
+    if (!coreMetricSet.empty())
+      genMsg << "aie_tile=" << coreMetricSet;
+    if (!coreMetricSet.empty() && metadata->isL2L2Enabled())
+      genMsg << ", ";
+    if (metadata->isL2L2Enabled())
+      genMsg << "memtile=input_ports";
+    if (!memTileMetricSet.empty())
+      genMsg << ((includeBandwidth || !coreMetricSet.empty()) ? ", " : "")
+             << "memtile=" << memTileMetricSet << ":ch"
+             << static_cast<int>(memTileChannel);
+    genMsg << ")";
+    xrt_core::message::send(severity_level::debug, "XRT", genMsg.str());
 
     auto* run_impl = static_cast<xrt::run_impl*>(run_impl_ptr);
     try {

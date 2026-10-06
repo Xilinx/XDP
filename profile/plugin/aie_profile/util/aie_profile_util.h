@@ -125,11 +125,12 @@ namespace xdp::aie::profile {
    * @param loc Tile location
    * @param type xdp module type
    * @param metricSet metric set to be configured
-   * @param channel channel to be configured
+   * @param channel0 DMA channel for selection index 0
+   * @param channel1 DMA channel for selection index 1
    */
   void configEventSelections(XAie_DevInst* aieDevInst, const XAie_LocType loc,
                              const module_type type, const std::string metricSet,
-                             const uint8_t channel);
+                             const uint8_t channel0, const uint8_t channel1);
   
   /**
    * @brief Get XAie module enum at the module index 

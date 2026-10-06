@@ -104,11 +104,11 @@ namespace xdp {
         if (!currConfig)
           return;
         
-        XclbinInfo* currXclbin = currConfig->getPlXclbin();
+        VPBinData* currXclbin = currConfig->getPlBinary();
         if (!currXclbin)
           return;
 
-        for (const auto& cu : currXclbin->pl.cus) {
+        for (const auto& cu : currXclbin->getPl().cus) {
           std::string cuInstFullName = cu.second->getFullname();
           std::string kernelName = cuInstFullName.substr(0, cuInstFullName.find(':'));
 

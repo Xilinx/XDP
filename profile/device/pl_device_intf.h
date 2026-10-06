@@ -54,6 +54,11 @@ namespace xdp {
 XDP_CORE_EXPORT
 uint64_t GetTS2MMBufSize(bool isAIETrace = false);
 
+// Overload for callers that already resolved their buffer size string from
+// a source other than xrt.ini (e.g. an AIE trace event_trace blob).
+XDP_CORE_EXPORT
+uint64_t GetTS2MMBufSize(const std::string& size_str);
+
 // This class handles the interface between the runtime and all of the
 // debug/profiling IP that are inside the PL portion of the design.
 // Some of the PL IP are connected to AIE outputs, but this class does NOT

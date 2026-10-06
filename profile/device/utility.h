@@ -21,10 +21,13 @@
 // Functions that can be used in the database, the plugins, and the writers
 
 #include <stdint.h>
+#include <map>
+#include <optional>
 #include <string>
 #include <memory>
 #include "xdp/config.h"
 #include "xrt/xrt_device.h"
+#include "core/include/xrt/experimental/xrt_elf.h"
 
 namespace xdp::util {
 
@@ -46,6 +49,17 @@ namespace xdp::util {
   XDP_CORE_EXPORT
   std::shared_ptr<xrt_core::device>
   convertToCoreDevice(void* h, bool hw_context_flow);
+
+  // Returns the design ELF to read AIE metadata from, given a
+  // hw_context's kernel-name-keyed ELF map.
+  //
+  // In the Full ELF flow the map can also hold XDP-generated ELFs submitted by
+  // plugins; those use "XDP_KERNEL"-prefixed keys (isXdpInternalKernel), so the
+  // design ELF is the first non-XDP-internal entry. Returns std::nullopt (after
+  // a warning) when none is found; callers must then skip the ELF-based update.
+  XDP_CORE_EXPORT
+  std::optional<xrt::elf>
+  getAieMetadataElf(const std::map<std::string, xrt::elf>& elfMap);
 
 
   // At compile time, each monitor inserted in the PL region is given a set 

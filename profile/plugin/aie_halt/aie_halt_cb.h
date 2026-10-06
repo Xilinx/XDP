@@ -19,10 +19,13 @@
 
 #include "xdp/config.h"
 
+#include <cstdint>
+
 extern "C" {
 
   XDP_PLUGIN_EXPORT void updateDeviceAIEHalt(void* hwCtxImpl);
   XDP_PLUGIN_EXPORT void finishflushDeviceAIEHalt(void* hwCtxImpl);
+  XDP_PLUGIN_EXPORT void aieHaltRunStart(void* hwctx, const char* kernel_name);
 
 }
 #endif

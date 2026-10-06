@@ -6,10 +6,12 @@
 #include<regex>
 #include<string>
 #include<cassert>
+#include<sstream>
 
 #include "core/common/device.h"
 #include "core/common/message.h"
 #include "core/common/api/hw_context_int.h"
+#include "core/include/xrt/experimental/xrt_elf.h"
 
 #include "xdp/profile/plugin/aie_halt/aie_halt_plugin.h"
 #include "xdp/profile/plugin/vp_base/info.h"
@@ -57,51 +59,104 @@ namespace xdp {
 
   void AIEHaltPlugin::updateDevice(void* hwCtxImpl)
   {
-#ifdef XDP_CLIENT_BUILD
+#if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
     if (mHwCtxImpl) {
-      // For client device flow, only 1 device and xclbin is supported now.
+      // Only 1 device and xclbin is supported now.
       return;
     }
     mHwCtxImpl = hwCtxImpl;
 
     xrt::hw_context hwContext = xrt_core::hw_context_int::create_hw_context_from_implementation(mHwCtxImpl);
-    if (xrt_core::hw_context_int::get_elf_flow(hwContext)) {
-      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
-          "AIE Halt Plugin is not yet supported for Full ELF flow.");
+
+    // Full ELF flow carries AIE metadata in an xrt::elf (no xclbin).
+    bool isFullELFFlow = false;
+    try {
+      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
+    } catch (const std::exception& e) {
+      std::stringstream msg;
+      msg << e.what() << " AIE Halt cannot be enabled before complete configuration, plugin configuration deferred.";
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
+      mDeferredConfiguration = true;
       return;
     }
-    std::shared_ptr<xrt_core::device> coreDevice = xrt_core::hw_context_int::get_core_device(hwContext);
 
-    // Only one device for Client Device flow
-    uint64_t deviceId = db->addDevice("win_device");
-    (db->getStaticInfo()).updateDeviceFromCoreDevice(deviceId, coreDevice, false);
-    (db->getStaticInfo()).setDeviceName(deviceId, "win_device");
-
-    DeviceDataEntry.valid = true;
-    DeviceDataEntry.implementation = std::make_unique<AIEHaltClientDevImpl>(db);
-    DeviceDataEntry.implementation->setHwContext(hwContext);
-    DeviceDataEntry.implementation->updateDevice(mHwCtxImpl);
-
-#elif defined (XDP_VE2_BUILD)
-    if (mHwCtxImpl) {
-      // For VE2 device flow, only 1 device and xclbin is supported now.
+    if (isFullELFFlow) {
+      // updateDevice can be called by hw_context::add_config() while it holds
+      // the hw-context mutex. Defer all APIs which reacquire that mutex until
+      // the first user run is constructed.
+      mDeferredConfiguration = true;
+      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+        "Deferring AIE Halt full-ELF configuration until the first user run.");
       return;
     }
-    mHwCtxImpl = hwCtxImpl;
+
+    mDeferredConfiguration = false;
+    configureDevice();
+#endif
+  }
+
+  void AIEHaltPlugin::configureDevice()
+  {
+#if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
+#if defined(XDP_VE2_BUILD)
+    const std::string deviceName = "ve2_device";
+#else
+    const std::string deviceName = "win_device";
+#endif
 
     xrt::hw_context hwContext = xrt_core::hw_context_int::create_hw_context_from_implementation(mHwCtxImpl);
     std::shared_ptr<xrt_core::device> coreDevice = xrt_core::hw_context_int::get_core_device(hwContext);
-    
-    // Only one device for VE2 Device flow
-    uint64_t deviceId = db->addDevice("ve2_device");
-    // TODO: should we use updateDeviceFromCoreDeviceHwCtxFlow or updateDeviceFromCoreDevice
-    (db->getStaticInfo()).updateDeviceFromCoreDevice(deviceId, coreDevice, false);
-    (db->getStaticInfo()).setDeviceName(deviceId, "ve2_device");
+
+    uint64_t deviceId = 0;
+    if (mDeferredConfiguration) {
+      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+        "Applying deferred configuration for AIE Halt.");
+      deviceId = (db->getStaticInfo()).getHwCtxImplUidElf(mHwCtxImpl);
+      auto elfMap = xrt_core::hw_context_int::get_elf_map(hwContext);
+      if (elfMap.empty()) {
+        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+          "AIE Halt ELF flow: hw_context has no registered ELFs, halt cannot be configured.");
+        return;
+      }
+      auto elf = util::getAieMetadataElf(elfMap);
+      if (!elf) {
+        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+          "Metadata not found in ELF map, halt cannot be configured.");
+        return;
+      }
+      (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(deviceId, coreDevice, std::move(*elf));
+    } else {
+      // Only one device for the Client/VE2 device flow
+      deviceId = db->addDevice(deviceName);
+      (db->getStaticInfo()).updateDeviceFromCoreDevice(deviceId, coreDevice, false);
+    }
+    (db->getStaticInfo()).setDeviceName(deviceId, deviceName);
 
     DeviceDataEntry.valid = true;
+#if defined(XDP_VE2_BUILD)
     DeviceDataEntry.implementation = std::make_unique<AIEHaltVE2Impl>(db);
+#else
+    DeviceDataEntry.implementation = std::make_unique<AIEHaltClientDevImpl>(db);
+#endif
     DeviceDataEntry.implementation->setHwContext(hwContext);
     DeviceDataEntry.implementation->updateDevice(mHwCtxImpl);
+#endif
+  }
+
+  void AIEHaltPlugin::runStartImpl(void* /*run_impl_ptr*/, void* hwCtxImpl,
+                                   uint32_t /*run_uid*/,
+                                   const std::string& /*kernel_name*/)
+  {
+#if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
+    if (mDeferredConfiguration) {
+      if (hwCtxImpl != mHwCtxImpl) {
+        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+            "New Hw Context Impl passed in AIE Halt Plugin runStartImpl, aborting configuration.");
+      } else {
+        configureDevice();
+      }
+      mDeferredConfiguration = false;
+    }
 #endif
   }
 
@@ -114,7 +169,7 @@ namespace xdp {
 
     if (hwCtxImpl != mHwCtxImpl) {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-          "New Hw Context Impl passed in AIE Halt Plugin.");
+          "New Hw Context Impl passed in AIE Halt Plugin finishflushDevice.");
       return;
     }
 

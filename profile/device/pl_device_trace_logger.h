@@ -32,7 +32,7 @@ namespace xdp {
   {
    private:
     uint64_t deviceId = 0;
-    XclbinInfo* xclbin = nullptr;
+    VPBinData* xclbin = nullptr;
     VPDatabase* db = nullptr;
 
     std::vector<uint64_t> traceIDs;

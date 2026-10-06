@@ -5,6 +5,7 @@
 
 #include "xdp/profile/plugin/aie_trace/util/aie_trace_util.h"
 #include "xdp/profile/plugin/aie_base/aie_base_util.h"
+#include "xdp/profile/plugin/vp_base/profiling_runtime_config.h"
 #include "xdp/profile/plugin/vp_base/utility.h"
 #include "xdp/profile/database/static_info/aie_util.h"
 #include "xdp/profile/device/pl_device_intf.h"
@@ -804,7 +805,11 @@ namespace xdp::aie::trace {
     static bool s_warned = false;
     if (s_warned)
       return;
-    if (!xrt_core::config::get_aie_trace())
+    // This is only ever called once AIE trace is already active (metadata
+    // has been constructed), so check both ways trace could have been
+    // enabled instead of just the legacy xrt.ini key - otherwise this
+    // warning would never fire for blob-only-enabled trace.
+    if (!xrt_core::config::get_aie_trace() && !profiling_runtime_config::has_event_trace())
       return;
     if (!aieProfileConfiguresStartToBytesOnInterfaceTiles())
       return;

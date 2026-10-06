@@ -13,6 +13,7 @@
 #include <set>
 
 #include "core/common/message.h"
+#include "xdp/profile/device/tracedefs.h"
 
 // ***************************************************************
 // Anonymous namespace for helper functions local to this file
@@ -335,19 +336,27 @@ namespace xdp::aie::profile {
   ***************************************************************************/
   void configEventSelections(XAie_DevInst* aieDevInst, const XAie_LocType loc,
                             const module_type type, const std::string metricSet,
-                            const uint8_t channel)
+                            const uint8_t channel0, const uint8_t channel1)
   {
     if (type != module_type::mem_tile)
       return;
 
     XAie_DmaDirection dmaDir = aie::isInputSet(type, metricSet) ? DMA_S2MM : DMA_MM2S;
-    XAie_EventSelectDmaChannel(aieDevInst, loc, 0, dmaDir, channel);
+    const std::vector<uint8_t> channels = {channel0, channel1};
 
-    std::stringstream msg;
-    msg << "Configured mem tile " << (aie::isInputSet(type,metricSet) ? "S2MM" : "MM2S") 
-    << "DMA  for metricset " << metricSet << ", channel " << (int)channel << ".";
-    xrt_core::message::send(severity_level::debug, "XRT", msg.str());
-  } 
+    if (aie::isDebugVerbosity()) {
+      std::stringstream channelsStr;
+      std::copy(channels.begin(), channels.end(),
+                std::ostream_iterator<uint8_t>(channelsStr, ", "));
+      std::stringstream msg;
+      msg << "Configured mem tile " << (aie::isInputSet(type, metricSet) ? "S2MM" : "MM2S")
+          << " DMA for metricset " << metricSet << ", channels " << channelsStr.str();
+      xrt_core::message::send(severity_level::debug, "XRT", msg.str());
+    }
+
+    for (uint8_t c = 0; c < NUM_CHANNEL_SELECTS; ++c)
+      XAie_EventSelectDmaChannel(aieDevInst, loc, c, dmaDir, channels.at(c));
+  }
 
   /****************************************************************************
   * Modify configured events based on the channel and hardware generation

@@ -41,8 +41,8 @@ namespace {
     xrt::hw_context context = xrt_core::hw_context_int::create_hw_context_from_implementation(devHandle);
     auto hwctx_hdl = static_cast<xrt_core::hwctx_handle*>(context);
     auto hwctx_obj = dynamic_cast<shim_xdna_edge::xdna_hwctx*>(hwctx_hdl);
-    auto aieArray = hwctx_obj->get_aie_array();
-    return aieArray->get_dev() ;
+    auto aieArray = hwctx_obj->get_aie_array() ;
+    return aieArray->get_dev();
   }
 
   static void* allocateAieDevice(void* devHandle)
@@ -401,7 +401,7 @@ namespace xdp {
         endEvents = startEvents;
 
         // TBD : Placeholder to configure AIE core with required profile counters.
-        aie::profile::configEventSelections(aieDevInst, loc, type, metricSet, channel0);
+        aie::profile::configEventSelections(aieDevInst, loc, type, metricSet, channel0, channel1);
         // TBD : Placeholder to configure shim tile with required profile counters.
 
         aie::profile::configStreamSwitchPorts(tileMetric.first, xaieTile, loc, type, 
@@ -785,6 +785,17 @@ namespace xdp {
 
     // Create debug buffer for AIE Profile results
     auto context = metadata->getHwContext();
+
+    // Resolve the control-code submission flow once; it is constant for the run
+    // and reused everywhere via tranxHandler->getElfFlow().
+    try {
+      tranxHandler->setElfFlow(xrt_core::hw_context_int::get_elf_flow(context));
+    } catch (const std::exception& e) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+          std::string("Failed to query ELF flow, assuming xclbin flow: ") + e.what());
+      tranxHandler->setElfFlow(false);
+    }
+
     uint32_t* output = nullptr;
     std::map<uint32_t, size_t> activeUCsegmentMap;
     activeUCsegmentMap[0] = 0x20000;
@@ -824,13 +835,30 @@ namespace xdp {
     bool runtimeCounters = false;
 
     xdp::aie::driver_config meta_config = metadata->getAIEConfigMetadata();
+
+    // Flow was resolved once in the constructor; reuse the stored value.
+    bool isFullELFFlow = tranxHandler->getElfFlow();
+    uint8_t numColumns = meta_config.num_columns;
+    // Full-ELF add_config() rejects an ELF whose partition column count differs
+    // from the hw_context's, so use the actual partition width instead of
+    // metadata num_columns (profiled tiles are partition-relative). The xclbin
+    // flow does not enforce this and keeps num_columns.
+    if (isFullELFFlow) {
+      xrt::hw_context context =
+        xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+      size_t partitionSize = xrt_core::hw_context_int::get_partition_size(context);
+      if (partitionSize > 0) {
+        numColumns = static_cast<uint8_t>(partitionSize);
+      }
+    }
+
     XAie_Config cfg {
       meta_config.hw_gen,
       meta_config.base_address,
       meta_config.column_shift,
       meta_config.row_shift,
       meta_config.num_rows,
-      meta_config.num_columns,
+      numColumns,
       meta_config.shim_row,
       meta_config.mem_row_start,
       meta_config.mem_num_rows,
@@ -930,7 +958,7 @@ namespace xdp {
         auto iter1 = configChannel1.find(tile);
         uint8_t channel0 = (iter0 == configChannel0.end()) ? 0 : iter0->second;
         uint8_t channel1 = (iter1 == configChannel1.end()) ? 1 : iter1->second;
-        std::vector<uint8_t> channels = {channel0, channel1}; // TODO: do we also add channel 2 & 3 here?
+        std::vector<uint8_t> channels = {channel0, channel1};
         
         // Modify events as needed
         aie::profile::modifyEvents(type, subtype, channel0, startEvents, metadata->getHardwareGen());
@@ -1040,6 +1068,11 @@ namespace xdp {
           uint16_t phyStartEvent = tmpStart + aie::profile::getCounterBase(type);
           uint16_t phyEndEvent   = tmpEnd   + aie::profile::getCounterBase(type);
           auto payload = channel0;
+          if (type == module_type::mem_tile) {
+            uint8_t isMaster = aie::isInputSet(type, metricSet) ? 1 : 0;
+            payload = (static_cast<uint64_t>(isMaster) << PAYLOAD_IS_MASTER_SHIFT)
+                    | (1ULL << PAYLOAD_IS_CHANNEL_SHIFT) | channel;
+          }
 
           // Store counter info in database
           std::string counterName = "AIE Counter " + std::to_string(counterId);
@@ -1167,7 +1200,7 @@ namespace xdp {
     if (type == module_type::mem_tile) {
       auto slaveOrMaster = (metricSet.find("mm2s") != std::string::npos) ?
         XAIE_STRMSW_SLAVE : XAIE_STRMSW_MASTER;
-      XAie_EventSelectStrmPort(&aieDevInst, loc, rscId, slaveOrMaster, DMA, channel);
+      XAie_EventSelectStrmPort(&aieDevInst, loc, portnum, slaveOrMaster, DMA, channel);
       std::stringstream msg;
       msg << "Configured mem tile " << (aie::isInputSet(type,metricSet) ? "S2MM" : "MM2S") << " stream switch ports for metricset " << metricSet << " and channel " << (int)channel << ".";
       xrt_core::message::send(severity_level::debug, "XRT", msg.str());
@@ -1176,8 +1209,6 @@ namespace xdp {
 
   void AieProfile_VE2Impl::generatePollElf()
   {
-    auto context = metadata->getHwContext();
-
     std::string tranxName = "AieProfilePoll" + std::to_string(metadata->getDeviceID());
     if (!tranxHandler->initializeTransaction(&aieDevInst, tranxName)) {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", 

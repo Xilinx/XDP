@@ -8,6 +8,7 @@
 #include "core/common/api/device_int.h"
 #include "core/common/api/hw_context_int.h"
 #include "core/common/message.h"
+#include "core/include/xrt/experimental/xrt_elf.h"
 
 #include "xdp/profile/database/database.h"
 #include "xdp/profile/database/events/creator/aie_trace_data_logger.h"
@@ -75,11 +76,14 @@ AieTracePluginUnified::~AieTracePluginUnified() {
   AieTracePluginUnified::live = false;
 }
 
-uint64_t AieTracePluginUnified::getDeviceIDFromHandle(void *handle) {
+uint64_t AieTracePluginUnified::getDeviceIDFromHandle(void *handle, bool isFullELFFlow) {
   auto itr = handleToAIEData.find(handle);
 
   if (itr != handleToAIEData.end())
     return itr->second.deviceID;
+
+  if (isFullELFFlow)
+    return (db->getStaticInfo()).getHwCtxImplUidElf(handle);
 
   return (db->getStaticInfo()).getDeviceContextUniqueId(handle);
 }
@@ -90,27 +94,31 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
 
   if (!handle)
     return;
-  
-  if (!((db->getStaticInfo()).continueXDPConfig(hw_context_flow)))
+
+  bool isFullELFFlow = false;
+  if (hw_context_flow) {
+    xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+    try {
+      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(ctx);
+    } catch (const std::exception& e) {
+      std::stringstream msg;
+      msg << e.what() << " AIE Event Trace cannot be enabled before complete configuration.";
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
+      return;
+    }
+  }
+
+  if (!isFullELFFlow && !((db->getStaticInfo()).continueXDPConfig(hw_context_flow)))
     return;
 
   // In a multipartition scenario, if the user wants to trace one specific partition
   // and we have already configured one partition, we can skip the rest of them
-  if ((xrt_core::config::get_aie_trace_settings_config_one_partition()) && (configuredOnePartition)) {
+  if ((AieTraceMetadata::configOnePartitionEnabled()) && (configuredOnePartition)) {
     xrt_core::message::send(severity_level::warning, "XRT",
       "AIE Trace: A previous partition has already been configured. Skipping current partition due to 'config_one_partition=true' setting.");
     return;
   }
 
-  if (hw_context_flow) {
-    xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
-    if (xrt_core::hw_context_int::get_elf_flow(ctx)) {
-      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
-          "AIE Event Trace is not yet supported for Full ELF flow.");
-      return;
-    }
-  }
-  
   auto device = util::convertToCoreDevice(handle, hw_context_flow);
 #if ! defined (XRT_X86_BUILD) && ! defined (XDP_CLIENT_BUILD)
   if (1 == device->get_device_id() && xrt_core::config::get_xdp_mode() == "xdna") {  // Device 0 for xdna(ML) and device 1 for zocl(PL)
@@ -130,14 +138,30 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
   if (handleToAIEData.find(handle) != handleToAIEData.end())
     handleToAIEData.erase(handle);
 
-  auto deviceID = getDeviceIDFromHandle(handle);
+  auto deviceID = getDeviceIDFromHandle(handle, isFullELFFlow);
 
-  // Setting up struct
   auto &AIEData = handleToAIEData[handle];
   AIEData.deviceID = deviceID;
-  AIEData.valid = true; // initialize struct
+  AIEData.valid = true;
 
-  // Update the static database with information from xclbin
+  // Update the static database with information from the ELF or the xclbin
+  if (isFullELFFlow) {
+    xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+    auto elfMap = xrt_core::hw_context_int::get_elf_map(ctx);
+    if (elfMap.empty()) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+        "AIE Event Trace ELF flow: hw_context has no registered ELFs. Skipping ELF flow.");
+      AIEData.valid = false;
+      return;
+    }
+    auto elf = util::getAieMetadataElf(elfMap);
+    if (!elf) {
+      AIEData.valid = false;
+      return;
+    }
+    (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(deviceID, device, std::move(*elf));
+  }
+  else {
 #ifdef XDP_CLIENT_BUILD
   (db->getStaticInfo()).updateDeviceFromCoreDevice(deviceID, device);
   (db->getStaticInfo()).setDeviceName(deviceID, "win_device");  
@@ -147,6 +171,7 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
     else
       (db->getStaticInfo()).updateDeviceFromHandle(deviceID, std::move(std::make_unique<HalDevice>(handle)), handle);
 #endif
+  }
 
   // Metadata depends on static information from the database
   AIEData.metadata = std::make_shared<AieTraceMetadata>(deviceID, handle);
@@ -162,10 +187,10 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
                             AIE_TRACE_TILES_UNAVAILABLE);
     return;
   }
-  AIEData.valid = true; // initialize struct
+  AIEData.valid = true;
 
   // If there are tiles configured for this xclbin, then we have configured the first matching xclbin and will not configure any upcoming ones
-  if ((xrt_core::config::get_aie_trace_settings_config_one_partition()) && !(AIEData.metadata->configMetricsEmpty()))
+  if ((AIEData.metadata->getConfigOnePartitionSetting()) && !(AIEData.metadata->configMetricsEmpty()))
     configuredOnePartition = true;
 
 #ifdef XDP_CLIENT_BUILD
@@ -260,19 +285,22 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
   AIEData.offloadManager->createTraceWriters(numStreamsPLIO, numStreamsGMIO, writers);
 
   // Ensure trace buffer size is appropriate
-  uint64_t aieTraceBufSize = GetTS2MMBufSize(true /*isAIETrace*/);
+  uint64_t aieTraceBufSize = GetTS2MMBufSize(AIEData.metadata->getBufferSizeStr());
   // uint64_t aieTraceBufSizePLIO = aieTraceBufSize;
   // uint64_t aieTraceBufSizeGMIO = aieTraceBufSize;
   if (isPLIO && !configuredOnePlioPartition) {
-#if defined(XDP_VE2_BUILD) && defined(XDP_VE2_ZOCL_BUILD) // PLIO flow for VE2 ZOCL build only
+#if defined(XDP_CLIENT_BUILD) || (defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD))
+    // PLIO not supported on client/XDNA builds
+#else
     XAie_DevInst* devInst = static_cast<XAie_DevInst*>(AIEData.implementation->setAieDeviceInst(handle, deviceID));
     if(!devInst) {
       xrt_core::message::send(severity_level::warning, "XRT",
         "Unable to get AIE device instance. AIE event trace will not be available.");
       return;
     }
-    AIEData.offloadManager->configureAndInitPLIO(handle, deviceIntf, aieTraceBufSize,
-                                      AIEData.metadata->getNumStreamsPLIO(), devInst);
+    if (!AIEData.offloadManager->configureAndInitPLIO(handle, deviceIntf, aieTraceBufSize,
+                                      AIEData.metadata->getNumStreamsPLIO(), devInst))
+      return;
 #endif
     configuredOnePlioPartition = true;
   }
@@ -317,8 +345,7 @@ void AieTracePluginUnified::updateAIEDevice(void *handle, bool hw_context_flow) 
 
   // System timeline: enable on single-partition designs
   // (load_xclbin and register_xclbin / hw_context flows). 
-  const bool iniEnableTimeline =
-      xrt_core::config::get_aie_trace_settings_enable_system_timeline();
+  const bool iniEnableTimeline = AIEData.metadata->getEnableSystemTimeline();
   const auto &overlayCols = AIEData.metadata->getPartitionOverlayStartCols();
   const bool multipartitionDesign = (overlayCols.size() > 1);
   const bool enableSystemTimeline = iniEnableTimeline && !multipartitionDesign;

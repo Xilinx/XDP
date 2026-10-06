@@ -72,13 +72,44 @@ namespace xdp {
     std::vector<UCInfo> activeUCs;
     std::map<uint32_t, size_t> activeUCsegmentMap;
 
+
+    std::string bufCfg = xrt_core::config::get_ml_timeline_settings_buffer_config();
+    if (!bufCfg.empty()) {
+      try {
+        std::istringstream ss(bufCfg);
+
+        boost::property_tree::ptree ptBufCfg;
+        boost::property_tree::read_json(ss, ptBufCfg);
+
+        for (const auto& e: ptBufCfg) {
+          activeUCs.emplace_back(e.second.get<uint8_t>("shim_column"), e.second.get<uint8_t>("index"));
+        }
+      } catch (const boost::property_tree::json_parser_error& e) {
+        std::stringstream errMsg;
+        errMsg << " Microcontroller config JSON parsing failed: " << e.what()
+               << std::endl;
+        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", errMsg.str());
+      } catch (const boost::property_tree::ptree_bad_data& e) {
+        std::stringstream errMsg;
+        errMsg << " Data type mismatch while parsing Microcontroller config JSON"
+               << e.what()
+               << std::endl;
+        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", errMsg.str());
+      } catch (...) {
+        std::stringstream errMsg;
+        errMsg << " Microcontroller config parsing failed. "
+               << std::endl;
+        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", errMsg.str());
+      }
+    }
+
     auto metadataReader = (db->getStaticInfo()).getAIEmetadataReader(devId);
     if (nullptr == metadataReader) {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
         "AIE Metadata is not found.");
     }
 
-    if (metadataReader && 5 < metadataReader->getHardwareGeneration()) {
+    if (activeUCs.empty() && metadataReader && 5 < metadataReader->getHardwareGeneration()) {
       if (xrt_core::bo_int::use_type::uc_debug != mBOType) {
         xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
           "Device type does not match with HW Gen in AIE_TRACE_METADATA.");

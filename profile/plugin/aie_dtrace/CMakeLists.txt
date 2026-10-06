@@ -24,7 +24,7 @@ if (XDP_VE2_BUILD_CMAKE STREQUAL "yes")
     ${AIE_DTRACE_UTIL_FILES}
   )
   add_dependencies(xdp_aie_dtrace_plugin_xdna xdp_core xrt_coreutil)
-  target_link_libraries(xdp_aie_dtrace_plugin_xdna PRIVATE xdp_core xrt_coreutil aie_codegen aiebu_library_objects)
+  target_link_libraries(xdp_aie_dtrace_plugin_xdna PRIVATE xdp_core xrt_coreutil aie_codegen aiebu_static)
   # -Bsymbolic: ensures XAie_* calls within this plugin resolve to the
   # statically-linked aie_codegen rather than being interposed by the
   # system libxaiengine.so (required by libxrt_core.so.2)

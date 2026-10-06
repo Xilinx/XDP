@@ -17,8 +17,18 @@
 #ifndef XDP_PLUGIN_AIE_HALT_VE2_IMPL_H
 #define XDP_PLUGIN_AIE_HALT_VE2_IMPL_H
 
+#include <memory>
+
 #include "xdp/config.h"
 #include "xdp/profile/plugin/aie_halt/aie_halt_impl.h"
+
+#include "xrt/xrt_hw_context.h"
+
+extern "C" {
+#include <aie_codegen.h>
+#include <aie_codegen_inc/xaie2psgbl_params.h>
+#include "xdp/profile/device/common/ve2/ve2_transaction.h"
+}
 
 namespace xdp {
 
@@ -38,6 +48,17 @@ namespace xdp {
 
       void updateDevice(void* hwCtxImpl) override;
       void finishflushDevice(void* hwCtxImpl) override;
+
+    private:
+      // Primary path: generate the halt control code on the fly via aie-codegen.
+      // Returns true if it was generated and scheduled successfully.
+      bool generateHaltControlCode(void* hwCtxImpl, xrt::hw_context hwContext);
+
+      // Fallback path: load and run a prebuilt control code ELF from disk.
+      void loadHaltElf(xrt::hw_context hwContext);
+
+      XAie_DevInst aieDevInst = {0};
+      std::unique_ptr<xdp::aie::VE2Transaction> tranxHandler;
   };
 
 }

@@ -112,6 +112,7 @@ namespace xdp {
     XAie_StartTransaction(&aieDevInst, XAIE_TRANSACTION_DISABLE_AUTO_FLUSH);
 
     auto configChannel0 = metadata->getConfigChannel0();
+    auto configChannel1 = metadata->getConfigChannel1();
     for (int module = 0; module < metadata->getNumModules(); ++module) {
 
       XAie_ModuleType mod = aie::profile::getFalModuleType(module);
@@ -151,19 +152,24 @@ namespace xdp {
         uint8_t numFreeCtr = (type == module_type::dma) ? 2 : static_cast<uint8_t>(startEvents.size());
 
         auto iter0 = configChannel0.find(tile);
+        auto iter1 = configChannel1.find(tile);
         uint8_t channel0 = (iter0 == configChannel0.end()) ? 0 : iter0->second;
+        uint8_t channel1 = (iter1 == configChannel1.end()) ? 1 : iter1->second;
 
         // Modify events as needed
         aie::profile::modifyEvents(type, subtype, channel0, startEvents, metadata->getHardwareGen());
         endEvents = startEvents;
 
-        aie::profile::configEventSelections(&aieDevInst, loc, type, metricSet, channel0);
+        aie::profile::configEventSelections(&aieDevInst, loc, type, metricSet, channel0, channel1);
 
         // Request and configure all available counters for this tile
         for (uint8_t i = 0; i < numFreeCtr; i++) {
           auto startEvent    = startEvents.at(i);
           auto endEvent      = endEvents.at(i);
           uint8_t resetEvent = 0;
+          auto portnum       = xdp::aie::getPortNumberFromEvent(startEvent);
+          uint8_t channelNum = portnum % 2;
+          uint8_t channel    = (channelNum == 0) ? channel0 : channel1;
 
           // No resource manager - manually manage the counters:
           RC = XAie_PerfCounterReset(&aieDevInst, loc, mod, i);
@@ -177,9 +183,9 @@ namespace xdp {
             break;
           }
 
-          aie::profile::configGroupEvents(&aieDevInst, loc, mod, type, metricSet, startEvent, channel0);
+          aie::profile::configGroupEvents(&aieDevInst, loc, mod, type, metricSet, startEvent, channel);
           if (aie::isStreamSwitchPortEvent(startEvent))
-            configStreamSwitchPorts(tileMetric.first, loc, type, metricSet, channel0, startEvent);
+            configStreamSwitchPorts(tileMetric.first, loc, type, metricSet, channel, startEvent);
 
           // Convert enums to physical event IDs for reporting purposes
           uint16_t tmpStart;
@@ -188,9 +194,12 @@ namespace xdp {
           XAie_EventLogicalToPhysicalConv(&aieDevInst, loc, mod,   endEvent, &tmpEnd);
           uint16_t phyStartEvent = tmpStart + aie::profile::getCounterBase(type);
           uint16_t phyEndEvent   = tmpEnd   + aie::profile::getCounterBase(type);
-          // auto payload = getCounterPayload(tileMetric.first, type, col, row, 
-          //                                  startEvent, metricSet, channel0);
-          auto payload = channel0;
+          uint64_t payload = channel;
+          if (type == module_type::mem_tile) {
+            uint8_t isMaster = aie::isInputSet(type, metricSet) ? 1 : 0;
+            payload = (static_cast<uint64_t>(isMaster) << PAYLOAD_IS_MASTER_SHIFT)
+                    | (1ULL << PAYLOAD_IS_CHANNEL_SHIFT) | channel;
+          }
 
           // Store counter info in database
           std::string counterName = "AIE Counter" + std::to_string(counterId);
@@ -287,7 +296,7 @@ namespace xdp {
     if (type == module_type::mem_tile) {
       auto slaveOrMaster = (metricSet.find("mm2s") != std::string::npos) ?
         XAIE_STRMSW_SLAVE : XAIE_STRMSW_MASTER;
-      XAie_EventSelectStrmPort(&aieDevInst, loc, rscId, slaveOrMaster, DMA, channel);
+      XAie_EventSelectStrmPort(&aieDevInst, loc, portnum, slaveOrMaster, DMA, channel);
       std::stringstream msg;
       msg << "Configured mem tile " << (aie::isInputSet(type,metricSet) ? "S2MM" : "MM2S") << " stream switch ports for metricset " << metricSet << " and channel " << (int)channel << ".";
       xrt_core::message::send(severity_level::debug, "XRT", msg.str());

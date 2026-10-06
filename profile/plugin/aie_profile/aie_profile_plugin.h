@@ -23,7 +23,7 @@ namespace xdp {
 
   private:
     virtual void writeAll(bool openNewFiles) override;
-    uint64_t getDeviceIDFromHandle(void* handle);
+    uint64_t getDeviceIDFromHandle(void* handle, bool isFullELFFlow = false);
     void endPoll();
 
   private:

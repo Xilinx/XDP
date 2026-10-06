@@ -45,7 +45,7 @@ namespace xdp {
     clockTrainSlope = 1000.0/traceClockRateMHz;
 
     ConfigInfo* config = (db->getStaticInfo()).getCurrentlyLoadedConfig(devId);
-    xclbin = config->getPlXclbin();
+    xclbin = config->getPlBinary();
     if (!xclbin)
       return;
 

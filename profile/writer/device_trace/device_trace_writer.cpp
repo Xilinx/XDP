@@ -85,9 +85,9 @@ namespace xdp {
       (db->getStaticInfo()).getLoadedConfigs(deviceId);
     
     for (const auto& config : configs) {
-        std::string configXclbinNames = config->getXclbinNames();
+        std::string configXclbinNames = config->getBinaryNames();
         fout << "Group_Start," << configXclbinNames << "\n";
-        XclbinInfo* xclbin = config->getPlXclbin();
+        VPBinData* xclbin = config->getPlBinary();
         if (!xclbin)
           continue;
         writeSingleXclbinStructure(xclbin, rowCount);
@@ -95,11 +95,11 @@ namespace xdp {
     }
   }
 
-  void DeviceTraceWriter::writeSingleXclbinStructure(XclbinInfo* xclbin,
+  void DeviceTraceWriter::writeSingleXclbinStructure(VPBinData* xclbin,
                                                      uint32_t& rowCount)
   {
     // Create structure for all CUs in the xclbin
-    for (const auto& iter : xclbin->pl.cus) {
+    for (const auto& iter : xclbin->getPl().cus) {
       ComputeUnitInstance* cu = iter.second;
       fout << "Group_Start,Compute Unit " << cu->getName();
 
@@ -122,7 +122,7 @@ namespace xdp {
     writeFloatingStreamTransfersStructure(xclbin, rowCount);
   }
 
-  void DeviceTraceWriter::writeCUExecutionStructure(XclbinInfo* xclbin,
+  void DeviceTraceWriter::writeCUExecutionStructure(VPBinData* xclbin,
                                                     ComputeUnitInstance* cu,
                                                     uint32_t& rowCount)
   {
@@ -135,16 +135,16 @@ namespace xdp {
          << cu->getName() << "\n";
 
     if(xdp::getFlowMode() == xdp::HW_EMU) {
-      size_t pos = xclbin->name.find(".xclbin");
+      size_t pos = xclbin->getName().find(".xclbin");
       fout << "Optional_Function_Internal,User Functions,Function activity in accelerator " << cu->getName() 
            << "," << rowCount
            << "," << (db->getStaticInfo()).getDeviceName(deviceId) << "-0"
-           << "," << xclbin->name.substr(0, pos)
+           << "," << xclbin->getName().substr(0, pos)
            << "," << cu->getKernelName()
            << "," << cu->getName() << "\n";
     }
 
-    std::pair<XclbinInfo*, int32_t> index =
+    std::pair<VPBinData*, int32_t> index =
       std::make_pair(xclbin, cu->getIndex());
     cuBucketIdMap[index] = rowCount;
 
@@ -160,7 +160,7 @@ namespace xdp {
     }
   }
 
-  void DeviceTraceWriter::writeCUMemoryTransfersStructure(XclbinInfo* xclbin, ComputeUnitInstance* cu, uint32_t& rowCount)
+  void DeviceTraceWriter::writeCUMemoryTransfersStructure(VPBinData* xclbin, ComputeUnitInstance* cu, uint32_t& rowCount)
   {
     // Generate Wave group for Read/Write if data transfer monitoring is enabled
     if (!(cu->getDataTransferTraceEnabled()))
@@ -172,7 +172,7 @@ namespace xdp {
       if (nullptr == aim)
         continue;
 
-      std::pair<XclbinInfo*, uint32_t> index = std::make_pair(xclbin, cuAIM);
+      std::pair<VPBinData*, uint32_t> index = std::make_pair(xclbin, cuAIM);
       aimBucketIdMap[index] = ++rowCount;
 
       size_t pos = aim->name.find('/');
@@ -197,7 +197,7 @@ namespace xdp {
     }
   }
 
-  void DeviceTraceWriter::writeCUStreamTransfersStructure(XclbinInfo* xclbin, ComputeUnitInstance* cu, uint32_t& rowCount)
+  void DeviceTraceWriter::writeCUStreamTransfersStructure(VPBinData* xclbin, ComputeUnitInstance* cu, uint32_t& rowCount)
   {
     // Generate Wave group for stream data transfers if enabled
     if (!(cu->getStreamTraceEnabled()))
@@ -209,7 +209,7 @@ namespace xdp {
       if (nullptr == ASM)
         continue;
 
-      std::pair<XclbinInfo*, uint32_t> index = std::make_pair(xclbin, cuASM);
+      std::pair<VPBinData*, uint32_t> index = std::make_pair(xclbin, cuASM);
       asmBucketIdMap[index] = ++rowCount;
 
       // KERNEL_STREAM_READ/WRITE
@@ -221,7 +221,7 @@ namespace xdp {
     }
   }
 
-  void DeviceTraceWriter::writeFloatingMemoryTransfersStructure(XclbinInfo* xclbin, uint32_t& rowCount)
+  void DeviceTraceWriter::writeFloatingMemoryTransfersStructure(VPBinData* xclbin, uint32_t& rowCount)
   {
     if (!(db->getStaticInfo().hasFloatingAIMWithTrace(deviceId, xclbin)))
       return;
@@ -241,7 +241,7 @@ namespace xdp {
         ++i;
         continue;
       }
-      std::pair<XclbinInfo*, uint32_t> index = std::make_pair(xclbin, static_cast<uint32_t>(i));
+      std::pair<VPBinData*, uint32_t> index = std::make_pair(xclbin, static_cast<uint32_t>(i));
       aimBucketIdMap[index] = ++rowCount;
 
       std::string portAndArgs = aim->name;
@@ -266,7 +266,7 @@ namespace xdp {
     fout << "Group_End,AXI Memory Monitors" << "\n";
   }
 
-  void DeviceTraceWriter::writeFloatingStreamTransfersStructure(XclbinInfo* xclbin, uint32_t& rowCount)
+  void DeviceTraceWriter::writeFloatingStreamTransfersStructure(VPBinData* xclbin, uint32_t& rowCount)
   {
     if (!(db->getStaticInfo()).hasFloatingASMWithTrace(deviceId, xclbin))
       return;
@@ -286,7 +286,7 @@ namespace xdp {
         continue;
       }
 
-      std::pair<XclbinInfo*, uint32_t> index = std::make_pair(xclbin, static_cast<uint32_t>(i));
+      std::pair<VPBinData*, uint32_t> index = std::make_pair(xclbin, static_cast<uint32_t>(i));
       asmBucketIdMap[index] = ++rowCount;
       fout << "Group_Start," << asM->name << ",AXI Stream transactions over " << asM->name << "\n";
       fout << "Static_Row," << rowCount << ",Stream Activity,AXI Stream transactions over " << asM->name << "\n";
@@ -332,7 +332,7 @@ namespace xdp {
 
     int configIndex = 0;
     ConfigInfo* config = loadedConfigs[configIndex].get();
-    XclbinInfo* xclbin = config->getPlXclbin();
+    VPBinData* xclbin = config->getPlBinary();
     if (!xclbin)
       return;
 
@@ -348,7 +348,7 @@ namespace xdp {
         configIndex++;
         if(configIndex < static_cast<int>(loadedConfigs.size())) {
           config = loadedConfigs[configIndex].get();
-          xclbin = config->getPlXclbin();
+          xclbin = config->getPlBinary();
         }
         // TODO: Check if expect invalid PL xclbin here?
 
@@ -356,11 +356,11 @@ namespace xdp {
         KernelEvent* kernelEvent = dynamic_cast<KernelEvent*>(deviceEvent);
         if (kernelEvent == nullptr)
           continue; // Coverity - In case dynamic cast fails
-        std::pair<XclbinInfo*, int32_t> index =
+        std::pair<VPBinData*, int32_t> index =
           std::make_pair(xclbin, cuId);
         kernelEvent->dump(fout, cuBucketIdMap[index] + eventType - KERNEL);
         // Also output the tool tips
-        for (const auto& iter : xclbin->pl.cus) {
+        for (const auto& iter : xclbin->getPl().cus) {
           ComputeUnitInstance* cu = iter.second;
           if (cu->getAccelMon() == cuId) {
             fout << "," << db->getDynamicInfo().addString(cu->getKernelName());
@@ -371,7 +371,7 @@ namespace xdp {
       } else if(KERNEL_STALL_EXT_MEM == eventType
                 || KERNEL_STALL_DATAFLOW == eventType
                 || KERNEL_STALL_PIPE == eventType) {
-        std::pair<XclbinInfo*, int32_t> index =
+        std::pair<VPBinData*, int32_t> index =
           std::make_pair(xclbin, cuId);
         deviceEvent->dump(fout, cuBucketIdMap[index] + eventType - KERNEL);
       } else {
@@ -379,13 +379,13 @@ namespace xdp {
         uint32_t monId = deviceEvent->getMonitorId();
         DeviceMemoryAccess* memoryEvent = dynamic_cast<DeviceMemoryAccess*>(e.get());
         if (memoryEvent) {
-          std::pair<XclbinInfo*, uint32_t> index =std::make_pair(xclbin, monId);
+          std::pair<VPBinData*, uint32_t> index =std::make_pair(xclbin, monId);
           deviceEvent->dump(fout, aimBucketIdMap[index] + eventType - KERNEL_READ);
           continue;
         }
         DeviceStreamAccess* streamEvent = dynamic_cast<DeviceStreamAccess*>(e.get());
         if (streamEvent) {
-          std::pair<XclbinInfo*, uint32_t> index = std::make_pair(xclbin, monId);
+          std::pair<VPBinData*, uint32_t> index = std::make_pair(xclbin, monId);
           if (KERNEL_STREAM_READ == eventType || KERNEL_STREAM_READ_STALL == eventType
                                               || KERNEL_STREAM_READ_STARVE == eventType) {
             deviceEvent->dump(fout, asmBucketIdMap[index] + eventType - KERNEL_STREAM_READ);
@@ -444,11 +444,11 @@ namespace xdp {
       (db->getStaticInfo()).getLoadedConfigs(deviceId);
 
     for (const auto& config : loadedConfigs) {
-      XclbinInfo* xclbin = config->getPlXclbin();
+      VPBinData* xclbin = config->getPlBinary();
       if (!xclbin)
         continue;
 
-      for (const auto& iter : xclbin->pl.cus) {
+      for (const auto& iter : xclbin->getPl().cus) {
         ComputeUnitInstance* cu = iter.second;
         db->getDynamicInfo().addString(cu->getKernelName());
         db->getDynamicInfo().addString(cu->getName());

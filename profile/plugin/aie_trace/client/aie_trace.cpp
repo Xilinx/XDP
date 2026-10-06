@@ -36,7 +36,7 @@ namespace xdp {
     memoryTileEventSets = aie::trace::getMemoryTileEventSets(hwGen);
     interfaceTileEventSets = aie::trace::getInterfaceTileEventSets(hwGen);
     
-    m_trace_start_broadcast = xrt_core::config::get_aie_trace_settings_trace_start_broadcast();
+    m_trace_start_broadcast = metadata->getTraceStartBroadcast();
     if (m_trace_start_broadcast) 
       coreTraceStartEvent = (XAie_Events) (XAIE_EVENT_BROADCAST_0_CORE + traceStartBroadcastChId1);
     else 
@@ -209,7 +209,7 @@ namespace xdp {
     XAie_Events coreModTraceStartEvent = (XAie_Events)(XAIE_EVENT_BROADCAST_0_CORE + traceStartBroadcastChId1);
     XAie_Events memTraceStartEvent = (XAie_Events)(XAIE_EVENT_BROADCAST_0_MEM + traceStartBroadcastChId1);
     
-    unsigned int startLayer = xrt_core::config::get_aie_trace_settings_start_layer();
+    unsigned int startLayer = metadata->getStartLayer();
 
     // NOTE: rows are stored as absolute as required by resource manager
     for (auto& tileMetric : metadata->getConfigMetrics()) {
@@ -274,7 +274,7 @@ namespace xdp {
       xrt_core::message::send(severity_level::warning, "XRT", msg);
       return;
     }
-    if(xrt_core::config::get_aie_trace_settings_start_type() == "layer") {
+    if(metadata->getStartTypeSetting() == "layer") {
       if (!configureWindowedEventTrace(metadata->getHandle())) {
         std::string msg("Unable to configure AIE Windowed event trace");
         xrt_core::message::send(severity_level::warning, "XRT", msg);
@@ -596,8 +596,8 @@ namespace xdp {
     // Currently, assuming only one Hw Context is alive at a time
     uint8_t startCol = static_cast<uint8_t>(aiePartitionPt.back().second.get<uint64_t>("start_col"));
 
-    std::string startType = xrt_core::config::get_aie_trace_settings_start_type();
-    unsigned int startLayer = xrt_core::config::get_aie_trace_settings_start_layer();
+    std::string startType = metadata->getStartTypeSetting();
+    unsigned int startLayer = metadata->getStartLayer();
     
     //Start recording the transaction
     XAie_StartTransaction(&aieDevInst, XAIE_TRANSACTION_DISABLE_AUTO_FLUSH);

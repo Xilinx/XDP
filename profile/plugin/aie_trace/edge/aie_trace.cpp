@@ -255,6 +255,15 @@ namespace xdp {
     if(!metadata->getRuntimeMetrics())
       return;
 
+    if (!aieDevice) {
+      setAieDeviceInst(metadata->getHandle(), metadata->getDeviceID());
+      if (!aieDevice) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+          "Unable to get AIE device. AIE event trace will not be available.");
+        return;
+      }
+    }
+
     // Set metrics for counters and trace events
     if (!setMetricsSettings(metadata->getDeviceID(), metadata->getHandle())) {
       std::string msg("Unable to configure AIE trace control and events. No trace will be generated.");
@@ -994,6 +1003,9 @@ namespace xdp {
   {
     // Wait until xclbin has been loaded and device has been updated in database
     if (!(db->getStaticInfo().isDeviceReady(index)))
+      return;
+
+    if (!aieDevInst)
       return;
 
     // Only read first timer and assume common time domain across all tiles

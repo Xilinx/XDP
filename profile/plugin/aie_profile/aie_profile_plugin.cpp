@@ -15,6 +15,7 @@
 #include "core/common/message.h"
 #include "core/common/system.h"
 #include "core/include/xrt/experimental/xrt-next.h"
+#include "core/include/xrt/experimental/xrt_elf.h"
 
 #include "xdp/profile/database/database.h"
 #include "xdp/profile/database/static_info/aie_constructs.h"
@@ -72,11 +73,14 @@ namespace xdp {
     return AieProfilePlugin::live;
   }
 
-  uint64_t AieProfilePlugin::getDeviceIDFromHandle(void* handle)
+  uint64_t AieProfilePlugin::getDeviceIDFromHandle(void* handle, bool isFullELFFlow)
   {
     auto itr = handleToAIEProfileImpl.find(handle);
     if (itr != handleToAIEProfileImpl.end())
       return itr->second->getDeviceID();
+
+    if (isFullELFFlow)
+      return (db->getStaticInfo()).getHwCtxImplUidElf(handle);
 
     return (db->getStaticInfo()).getDeviceContextUniqueId(handle);
   }
@@ -92,7 +96,21 @@ namespace xdp {
     if (!handle)
       return;
 
-    if (!((db->getStaticInfo()).continueXDPConfig(hw_context_flow))) 
+    
+    bool isFullELFFlow = false;
+    if (hw_context_flow) {
+      xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+      try {
+        isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(ctx);
+      } catch (const std::exception& e) {
+        std::stringstream msg;
+        msg << e.what() << " AIE Profile cannot be enabled before complete configuration.";
+        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
+        return;
+      }
+    }
+
+    if (!isFullELFFlow && !((db->getStaticInfo()).continueXDPConfig(hw_context_flow)))
       return;
 
     // In a multipartition scenario, if the user wants to profile one specific partition
@@ -101,15 +119,6 @@ namespace xdp {
       xrt_core::message::send(severity_level::warning, "XRT", 
         "AIE Profile: A previous partition has already been configured. Skipping current partition due to 'config_one_partition=true' setting.");
       return;
-    }
-
-    if (hw_context_flow) {
-      xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
-      if (xrt_core::hw_context_int::get_elf_flow(ctx)) {
-        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
-            "AIE Profile is not yet supported for Full ELF flow.");
-        return;
-      }
     }
 
     auto device = util::convertToCoreDevice(handle, hw_context_flow);
@@ -128,9 +137,24 @@ namespace xdp {
     }
 #endif
 
-    auto deviceID = getDeviceIDFromHandle(handle);
-    // Update the static database with information from xclbin
+    auto deviceID = getDeviceIDFromHandle(handle, isFullELFFlow);
+
+    if (isFullELFFlow)
     {
+      xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+      auto elfMap = xrt_core::hw_context_int::get_elf_map(ctx);
+      if (elfMap.empty()) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+          "AIE Profile ELF flow: hw_context has no registered ELFs. "
+          "Skipping ELF flow.");
+        return;
+      }
+      auto elf = util::getAieMetadataElf(elfMap);
+      if (!elf)
+        return;
+      (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(deviceID, device, std::move(*elf));
+    }
+    else {
 #ifdef XDP_CLIENT_BUILD
       (db->getStaticInfo()).updateDeviceFromCoreDevice(deviceID, device);
       (db->getStaticInfo()).setDeviceName(deviceID, "win_device");
@@ -244,9 +268,7 @@ auto time = std::time(nullptr);
       return;
     }
       
-    #ifdef XDP_CLIENT_BUILD
-      implementation->poll(0);
-    #elif defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD)
+    #if defined(XDP_CLIENT_BUILD) || (defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD))
       implementation->poll(implementation->getDeviceID());
     #endif
 
@@ -260,7 +282,7 @@ auto time = std::time(nullptr);
 
     #ifdef XDP_CLIENT_BUILD
       auto& implementation = handleToAIEProfileImpl.begin()->second;
-      implementation->poll(0);
+      implementation->poll(implementation->getDeviceID());
     #elif defined(XDP_VE2_BUILD) && !defined(XDP_VE2_ZOCL_BUILD)
       for (auto& p : handleToAIEProfileImpl) {
         if (!p.second)

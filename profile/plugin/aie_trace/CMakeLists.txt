@@ -106,7 +106,7 @@ else()
 
     add_library(xdp_aie_trace_plugin_xdna SHARED ${AIE_TRACE_PLUGIN_FILES} ${AIE_TRACE_COMPONENT_FILES} ${AIE_TRACE_UTIL_FILES} ${AIE_TRACE_CONFIG_FILES} ${AIE_JSON_PARSER_FILES} "${PROFILE_DIR}/device/common/ve2/ve2_transaction.cpp")
     add_dependencies(xdp_aie_trace_plugin_xdna xdp_core xrt_coreutil)
-    target_link_libraries(xdp_aie_trace_plugin_xdna PRIVATE xdp_core xrt_coreutil aie_codegen aiebu_library_objects)
+    target_link_libraries(xdp_aie_trace_plugin_xdna PRIVATE xdp_core xrt_coreutil aie_codegen aiebu_static)
     target_link_options(xdp_aie_trace_plugin_xdna PRIVATE -Wl,-Bsymbolic)
     target_compile_definitions(xdp_aie_trace_plugin_xdna PRIVATE XDP_VE2_BUILD=1 XDP_USE_AIE_CODEGEN=1 XAIE_FEATURE_MSVC FAL_LINUX="on")
     target_include_directories(xdp_aie_trace_plugin_xdna PRIVATE
@@ -125,8 +125,15 @@ else()
   endif()
     
   if (DEFINED XRT_AIE_BUILD AND XRT_EDGE)
-    set(IMPL_DIR "${PROFILE_DIR}/plugin/aie_trace/edge")
-    set(OFFLOAD_DIR "${PROFILE_DIR}/device/aie_trace")
+    if (XDP_VE2_BUILD_CMAKE STREQUAL "yes")
+      # VE2 ZOCL: compile the ve2 impl so AieTrace_VE2Impl (selected by the shared
+      # plugin under XDP_VE2_BUILD) is actually defined; edge dir only has EdgeImpl.
+      set(IMPL_DIR "${PROFILE_DIR}/plugin/aie_trace/ve2")
+      set(OFFLOAD_DIR "${PROFILE_DIR}/device/aie_trace/ve2")
+    else()
+      set(IMPL_DIR "${PROFILE_DIR}/plugin/aie_trace/edge")
+      set(OFFLOAD_DIR "${PROFILE_DIR}/device/aie_trace")
+    endif()
     set(DEVICE_DIR "${PROFILE_DIR}/device/hal_device")
 
     file(GLOB AIE_TRACE_COMPONENT_FILES

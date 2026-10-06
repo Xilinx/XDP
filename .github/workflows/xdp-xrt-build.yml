@@ -206,7 +206,7 @@ jobs:
       # relative to xdna-driver/build, so RPMs land in VE2_RPM_DIR.
       XDNA_DIR: /scratch/snigupta/xdp_ci/xdna-driver
       XDNA_BRANCH: ve2_accel
-      VE2_RPM_DIR: /scratch/snigupta/yocto/edf/rpms
+      VE2_RPM_DIR: /scratch/snigupta/xdp_ci/yocto/edf/rpms
 
     steps:
       - name: Checkout XDP
@@ -214,6 +214,7 @@ jobs:
         with:
           path: xdp-pr
           fetch-depth: 0
+          submodules: recursive
 
       - name: Prepare xdna-driver and overlay this PR
         run: |
@@ -237,7 +238,11 @@ jobs:
         run: |
           set -euo pipefail
           cd "${XDNA_DIR}/build"
-          bash build_ve2.sh
+          bash build_ve2.sh | tee /tmp/build_ve2.log
+          if grep -q "bitbake xrt failed" /tmp/build_ve2.log; then
+            echo "bitbake xrt failed"
+            exit 1
+          fi
 
       - name: Validate build outputs
         run: |
@@ -249,7 +254,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xrt-ve2-build-${{ github.event.pull_request.number || github.run_id }}
-          path: /scratch/snigupta/yocto/edf/rpms/xrt*.rpm
+          path: /scratch/snigupta/xdp_ci/yocto/edf/rpms/xrt*.rpm
           retention-days: 1
 
       - name: Build summary
@@ -295,7 +300,7 @@ jobs:
       group: xdp-board-ve2-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: true
     env:
-      VE2_RPM_DIR: /scratch/snigupta/yocto/edf/rpms
+      VE2_RPM_DIR: /scratch/snigupta/xdp_ci/yocto/edf/rpms
       CSR_ROOT: /wrk/csr/snigupta/xdp_ci
       CSR_SPEC: /proj/testcases/xtc/HEAD/auto/ymls/config/VAI_6_4_GEN2_REGRESSION.yml
       CSR_SUPER_SUITE: VAI_6_4_GEN2_REGRESSION

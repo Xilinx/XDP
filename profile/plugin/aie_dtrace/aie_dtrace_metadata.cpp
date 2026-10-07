@@ -350,6 +350,12 @@ namespace xdp {
           break;
         }
       }
+      // An empty list means every partition column. A named-column setting
+      // copies those columns; "all" leaves the list empty.
+      if (!memTileAllColumns) {
+        for (const auto& tc : memTileConfigMetrics)
+          selection.memTileColumns.push_back(tc.first.col);
+      }
     }
 
     return selection;
@@ -429,6 +435,18 @@ namespace xdp {
         }
         else if (*metricPos != "off") {
           selection.memTileMetricSet = *metricPos;
+          // A column ahead of the metric names one column. "all" and a bare
+          // metric leave memTileColumns empty, which means every partition column.
+          if ((metricPos != parts.begin()) && (parts.front().compare("all") != 0)) {
+            try {
+              selection.memTileColumns.push_back(aie::convertStringToUint8(parts.front()));
+            }
+            catch (const std::invalid_argument&) {
+              xrt_core::message::send(severity_level::warning, "XRT",
+                  "AIE dtrace: column '" + parts.front() + "' in " + scope
+                  + ".mem_tile is not an integer; using every partition column.");
+            }
+          }
           auto channelPos = std::next(metricPos);
           if (channelPos != parts.end()) {
             try {

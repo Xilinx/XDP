@@ -1463,20 +1463,15 @@ void AieDtraceCTWriter::appendL2L2Config(
 
 bool AieDtraceCTWriter::appendMemTileConfig(
     void* hwctx, const std::string& metricSet, uint8_t channel,
+    const std::vector<uint8_t>& requestedColumns,
     std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites)
 {
-  // Mem tiles occupy the same columns as the shim tiles, so the partition column
-  // discovery is shared. A setting that named one column instead of "all" leaves those
-  // columns in the config map.
-  std::vector<uint8_t> columns;
-  if (metadata->isMemTileAllColumns()) {
-    columns = getShimTileColumns(hwctx);
-  }
-  else {
-    for (const auto& tileMetric :
-         metadata->getConfigMetricsVec(static_cast<int>(module_type::mem_tile)))
-      columns.push_back(tileMetric.first.col);
-  }
+  // An empty list means every mem tile column. Those occupy the same columns
+  // as the shim tiles, so the partition column discovery is shared. The list
+  // comes from this inference's selection: the shared config map only describes
+  // the first inference.
+  const std::vector<uint8_t> columns = requestedColumns.empty()
+      ? getShimTileColumns(hwctx) : requestedColumns;
 
   if (columns.empty()) {
     xrt_core::message::send(severity_level::warning, "XRT",
@@ -1563,7 +1558,7 @@ bool AieDtraceCTWriter::generateCT(
   if ((selection.memTileMetricSet == "output_channels_details")
       || (selection.memTileMetricSet == "mm2s_channels_details"))
     appendMemTileConfig(hwctx, selection.memTileMetricSet, selection.memTileChannel,
-                        allCounters, beginBlockWrites);
+                        selection.memTileColumns, allCounters, beginBlockWrites);
   else if (!selection.memTileMetricSet.empty())
     xrt_core::message::send(severity_level::warning, "XRT",
         "AIE dtrace: Unsupported mem tile metric set '" + selection.memTileMetricSet

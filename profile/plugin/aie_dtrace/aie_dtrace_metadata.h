@@ -28,6 +28,9 @@ struct MetricSelection {
   bool includeL2L2 = false;
   std::string memTileMetricSet;  // empty means no per-tile mem tile counters
   uint8_t memTileChannel = 0;    // MM2S channel for output/mm2s_channels_details
+  // Empty means every mem tile column in the partition. A "<column>:<metric>"
+  // prefix lists those columns here.
+  std::vector<uint8_t> memTileColumns;
 
   bool empty() const {
     return !includeBandwidth && coreMetricSet.empty() && !includeL2L2
@@ -125,10 +128,6 @@ class AieDtraceMetadata {
     // True when the user asked for a "profile_runs" sequence rather than a
     // single configuration applied to every inference.
     bool isMultiInference() const { return multiInference; }
-
-    // When true the mem tile metric applies to every column in the partition and
-    // the config map holds only a placeholder column.
-    bool isMemTileAllColumns() const { return memTileAllColumns; }
 
     bool aieMetadataEmpty() { return metadataReader == nullptr; }
 

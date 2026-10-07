@@ -382,11 +382,13 @@ private:
    * @param hwctx Hardware context handle for partition column discovery
    * @param metricSet Mem tile metric set
    * @param channel MM2S channel (0-5) to monitor
+   * @param columns Columns to program. Empty means every mem tile column in the partition.
    * @param counters [in,out] Accumulated counter list
    * @param beginWrites [in,out] Accumulated begin-block register writes
    * @return true if mem tile config was appended
    */
   bool appendMemTileConfig(void* hwctx, const std::string& metricSet, uint8_t channel,
+      const std::vector<uint8_t>& columns,
       std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites);
 
   /**

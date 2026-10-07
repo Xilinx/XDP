@@ -1437,7 +1437,7 @@ namespace xdp {
     }
 
     // Build 2-channel broadcast network for trace start synchronization
-    build2ChannelBroadcastNetwork(hwCtxImpl, traceStartBroadcastChId1, traceStartBroadcastChId2, XAIE_EVENT_PERF_CNT_0_PL);
+    aie::trace::build2ChannelBroadcastNetwork(&aieDevInst, metadata, traceStartBroadcastChId1, traceStartBroadcastChId2, XAIE_EVENT_PERF_CNT_0_PL, startCol, numCols, metadataReader->getNumRows());
 
     xrt_core::message::send(severity_level::info, "XRT", "Finished AIE Windowed Trace Settings.");
     auto hwContext = metadata->getHwContext();
@@ -1501,6 +1501,7 @@ namespace xdp {
     }
 
     auto metadataReader = (VPDatabase::Instance()->getStaticInfo()).getAIEmetadataReader(deviceId);
+    bool enableMultiLayer = metadataReader && metadataReader->getAIECompilerOptions().enable_multi_layer;
     if (!metadataReader) {
       if (aie::isDebugVerbosity()) {
         std::stringstream msg;
@@ -1508,10 +1509,18 @@ namespace xdp {
         xrt_core::message::send(severity_level::debug, "XRT", msg.str());
       }
     }
-    else if (metadataReader->getAIECompilerOptions().enable_multi_layer) {
+    else if (enableMultiLayer) {
       xrt_core::message::send(severity_level::info, "XRT",
           "Synchronizing AIE timers so trace and ML timeline share a time domain.");
       timerSynchronization(startCol, numCols, metadataReader->getNumRows());
+      if (metadata->getTraceStartBroadcast() && metadata->getStartTypeSetting() != "layer")
+      {
+        aie::trace::build2ChannelBroadcastNetwork(&aieDevInst, metadata, traceStartBroadcastChId1, traceStartBroadcastChId2, XAIE_EVENT_COMBO_EVENT_0_PL, startCol, numCols, metadataReader->getNumRows());
+
+        coreTraceStartEvent = (XAie_Events) (XAIE_EVENT_BROADCAST_0_CORE + traceStartBroadcastChId1);
+        memoryTileTraceStartEvent = (XAie_Events) (XAIE_EVENT_BROADCAST_0_MEM_TILE + traceStartBroadcastChId1);
+        interfaceTileTraceStartEvent = (XAie_Events) (XAIE_EVENT_BROADCAST_A_0_PL + traceStartBroadcastChId2);
+      }
     }
 
     // Using user event for trace end to enable flushing
@@ -1519,7 +1528,6 @@ namespace xdp {
     //       core might be running infinitely.
     if (metadata->getUseUserControl())
       coreTraceStartEvent = XAIE_EVENT_INSTR_EVENT_0_CORE;
-    coreTraceEndEvent = XAIE_EVENT_USER_EVENT_3_CORE;
 
     // Iterate over all used/specified tiles
     // NOTE: rows are stored as absolute as required by resource manager
@@ -1701,28 +1709,30 @@ namespace xdp {
         }
         else if (type == module_type::core) {
           // Route core start/stop into memory-module trace via broadcast (same as client/NPU3).
-          if (!m_trace_start_broadcast) {
+          uint16_t phyBroadcast = 0;
+          if (!(enableMultiLayer
+                && metadata->getTraceStartBroadcast()
+                && metadata->getStartTypeSetting() != "layer")) {
             if (XAie_EventBroadcast(&aieDevInst, loc, XAIE_CORE_MOD, 8, traceStartEvent) != XAIE_OK)
               break;
-          }
-          if (XAie_EventBroadcast(&aieDevInst, loc, XAIE_CORE_MOD, 9, traceEndEvent) != XAIE_OK)
-            break;
-
-          uint16_t phyBroadcast = 0;
-          if (!m_trace_start_broadcast) {
             XAie_EventLogicalToPhysicalConv(&aieDevInst, loc, XAIE_CORE_MOD, traceStartEvent, &phyBroadcast);
             cfgTile->core_trace_config.internal_events_broadcast[8] = phyBroadcast;
           }
+          if (XAie_EventBroadcast(&aieDevInst, loc, XAIE_CORE_MOD, 9, traceEndEvent) != XAIE_OK)
+            break;
           XAie_EventLogicalToPhysicalConv(&aieDevInst, loc, XAIE_CORE_MOD, traceEndEvent, &phyBroadcast);
           cfgTile->core_trace_config.internal_events_broadcast[9] = phyBroadcast;
 
-          if (m_trace_start_broadcast)
-            traceStartEvent =
-              static_cast<XAie_Events>(XAIE_EVENT_BROADCAST_0_MEM + traceStartBroadcastChId1);
-          else
-            traceStartEvent = XAIE_EVENT_BROADCAST_8_MEM;
+          traceStartEvent = XAIE_EVENT_BROADCAST_8_MEM;
           traceEndEvent = XAIE_EVENT_BROADCAST_9_MEM;
           firstBroadcastId = 10;
+        }
+
+        if (enableMultiLayer && type == module_type::core
+            && metadata->getTraceStartBroadcast()
+            && metadata->getStartTypeSetting() != "layer")
+        {
+          traceStartEvent = static_cast<XAie_Events>(XAIE_EVENT_BROADCAST_0_MEM + traceStartBroadcastChId1);
         }
 
         if (type == module_type::core) {
@@ -1899,7 +1909,15 @@ namespace xdp {
         XAie_Packet pkt = {0, packetType};
         if (XAie_TracePktConfig(&aieDevInst, loc, mod, pkt) != XAIE_OK)
           break;
-        if (startType != "layer" || startLayer == UINT_MAX) {
+        if (col == startCol && enableMultiLayer
+            && metadata->getTraceStartBroadcast()
+            && metadata->getStartTypeSetting() != "layer")
+        {
+          if (XAie_TraceStartEvent(&aieDevInst, loc, mod, XAIE_EVENT_COMBO_EVENT_0_PL) != XAIE_OK)
+            break;
+        }
+        else if (startType != "layer" || startLayer == UINT_MAX)
+        {
           if (XAie_TraceStartEvent(&aieDevInst, loc, mod, interfaceTileTraceStartEvent) != XAIE_OK)
             break;
         }
@@ -1944,14 +1962,6 @@ namespace xdp {
       aie::trace::printTraceEventStats(m, mNumTileTraceEvents[m]);
       for (int n = 0; n <= NUM_TRACE_EVENTS; ++n)
         (db->getStaticInfo()).addAIECoreEventResources(deviceId, n, mNumTileTraceEvents[m][n]);
-    }
-
-    if (m_trace_start_broadcast) {
-      xrt_core::message::send(severity_level::info, "XRT", "before build2ChannelBroadcastNetwork");  
-      build2ChannelBroadcastNetwork(handle, traceStartBroadcastChId1, traceStartBroadcastChId2, interfaceTileTraceStartEvent);
-      xrt_core::message::send(severity_level::info, "XRT", "before XAie_EventGenerate");
-      XAie_EventGenerate(&aieDevInst, XAie_TileLoc(startCol, 0), XAIE_PL_MOD,  interfaceTileTraceStartEvent);
-      reset2ChannelBroadcastNetwork(handle, traceStartBroadcastChId1, traceStartBroadcastChId2);
     }
 
     auto hwContextSubmit = metadata->getHwContext();
@@ -2106,155 +2116,6 @@ namespace xdp {
 
     aie::trace::reset2ChannelBroadcastNetwork(&aieDevInst, metadata, broadcastId1, broadcastId2,
                                               startCol, numCols, numRows);
-  }
-
-  /***************************************************************************
-   * Build broadcast network using specified channels 
-   ***************************************************************************/
-  void AieTrace_VE2Impl::build2ChannelBroadcastNetwork(void *hwCtxImpl, uint8_t broadcastId1,
-                                                       uint8_t broadcastId2, XAie_Events event)
-  {
-    boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(hwCtxImpl);
-    if (aiePartitionPt.empty()) {
-      xrt_core::message::send(severity_level::warning, "XRT",
-                              "AIE trace: no partition info for trace-start broadcast; skipping broadcast network.");
-      return;
-    }
-    // Currently, assuming only one Hw Context is alive at a time
-    // uint8_t startCol = static_cast<uint8_t>(aiePartitionPt.front().second.get<uint64_t>("start_col"));
-    uint8_t startCol = 0;
-    // uint8_t numCols  = static_cast<uint8_t>(aiePartitionPt.front().second.get<uint64_t>("num_cols"));
-    uint8_t numCols = 36;
-    const uint8_t startColShift = metadata->getPartitionOverlayStartCols().front();
-
-    std::vector<uint8_t> maxRowAtCol(startCol + numCols, 0);
-    for (auto& tileMetric : metadata->getConfigMetrics()) {
-      auto tile       = tileMetric.first;
-      auto col        = tile.col;
-      auto row        = tile.row;
-      maxRowAtCol[startCol + col] = std::max(maxRowAtCol[col], (uint8_t)row);
-    }
-
-    XAie_Events bcastEvent2_PL = static_cast<XAie_Events>(XAIE_EVENT_BROADCAST_A_0_PL + broadcastId2);
-    XAie_EventBroadcast(&aieDevInst, XAie_TileLoc(startCol, 0), XAIE_PL_MOD, broadcastId2, event);
-
-    for (uint8_t col = startCol; col < (startCol + numCols); col++) {
-      for (uint8_t row = 0; row <= maxRowAtCol[col]; row++) {
-        module_type tileType = aie::getModuleType(row, metadata->getRowOffset());
-        auto loc = XAie_TileLoc(col, row);
-
-        // shim tile
-        if (tileType == module_type::shim) {
-          // first channel is only used to send north
-          if (col == startCol) {
-            XAie_EventBroadcast(&aieDevInst, loc, XAIE_PL_MOD, broadcastId1, event);
-          } else {
-            XAie_EventBroadcast(&aieDevInst, loc, XAIE_PL_MOD, broadcastId1, bcastEvent2_PL);
-          }
-          if (maxRowAtCol[col] != row) {
-            XAie_EventBroadcastBlockDir(&aieDevInst, loc, XAIE_PL_MOD, XAIE_EVENT_SWITCH_A, broadcastId1,
-                                        XAIE_EVENT_BROADCAST_SOUTH | XAIE_EVENT_BROADCAST_WEST | XAIE_EVENT_BROADCAST_EAST);
-          } else {
-            XAie_EventBroadcastBlockDir(
-                &aieDevInst, loc, XAIE_PL_MOD, XAIE_EVENT_SWITCH_A, broadcastId1,
-                XAIE_EVENT_BROADCAST_SOUTH | XAIE_EVENT_BROADCAST_WEST | XAIE_EVENT_BROADCAST_EAST | XAIE_EVENT_BROADCAST_NORTH);
-          }
-
-          // second channel is only used to send east
-          if (col != startCol + numCols - 1) {
-            XAie_EventBroadcastBlockDir(&aieDevInst, loc, XAIE_PL_MOD, XAIE_EVENT_SWITCH_A, broadcastId2,
-                                        XAIE_EVENT_BROADCAST_SOUTH | XAIE_EVENT_BROADCAST_WEST | XAIE_EVENT_BROADCAST_NORTH);
-          } else {
-            XAie_EventBroadcastBlockDir(&aieDevInst, loc, XAIE_PL_MOD, XAIE_EVENT_SWITCH_A, broadcastId2,
-                                        XAIE_EVENT_BROADCAST_SOUTH | XAIE_EVENT_BROADCAST_WEST | XAIE_EVENT_BROADCAST_NORTH);
-          }
-        } 
-        
-        // mem tile
-        else if (tileType == module_type::mem_tile) {
-          if (maxRowAtCol[col] != row) {
-            XAie_EventBroadcastBlockDir(&aieDevInst, loc, XAIE_MEM_MOD, XAIE_EVENT_SWITCH_A, broadcastId1,
-                                        XAIE_EVENT_BROADCAST_SOUTH | XAIE_EVENT_BROADCAST_WEST | XAIE_EVENT_BROADCAST_EAST);
-          } else {
-            XAie_EventBroadcastBlockDir(
-                &aieDevInst, loc, XAIE_MEM_MOD, XAIE_EVENT_SWITCH_A, broadcastId1,
-                XAIE_EVENT_BROADCAST_SOUTH | XAIE_EVENT_BROADCAST_WEST | XAIE_EVENT_BROADCAST_EAST | XAIE_EVENT_BROADCAST_NORTH);
-          }
-        } 
-        
-        // core tile
-        else { 
-          if (maxRowAtCol[col] != row) {
-            XAie_EventBroadcastBlockDir(&aieDevInst, loc, XAIE_CORE_MOD, XAIE_EVENT_SWITCH_A, broadcastId1,
-                                        XAIE_EVENT_BROADCAST_SOUTH | XAIE_EVENT_BROADCAST_WEST | XAIE_EVENT_BROADCAST_EAST);
-          } else {
-            XAie_EventBroadcastBlockDir(
-                &aieDevInst, loc, XAIE_CORE_MOD, XAIE_EVENT_SWITCH_A, broadcastId1,
-                XAIE_EVENT_BROADCAST_SOUTH | XAIE_EVENT_BROADCAST_WEST | XAIE_EVENT_BROADCAST_EAST | XAIE_EVENT_BROADCAST_NORTH);
-          }
-        }
-      }
-    }
-  }
-
-  /***************************************************************************
-   * Reset using broadcast network on specified channels 
-   ***************************************************************************/
-  void AieTrace_VE2Impl::reset2ChannelBroadcastNetwork(void *hwCtxImpl, uint8_t broadcastId1,
-                                                       uint8_t broadcastId2)
-  {
-    boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(hwCtxImpl);
-    if (aiePartitionPt.empty()) {
-      xrt_core::message::send(severity_level::warning, "XRT",
-        "AIE trace: no partition info for trace-start broadcast reset; skipping.");
-      return;
-    }
-    // Currently, assuming only one Hw Context is alive at a time
-    //uint8_t startCol = static_cast<uint8_t>(aiePartitionPt.back().second.get<uint64_t>("start_col"));
-    uint8_t startCol = 0;
-    //uint8_t numCols  = static_cast<uint8_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols"));
-    uint8_t numCols = 36;
-    const uint8_t startColShift = metadata->getPartitionOverlayStartCols().front();
-
-    std::vector<uint8_t> maxRowAtCol(startCol + numCols, 0);
-    for (auto& tileMetric : metadata->getConfigMetrics()) {
-      auto tile = tileMetric.first;
-      auto col        = tile.col;
-      auto row        = tile.row;
-      maxRowAtCol[startCol + col] = std::max(maxRowAtCol[col], (uint8_t)row);
-    }
-
-    XAie_EventBroadcastReset(&aieDevInst, XAie_TileLoc(startCol, 0), XAIE_PL_MOD, broadcastId2);
-
-    for (uint8_t col = startCol; col < (startCol + numCols); col++) {
-      for (uint8_t row = 0; row <= maxRowAtCol[col]; row++) {
-        module_type tileType = aie::getModuleType(row, metadata->getRowOffset());
-        auto loc = XAie_TileLoc(col, row);
-
-        // shim tile
-        if (tileType == module_type::shim) {
-          XAie_EventBroadcastReset(&aieDevInst, loc, XAIE_PL_MOD, broadcastId1);
-          XAie_EventBroadcastUnblockDir(&aieDevInst, loc, XAIE_PL_MOD, XAIE_EVENT_SWITCH_A, broadcastId1,
-                                      XAIE_EVENT_BROADCAST_ALL);
-          XAie_EventBroadcastUnblockDir(&aieDevInst, loc, XAIE_PL_MOD, XAIE_EVENT_SWITCH_A, broadcastId2,
-                                      XAIE_EVENT_BROADCAST_ALL);
-          XAie_EventBroadcastUnblockDir(&aieDevInst, loc, XAIE_PL_MOD, XAIE_EVENT_SWITCH_B, broadcastId2,
-                                      XAIE_EVENT_BROADCAST_ALL);
-        } 
-        
-        // mem tile
-        else if (tileType == module_type::mem_tile) {
-          XAie_EventBroadcastUnblockDir(&aieDevInst, loc, XAIE_MEM_MOD, XAIE_EVENT_SWITCH_A, broadcastId1,
-                                      XAIE_EVENT_BROADCAST_ALL);
-        } 
-        
-        // core tile
-        else {
-          XAie_EventBroadcastUnblockDir(&aieDevInst, loc, XAIE_CORE_MOD, XAIE_EVENT_SWITCH_A, broadcastId1,
-                                      XAIE_EVENT_BROADCAST_ALL);
-        }
-      }
-    }
   }
 
   /****************************************************************************

@@ -16,7 +16,6 @@
 
 #include "xdp/profile/database/static_info/aie_util.h"
 
-#include <boost/property_tree/ptree.hpp>
 #include <algorithm>
 #include <filesystem>
 #include <mutex>

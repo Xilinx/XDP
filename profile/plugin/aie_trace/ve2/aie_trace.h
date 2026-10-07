@@ -107,10 +107,6 @@ namespace xdp {
     // -------------------------------------------------------------------------
     bool configureWindowedEventTrace(void* handle);
     void timerSynchronization(uint8_t startCol, uint8_t numCols, uint8_t numRows);
-    void build2ChannelBroadcastNetwork(void* handle, uint8_t broadcastId1,
-                                       uint8_t broadcastId2, XAie_Events event);
-    void reset2ChannelBroadcastNetwork(void* handle, uint8_t broadcastId1,
-                                       uint8_t broadcastId2);
     uint32_t bcIdToEvent(int bcId);
 
     void configStreamSwitchPorts(const tile_type& tile, const XAie_LocType loc,
@@ -134,7 +130,6 @@ namespace xdp {
 
     XAie_DevInst aieDevInst = {0};
     std::unique_ptr<aie::VE2Transaction> tranxHandler;
-    bool m_trace_start_broadcast = false;
     EventType memoryModTraceStartEvent;
 #endif
 };

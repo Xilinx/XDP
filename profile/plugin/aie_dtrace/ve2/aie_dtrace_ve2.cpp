@@ -252,14 +252,16 @@ namespace xdp {
     {
       std::lock_guard<std::mutex> lock(m_mutex);
 
-      // 1-based, matching how start_inference counts.
-      inferenceNumber = ++m_inference_counts[kernel_name];
+      // 0-based, matching how start_inference counts. The map keeps the count
+      // of inferences started, so the value returned here is the index of this
+      // one and the stored value is the count reportUnusedSelections reads.
+      inferenceNumber = m_inference_counts[kernel_name]++;
 
       const auto* ctFiles = findCTFiles(kernel_name);
       if (!ctFiles) {
         // Only on the kernel's first inference: an application that runs
         // thousands of them should not get thousands of identical warnings.
-        if (inferenceNumber == 1)
+        if (inferenceNumber == 0)
           xrt_core::message::send(severity_level::warning, "XRT",
               "AIE dtrace: No CT files were generated for kernel '" + kernel_name
               + "'; its inferences will not be profiled.");
@@ -327,10 +329,11 @@ namespace xdp {
 
     for (const auto& entry : m_ct_files) {
       const auto& kernel_name = entry.first;
+      // The map stores how many inferences have started, not the last index.
       const uint64_t ran = m_inference_counts.count(kernel_name)
           ? m_inference_counts.at(kernel_name) : 0;
-      const uint64_t profiled = (ran < startInference) ? 0
-          : std::min(ran - startInference + 1, configured);
+      const uint64_t profiled = (ran <= startInference) ? 0
+          : std::min(ran - startInference, configured);
 
       if (profiled >= configured)
         continue;
@@ -339,7 +342,7 @@ namespace xdp {
       msg << "AIE dtrace: Kernel '" << kernel_name << "' ran " << ran
           << " inferences, so only " << profiled << " of the " << configured
           << " configured profile_runs were collected. Run the kernel at least "
-          << (startInference + configured - 1)
+          << (startInference + configured)
           << " times to collect the whole sequence. Missing:";
       for (uint64_t i = profiled; i < configured; ++i)
         msg << "\n  inference " << (startInference + i) << ": "

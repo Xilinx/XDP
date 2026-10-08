@@ -156,26 +156,20 @@ namespace xdp::profiling_runtime_config {
     }
 
     // Parse "start_inference". Accepted as a JSON number or as a quoted
-    // numeric string; the first inference is 1, so 0 is rejected.
+    // numeric string. The first inference of a kernel is 0.
     void
     parse_start_inference(const pt::ptree& node, control_instrumentation_t& ci)
     {
       const auto raw = node.get_value<std::string>("");
 
       try {
-        const auto value = node.get_value<unsigned int>();
-        if (value == 0) {
-          warn("profiling_runtime_config.control_instrumentation.start_inference must be "
-               "1 or greater; ignoring '" + raw + "' and starting at inference 1.");
-          return;
-        }
-        ci.start_inference = value;
+        ci.start_inference = node.get_value<unsigned int>();
         info("profiling_runtime_config.control_instrumentation.start_inference="
-             + std::to_string(value));
+             + std::to_string(ci.start_inference));
       }
       catch (const std::exception&) {
         warn("profiling_runtime_config.control_instrumentation.start_inference='" + raw
-             + "' is not a positive integer; starting at inference 1.");
+             + "' is not an integer; starting at inference 0.");
       }
     }
 

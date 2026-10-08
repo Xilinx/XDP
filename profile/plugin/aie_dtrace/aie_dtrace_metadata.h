@@ -81,7 +81,7 @@ class AieDtraceMetadata {
     // One entry per inference to profile, in execution order. Always holds at
     // least one entry once the metadata is configured.
     std::vector<MetricSelection> metricSelections;
-    unsigned int startInference = 1;
+    unsigned int startInference = 0;
     bool multiInference = false;
 
     const aie::BaseFiletypeImpl* metadataReader = nullptr;
@@ -122,7 +122,7 @@ class AieDtraceMetadata {
     // Per-inference metric selections, in execution order.
     const std::vector<MetricSelection>& getMetricSelections() const { return metricSelections; }
 
-    // 1-based index of the first inference of a kernel that gets profiled.
+    // 0-based index of the first inference of a kernel that gets profiled.
     unsigned int getStartInference() const { return startInference; }
 
     // True when the user asked for a "profile_runs" sequence rather than a

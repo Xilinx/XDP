@@ -85,7 +85,7 @@ namespace xdp {
 
     const bool useProfileRuns = usingBlob && ci.has_explicit_profile_runs && !runs.empty();
     multiInference = useProfileRuns;
-    startInference = usingBlob ? ci.start_inference : 1;
+    startInference = usingBlob ? ci.start_inference : 0;
 
     // configMetrics describes the hardware context as a whole: it is what
     // isConfigured() gates on and what createAIEProfileConfig() reports. A

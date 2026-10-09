@@ -43,9 +43,23 @@ namespace xdp {
     virtual void endPoll() {}
     virtual void freeResources() {}
 
-    virtual void generateCTForRun(void* /*run_impl_ptr*/, void* /*hwctx*/, uint32_t /*run_uid*/,
-                                  const std::string& /*kernel_name*/,
-                                  void* /*elf_handle*/) {}
+    // Called once per xrt::run construction, where the ELF is available:
+    // generates every CT file the configured inference sequence needs so that
+    // run start only has to pick one. When a single metric set covers every
+    // inference there is nothing to pick, so the CT is also programmed here.
+    virtual void generateCTsForRun(void* /*run_impl_ptr*/, void* /*hwctx*/, uint32_t /*run_uid*/,
+                                   const std::string& /*kernel_name*/,
+                                   void* /*elf_handle*/) {}
+
+    // Called on every xrt::run start: advances this kernel's inference counter
+    // and hands the matching pre-generated CT to XRT. Does nothing unless a
+    // multi-inference sequence is configured.
+    virtual void applyCTForRun(void* /*run_impl_ptr*/, void* /*hwctx*/, uint32_t /*run_uid*/,
+                               const std::string& /*kernel_name*/) {}
+
+    // Called at hardware context teardown, to report a configured inference
+    // sequence that the application did not run far enough to consume.
+    virtual void reportUnusedSelections() {}
 
     uint64_t getDeviceID() { return deviceID; }
   };

@@ -179,14 +179,19 @@ namespace xdp {
       if (selection.empty()) {
         xrt_core::message::send(severity_level::info, "XRT",
             "AIE dtrace: No metrics configured for inference "
-            + std::to_string(metadata->getStartInference() + i)
+            + std::to_string(i)
             + " of kernel '" + kernel_name + "'; no CT will be generated for it.");
         continue;
       }
 
+      // run_uid is the run object whose constructor builds these files. Two
+      // models have different ELFs and different run ids, so neither
+      // constructor replaces the other's control trace. Later run objects of
+      // this kernel reuse the set stored under kernel_name.
       const std::string filename = "aie_dtrace_ctx_" + std::to_string(slotIdx)
+                                 + "_run_" + std::to_string(run_uid)
                                  + "_inf_"
-                                 + std::to_string(metadata->getStartInference() + i)
+                                 + std::to_string(i)
                                  + ".ct";
       const auto finalPath = std::filesystem::current_path() / filename;
 
@@ -213,7 +218,7 @@ namespace xdp {
 
       xrt_core::message::send(severity_level::debug, "XRT",
           "AIE dtrace: CT generated for kernel '" + kernel_name + "' inference "
-          + std::to_string(metadata->getStartInference() + i)
+          + std::to_string(i)
           + " (" + selection.describe() + "): " + ctFiles[i]);
     }
 
@@ -252,9 +257,10 @@ namespace xdp {
     {
       std::lock_guard<std::mutex> lock(m_mutex);
 
-      // 0-based, matching how start_inference counts. The map keeps the count
-      // of inferences started, so the value returned here is the index of this
-      // one and the stored value is the count reportUnusedSelections reads.
+      // 0-based. The map keeps the count of inferences started, so the value
+      // returned here is the index of this one and the stored value is the
+      // count reportUnusedSelections reads. Each kernel is profiled only for
+      // its first profile_runs entries, which is at most four.
       inferenceNumber = m_inference_counts[kernel_name]++;
 
       const auto* ctFiles = findCTFiles(kernel_name);
@@ -268,30 +274,18 @@ namespace xdp {
         return;
       }
 
-      const uint64_t startInference = metadata->getStartInference();
-
-      if (inferenceNumber < startInference) {
-        xrt_core::message::send(severity_level::debug, "XRT",
-            "AIE dtrace: Inference " + std::to_string(inferenceNumber) + " of kernel '"
-            + kernel_name + "' is before start_inference ("
-            + std::to_string(startInference) + "); not profiled.");
+      if (inferenceNumber >= ctFiles->size()) {
+        // Warn only on the first inference past the window; a long-running
+        // application would otherwise log this on every remaining one.
+        if (inferenceNumber == ctFiles->size())
+          xrt_core::message::send(severity_level::warning, "XRT",
+              "AIE dtrace: Kernel '" + kernel_name + "' has run more than "
+              + std::to_string(ctFiles->size())
+              + " inferences; inference " + std::to_string(inferenceNumber)
+              + " onwards will not be profiled.");
       }
       else {
-        const uint64_t index = inferenceNumber - startInference;
-
-        if (index >= ctFiles->size()) {
-          // Warn only on the first inference past the window; a long-running
-          // application would otherwise log this on every remaining one.
-          if (index == ctFiles->size())
-            xrt_core::message::send(severity_level::warning, "XRT",
-                "AIE dtrace: Kernel '" + kernel_name + "' has run more inferences than the "
-                + std::to_string(ctFiles->size()) + " configured in profile_runs; "
-                "inference " + std::to_string(inferenceNumber)
-                + " onwards will not be profiled.");
-        }
-        else {
-          ctFile = (*ctFiles)[index];
-        }
+        ctFile = (*ctFiles)[inferenceNumber];
       }
     }
 
@@ -322,7 +316,6 @@ namespace xdp {
     if (!metadata->isMultiInference())
       return;
 
-    const uint64_t startInference = metadata->getStartInference();
     const uint64_t configured = metadata->getMetricSelections().size();
 
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -330,10 +323,10 @@ namespace xdp {
     for (const auto& entry : m_ct_files) {
       const auto& kernel_name = entry.first;
       // The map stores how many inferences have started, not the last index.
+      // The window is inferences 0 through configured-1, at most four.
       const uint64_t ran = m_inference_counts.count(kernel_name)
           ? m_inference_counts.at(kernel_name) : 0;
-      const uint64_t profiled = (ran <= startInference) ? 0
-          : std::min(ran - startInference, configured);
+      const uint64_t profiled = std::min(ran, configured);
 
       if (profiled >= configured)
         continue;
@@ -342,10 +335,10 @@ namespace xdp {
       msg << "AIE dtrace: Kernel '" << kernel_name << "' ran " << ran
           << " inferences, so only " << profiled << " of the " << configured
           << " configured profile_runs were collected. Run the kernel at least "
-          << (startInference + configured)
+          << configured
           << " times to collect the whole sequence. Missing:";
       for (uint64_t i = profiled; i < configured; ++i)
-        msg << "\n  inference " << (startInference + i) << ": "
+        msg << "\n  inference " << i << ": "
             << metadata->getMetricSelections()[i].describe();
       xrt_core::message::send(severity_level::warning, "XRT", msg.str());
     }

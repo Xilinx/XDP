@@ -32,10 +32,9 @@
 //
 // control_instrumentation may instead carry "profile_runs", which collects the
 // metric sets that used to require one design run each into a single run: entry
-// i is applied to inference start_inference + i, and the first inference is 0.
-// Either an explicit array:
+// i is applied to inference i of each kernel. The first inference is 0, and at
+// most four inferences of a kernel are profiled. Either an explicit array:
 //   "control_instrumentation": {
-//     "start_inference": "0",
 //     "profile_runs": [
 //       {"aie_tile":"compute_io_bound","interface_tile":"detailed_ddr_read_bandwidth:0"},
 //       {"interface_tile":"detailed_ddr_read_bandwidth:1"},
@@ -63,25 +62,18 @@ namespace xdp::profiling_runtime_config {
     std::optional<std::string> memory_tile_input_ports; // L2-L2 {column,row:port} list
 
     // Per-inference metric selections in execution order: profile_runs[i] is
-    // applied to inference start_inference + i, and the first inference is 0.
-    // Populated from the "profile_runs"
-    // array, or from its super-metric-set shorthand. When the blob carries no
-    // "profile_runs" this holds a single entry synthesized from the four fields
-    // above, so a consumer can always iterate it rather than special-casing
-    // the single-configuration form.
+    // applied to inference i of each kernel. The first inference is 0, and a
+    // kernel is profiled for at most four inferences. Populated from the
+    // "profile_runs" array, or from its super-metric-set shorthand. When the
+    // blob carries no "profile_runs" this holds a single entry synthesized
+    // from the four fields above, so a consumer can always iterate it rather
+    // than special-casing the single-configuration form.
     std::vector<profile_run_t> profile_runs;
 
     // True when "profile_runs" came from the blob rather than being synthesized
     // from the four fields above. Distinguishes "the user asked for multiple
     // inferences" from "the user gave one configuration the old way".
     bool has_explicit_profile_runs = false;
-
-    // 0-based index of the first inference to profile. Inferences before it are
-    // not profiled, and profiling covers start_inference through
-    // start_inference + profile_runs.size() - 1. The first inference of a
-    // kernel is 0, for both a profile_runs sequence and the single-configuration
-    // form.
-    unsigned int start_inference = 0;
   };
 
   // Mirrors the AIE_trace_settings.* xrt.ini keys 1:1. When event_trace is
@@ -165,9 +157,6 @@ namespace xdp::profiling_runtime_config {
   // Per-inference metric selections. Empty when the blob carried no
   // control_instrumentation at all; otherwise it always has at least one entry.
   XDP_CORE_EXPORT const std::vector<profile_run_t>& profile_runs();
-
-  // 0-based index of the first inference to profile (default 0).
-  XDP_CORE_EXPORT unsigned int start_inference();
 
   // When control_instrumentation carries mem_tile or memory_tile_input_ports,
   // ports come only from the blob (requires mem_tile "input_ports"). Otherwise

@@ -85,7 +85,6 @@ namespace xdp {
 
     const bool useProfileRuns = usingBlob && ci.has_explicit_profile_runs && !runs.empty();
     multiInference = useProfileRuns;
-    startInference = usingBlob ? ci.start_inference : 0;
 
     // configMetrics describes the hardware context as a whole: it is what
     // isConfigured() gates on and what createAIEProfileConfig() reports. A
@@ -264,10 +263,10 @@ namespace xdp {
         metricSelections.push_back(buildSelectionFromProfileRun(runs[i], i));
 
       std::stringstream msg;
-      msg << "AIE dtrace: profiling " << metricSelections.size()
-          << " inferences starting at inference " << startInference << ":";
+      msg << "AIE dtrace: profiling the first " << metricSelections.size()
+          << " inferences of each kernel:";
       for (size_t i = 0; i < metricSelections.size(); ++i)
-        msg << "\n  inference " << (startInference + i) << ": "
+        msg << "\n  inference " << i << ": "
             << metricSelections[i].describe();
       xrt_core::message::send(severity_level::info, "XRT", msg.str());
     }

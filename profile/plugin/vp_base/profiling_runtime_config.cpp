@@ -155,23 +155,10 @@ namespace xdp::profiling_runtime_config {
       return runs;
     }
 
-    // Parse "start_inference". Accepted as a JSON number or as a quoted
-    // numeric string. The first inference of a kernel is 0.
-    void
-    parse_start_inference(const pt::ptree& node, control_instrumentation_t& ci)
-    {
-      const auto raw = node.get_value<std::string>("");
-
-      try {
-        ci.start_inference = node.get_value<unsigned int>();
-        info("profiling_runtime_config.control_instrumentation.start_inference="
-             + std::to_string(ci.start_inference));
-      }
-      catch (const std::exception&) {
-        warn("profiling_runtime_config.control_instrumentation.start_inference='" + raw
-             + "' is not an integer; starting at inference 0.");
-      }
-    }
+    // A kernel is profiled for at most this many inferences. A longer
+    // profile_runs list is truncated, and a kernel that keeps running past
+    // the list is not profiled further.
+    constexpr size_t max_profiled_inferences = 4;
 
     // Parse the control_instrumentation subtree: copy known string keys into
     // the returned struct and warn about any unknown keys.
@@ -180,7 +167,6 @@ namespace xdp::profiling_runtime_config {
     {
       std::set<std::string> known_keys = tile_keys();
       known_keys.insert("profile_runs");
-      known_keys.insert("start_inference");
 
       control_instrumentation_t ci;
 
@@ -221,10 +207,15 @@ namespace xdp::profiling_runtime_config {
             for (const auto& entry : kv.second)
               ci.profile_runs.push_back(parse_profile_run(entry.second, index++));
           }
+          if (ci.profile_runs.size() > max_profiled_inferences) {
+            warn("profiling_runtime_config.control_instrumentation.profile_runs has "
+                 + std::to_string(ci.profile_runs.size())
+                 + " entries; only the first "
+                 + std::to_string(max_profiled_inferences)
+                 + " inferences of each kernel are profiled.");
+            ci.profile_runs.resize(max_profiled_inferences);
+          }
           ci.has_explicit_profile_runs = !ci.profile_runs.empty();
-        }
-        else if (key == "start_inference") {
-          parse_start_inference(kv.second, ci);
         }
         else {
           warn_unknown_key("profiling_runtime_config.control_instrumentation", key, known_keys);
@@ -387,12 +378,6 @@ namespace xdp::profiling_runtime_config {
   profile_runs()
   {
     return get_parsed().ci.profile_runs;
-  }
-
-  unsigned int
-  start_inference()
-  {
-    return get_parsed().ci.start_inference;
   }
 
   std::string

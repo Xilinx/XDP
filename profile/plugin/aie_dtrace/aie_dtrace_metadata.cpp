@@ -158,6 +158,21 @@ namespace xdp {
     const bool memTileUsesBlob = usingBlob
         && (memTileFieldFromBlob || blobPortsSet || blobPointsSet);
 
+    if (memTileUsesBlob) {
+      std::vector<std::string> ignoredIniKeys;
+      if (!memTileSettings.empty())
+        ignoredIniKeys.push_back("tile_based_memory_tile_metrics");
+      if (iniPortsSet)
+        ignoredIniKeys.push_back("memory_tile_input_ports");
+      if (iniPointsSet)
+        ignoredIniKeys.push_back("memory_tile_conflict_points");
+      if (!ignoredIniKeys.empty())
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: profiling_runtime_config.control_instrumentation contains mem tile "
+            "settings, so these AIE_dtrace_settings keys in xrt.ini are ignored: "
+            + boost::algorithm::join(ignoredIniKeys, ", ") + ".");
+    }
+
     // Mem tile settings that are not L2-L2 select a per-tile counter metric set such
     // as output_channels_details. Both families program the same mem tile performance
     // counters, so only one can be active: L2-L2 takes precedence and the other is
@@ -288,7 +303,7 @@ namespace xdp {
                 "Memory conflicts will not be monitored.");
         memoryConflictsEnabled = false;
       }
-      else if (aie::dtrace::parseMemoryConflictPoints(pointsStr, true).empty()) {
+      else if (aie::dtrace::parseMemoryConflictPoints(pointsStr).empty()) {
         xrt_core::message::send(severity_level::error, "XRT",
             "AIE dtrace: memory_tile_conflict_points has no usable entries. "
             "Memory conflicts will not be monitored.");

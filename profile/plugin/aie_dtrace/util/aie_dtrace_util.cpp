@@ -178,18 +178,15 @@ namespace xdp::aie::dtrace {
     return points;
   }
 
-  std::vector<MemoryConflictTile> parseMemoryConflictPoints(const std::string& spec,
-                                                            bool warnBankNumbers)
+  std::vector<MemoryConflictTile> parseMemoryConflictPoints(const std::string& spec)
   {
     std::vector<MemoryConflictTile> tiles;
     if (spec.empty())
       return tiles;
 
     // Format: {column,row:bank} — column partition-relative; row is the memtile row.
-    // Bank "all" (or empty) monitors every bank. A specific bank number is a future
-    // development and is skipped for now.
+    // Bank "all" (or empty) monitors every bank; any other bank value is skipped.
     static const std::regex pointRegex(R"(\{\s*(\d+)\s*,\s*(\d+)\s*:\s*([^\s}]*)\s*\})");
-    static const std::regex bankNumberRegex(R"(\d+)");
     std::set<std::pair<uint8_t, uint8_t>> seenTiles;
     const auto begin = std::sregex_iterator(spec.begin(), spec.end(), pointRegex);
     const auto end = std::sregex_iterator();
@@ -201,13 +198,6 @@ namespace xdp::aie::dtrace {
         if (column > 255 || row > 255)
           continue;
 
-        if (std::regex_match(bank, bankNumberRegex)) {
-          if (warnBankNumbers)
-            xrt_core::message::send(severity_level::warning, "XRT",
-                "AIE dtrace: memory_tile_conflict_points entry '" + it->str()
-                + "': monitoring a specific bank is a future development. Skipping this entry.");
-          continue;
-        }
         if (!bank.empty() && bank != "all")
           continue;
 

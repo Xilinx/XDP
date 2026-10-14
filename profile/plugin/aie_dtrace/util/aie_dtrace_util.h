@@ -60,6 +60,7 @@ namespace xdp::aie::dtrace {
   struct MemoryConflictTile {
     uint8_t column = 0;  // partition-relative
     uint8_t row = 0;     // absolute array row (required)
+    // TODO: add bank (0-7) in the next iteration for per-bank conflict monitoring.
   };
 
   // Parses memory_tile_conflict_points, e.g. "{1,1:all},{5,1:all},{9,1:}".

@@ -219,7 +219,7 @@ jobs:
       - name: Prepare xdna-driver and overlay this PR
         run: |
           set -euo pipefail
-          if [ -d "${XDNA_DIR}/.git" ]; then
+          if [ ! -d "${XDNA_DIR}/.git" ]; then
             git clone --recurse-submodules https://github.com/amd/xdna-driver "${XDNA_DIR}"
           fi
           git -C "${XDNA_DIR}" fetch origin "${XDNA_BRANCH}"

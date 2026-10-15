@@ -156,14 +156,25 @@ namespace xdp::aie::trace {
               config.port_trace_names[portnum] = tile.port_names.at(channel);
           }
 
+          // PLIO names are indexed by stream ID (port_names); GMIO names by DMA channel
+          std::string selName = "unused";
+          if (tile.subtype == io_type::PLIO) {
+            if (streamPortId < tile.port_names.size())
+              selName = tile.port_names.at(streamPortId);
+          }
+
           if (tile.is_master_vec.at(portnum) == 0) {
             config.mm2s_channels[channelNum] = channel;
-            if (channelNum < tile.mm2s_names.size())
+            if (tile.subtype == io_type::PLIO)
+              config.mm2s_names[channelNum] = selName;
+            else if (channelNum < tile.mm2s_names.size())
               config.mm2s_names[channelNum] = tile.mm2s_names.at(channelNum);
           }
           else {
             config.s2mm_channels[channelNum] = channel;
-            if (channelNum < tile.s2mm_names.size())
+            if (tile.subtype == io_type::PLIO)
+              config.s2mm_names[channelNum] = selName;
+            else if (channelNum < tile.s2mm_names.size())
               config.s2mm_names[channelNum] = tile.s2mm_names.at(channelNum);
           }
         }

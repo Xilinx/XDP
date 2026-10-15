@@ -678,14 +678,14 @@ std::vector<uint8_t> AieDtraceCTWriter::getShimTileColumns(void* hwctx)
   }
 
   try {
-    boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(hwctx);
-    if (aiePartitionPt.empty()) {
+    const auto partition = aie::dtrace::getPartitionGeometry(hwctx);
+    if (!partition.valid) {
       xrt_core::message::send(severity_level::debug, "XRT",
           "AIE dtrace: No partition info available");
       return columns;
     }
 
-    uint8_t numCols = static_cast<uint8_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols"));
+    const uint8_t numCols = static_cast<uint8_t>(partition.numCols);
 
     // Return relative columns (0, 1, 2, ...) for hardware configuration
     for (uint8_t i = 0; i < numCols; ++i) {
@@ -1393,10 +1393,11 @@ void AieDtraceCTWriter::appendComputeIoBoundConfig(
 
 void AieDtraceCTWriter::appendL2L2Config(
     void* hwctx,
+    bool includeL2L2,
     std::vector<CTCounterInfo>& counters,
     std::vector<CTRegisterWrite>& beginWrites)
 {
-  if (!metadata || !metadata->isL2L2Enabled())
+  if (!includeL2L2)
     return;
 
   if (!hwctx) {
@@ -1405,22 +1406,11 @@ void AieDtraceCTWriter::appendL2L2Config(
     return;
   }
 
-  boost::property_tree::ptree aiePartitionPt;
-  try {
-    aiePartitionPt = xdp::aie::getAIEPartitionInfo(hwctx);
-  }
-  catch (const std::exception& e) {
-    xrt_core::message::send(severity_level::warning, "XRT",
-        std::string("AIE dtrace: Error getting partition info for L2-L2: ") + e.what());
-    return;
-  }
-  if (aiePartitionPt.empty())
+  const auto partition = aie::dtrace::getPartitionGeometry(hwctx);
+  if (!partition.valid || partition.numCols == 0)
     return;
 
-  const uint32_t numCols =
-      static_cast<uint32_t>(aiePartitionPt.back().second.get<uint64_t>("num_cols", 0));
-  if (numCols == 0)
-    return;
+  const uint32_t numCols = partition.numCols;
   const auto instrumentPoints = aie::dtrace::parseL2L2DesignPoints(
       profiling_runtime_config::resolveMemoryTileInputPorts());
   if (instrumentPoints.empty())
@@ -1473,20 +1463,15 @@ void AieDtraceCTWriter::appendL2L2Config(
 
 bool AieDtraceCTWriter::appendMemTileConfig(
     void* hwctx, const std::string& metricSet, uint8_t channel,
+    const std::vector<uint8_t>& requestedColumns,
     std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites)
 {
-  // Mem tiles occupy the same columns as the shim tiles, so the partition column
-  // discovery is shared. A setting that named one column instead of "all" leaves those
-  // columns in the config map.
-  std::vector<uint8_t> columns;
-  if (metadata->isMemTileAllColumns()) {
-    columns = getShimTileColumns(hwctx);
-  }
-  else {
-    for (const auto& tileMetric :
-         metadata->getConfigMetricsVec(static_cast<int>(module_type::mem_tile)))
-      columns.push_back(tileMetric.first.col);
-  }
+  // An empty list means every mem tile column. Those occupy the same columns
+  // as the shim tiles, so the partition column discovery is shared. The list
+  // comes from this inference's selection: the shared config map only describes
+  // the first inference.
+  const std::vector<uint8_t> columns = requestedColumns.empty()
+      ? getShimTileColumns(hwctx) : requestedColumns;
 
   if (columns.empty()) {
     xrt_core::message::send(severity_level::warning, "XRT",
@@ -1529,12 +1514,7 @@ bool AieDtraceCTWriter::generateCT(
     const std::string& outputPath,
     void* hwctx,
     const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
-    bool includeBandwidth,
-    const std::string& bandwidthMetricSet,
-    uint8_t bandwidthChannel,
-    const std::string& coreMetricSet,
-    const std::string& memTileMetricSet,
-    uint8_t memTileChannel)
+    const MetricSelection& selection)
 {
   if (opLocations.empty()) {
     xrt_core::message::send(severity_level::debug, "XRT",
@@ -1557,30 +1537,31 @@ bool AieDtraceCTWriter::generateCT(
   // of tiles in column 0. Memtile L2-L2 counters are appended when enabled.
   // filterCountersByColumn keys by column, so all land in the matching UC group and read
   // distinct addresses.
-  if (includeBandwidth)
-    appendBandwidthConfig(hwctx, bandwidthMetricSet, bandwidthChannel, allCounters, beginBlockWrites);
+  if (selection.includeBandwidth)
+    appendBandwidthConfig(hwctx, selection.bandwidthMetricSet, selection.bandwidthChannel,
+                          allCounters, beginBlockWrites);
 
-  if (coreMetricSet == "compute_io_bound")
+  if (selection.coreMetricSet == "compute_io_bound")
     appendComputeIoBoundConfig(allCounters, beginBlockWrites);
-  else if (!coreMetricSet.empty())
+  else if (!selection.coreMetricSet.empty())
     xrt_core::message::send(severity_level::warning, "XRT",
-        "AIE dtrace: Unsupported core (aie) tile metric set '" + coreMetricSet
+        "AIE dtrace: Unsupported core (aie) tile metric set '" + selection.coreMetricSet
         + "'; no core tile counters configured.");
 
-  // Both mem tile families program the same performance counters, so at most one of
-  // them is ever configured: the metadata resolves the contention and clears the
-  // per-tile metric set when L2-L2 wins.
-  appendL2L2Config(hwctx, allCounters, beginBlockWrites);
+  // Both mem tile families program the same performance counters, so a single
+  // selection carries at most one of them. L2-L2 is per inference; the per-tile
+  // metric set is selection.memTileMetricSet.
+  appendL2L2Config(hwctx, selection.includeL2L2, allCounters, beginBlockWrites);
 
   // Mem tile counters live on rows between the shim and the core tiles, so they land in
   // the same column-keyed UC groups as the other two families.
-  if ((memTileMetricSet == "output_channels_details")
-      || (memTileMetricSet == "mm2s_channels_details"))
-    appendMemTileConfig(hwctx, memTileMetricSet, memTileChannel, allCounters,
-                        beginBlockWrites);
-  else if (!memTileMetricSet.empty())
+  if ((selection.memTileMetricSet == "output_channels_details")
+      || (selection.memTileMetricSet == "mm2s_channels_details"))
+    appendMemTileConfig(hwctx, selection.memTileMetricSet, selection.memTileChannel,
+                        selection.memTileColumns, allCounters, beginBlockWrites);
+  else if (!selection.memTileMetricSet.empty())
     xrt_core::message::send(severity_level::warning, "XRT",
-        "AIE dtrace: Unsupported mem tile metric set '" + memTileMetricSet
+        "AIE dtrace: Unsupported mem tile metric set '" + selection.memTileMetricSet
         + "'; no mem tile counters configured.");
 
   if (allCounters.empty()) {
@@ -1605,9 +1586,12 @@ bool AieDtraceCTWriter::generateBandwidthCT(
     const std::string& metricSet,
     uint8_t channel)
 {
-  return generateCT(outputPath, hwctx, opLocations,
-                    /*includeBandwidth=*/true, metricSet, channel,
-                    /*coreMetricSet=*/"");
+  MetricSelection selection;
+  selection.includeBandwidth = true;
+  selection.bandwidthMetricSet = metricSet;
+  selection.bandwidthChannel = channel;
+
+  return generateCT(outputPath, hwctx, opLocations, selection);
 }
 
 namespace {

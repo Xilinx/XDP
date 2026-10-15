@@ -21,6 +21,7 @@ namespace xdp {
 class VPDatabase;
 class AieDtraceMetadata;
 struct AIECounter;
+struct MetricSelection;
 
 /**
  * @brief Information about a SAVE_TIMESTAMPS instruction found in ASM files
@@ -191,28 +192,23 @@ public:
    * bandwidth counters and the core-tile counters are emitted into the same CT
    * file.
    *
+   * The selection is passed in rather than read back off the metadata because
+   * a single hardware context can generate one CT per inference, each with a
+   * different set of counters.
+   *
    * @param outputPath Full path for the generated CT file
    * @param hwctx Hardware context handle for partition info access
    * @param opLocations Vector of op_loc from aiebu_assembler::get_op_locations
-   * @param includeBandwidth Emit interface-tile bandwidth counters
-   * @param bandwidthMetricSet Bandwidth metric set (used when includeBandwidth)
-   * @param bandwidthChannel DMA channel for detailed_ddr_*_bandwidth sets
-   * @param coreMetricSet Core (aie) tile metric set to emit, or empty for none.
-   *                      Supported: compute_io_bound
-   * @param memTileMetricSet Mem tile (L2) metric set to emit, or empty for none.
-   *                      Supported: output_channels_details, mm2s_channels_details
-   * @param memTileChannel MM2S channel (0-5) monitored by the mem tile metric set
+   * @param selection Metric sets and DMA channels for this one CT file.
+   *                  Mem tile counters (output_channels_details,
+   *                  mm2s_channels_details) are selection.memTileMetricSet
+   *                  and selection.memTileChannel.
    * @return true if CT file was generated successfully, false otherwise
    */
   bool generateCT(const std::string& outputPath,
                   void* hwctx,
                   const std::vector<aiebu::aiebu_assembler::op_loc>& opLocations,
-                  bool includeBandwidth,
-                  const std::string& bandwidthMetricSet,
-                  uint8_t bandwidthChannel,
-                  const std::string& coreMetricSet,
-                  const std::string& memTileMetricSet = "",
-                  uint8_t memTileChannel = 0);
+                  const MetricSelection& selection);
 
 private:
   /**
@@ -372,6 +368,7 @@ private:
    * @param beginWrites [in,out] Accumulated begin-block register writes
    */
   void appendL2L2Config(void* hwctx,
+      bool includeL2L2,
       std::vector<CTCounterInfo>& counters,
       std::vector<CTRegisterWrite>& beginWrites);
 
@@ -385,11 +382,13 @@ private:
    * @param hwctx Hardware context handle for partition column discovery
    * @param metricSet Mem tile metric set
    * @param channel MM2S channel (0-5) to monitor
+   * @param columns Columns to program. Empty means every mem tile column in the partition.
    * @param counters [in,out] Accumulated counter list
    * @param beginWrites [in,out] Accumulated begin-block register writes
    * @return true if mem tile config was appended
    */
   bool appendMemTileConfig(void* hwctx, const std::string& metricSet, uint8_t channel,
+      const std::vector<uint8_t>& columns,
       std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites);
 
   /**

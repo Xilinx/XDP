@@ -7,10 +7,15 @@
 
 #include <map>
 #include <regex>
+#include "core/common/api/hw_context_int.h"
 #include "core/common/config_reader.h"
 #include "core/common/message.h"
+#include "core/common/shim/hwctx_handle.h"
+#include "xdp/profile/database/static_info/aie_util.h"
 
+#include <boost/property_tree/ptree.hpp>
 #include <mutex>
+#include <unistd.h>
 
 namespace xdp::aie::dtrace {
 
@@ -112,6 +117,59 @@ namespace xdp::aie::dtrace {
        {XAIE_EVENT_PORT_RUNNING_0_PL, XAIE_EVENT_PORT_STALLED_0_PL,
         XAIE_EVENT_PORT_RUNNING_1_PL, XAIE_EVENT_PORT_STALLED_1_PL}},
     };
+  }
+
+  PartitionGeometry getPartitionGeometry(void* hwctx)
+  {
+    PartitionGeometry geometry;
+    if (!hwctx)
+      return geometry;
+
+    boost::property_tree::ptree partitions;
+    try {
+      partitions = xdp::aie::getAIEPartitionInfo(hwctx);
+    }
+    catch (const std::exception& e) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+          std::string("AIE dtrace: Error getting partition info: ") + e.what());
+      return geometry;
+    }
+
+    if (partitions.empty())
+      return geometry;
+
+    auto ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(hwctx);
+    const auto slotIdx = static_cast<xrt_core::hwctx_handle*>(ctx)->get_slotidx();
+    const auto pid = static_cast<int>(getpid());
+
+    for (const auto& entry : partitions) {
+      const auto& partition = entry.second;
+      if (partition.get<int>("pid", -1) != pid)
+        continue;
+      if (partition.get<std::string>("id", "") != std::to_string(slotIdx))
+        continue;
+
+      geometry.valid = true;
+      geometry.startCol = static_cast<uint8_t>(partition.get<uint64_t>("start_col", 0));
+      geometry.numCols = static_cast<uint32_t>(partition.get<uint64_t>("num_cols", 0));
+      return geometry;
+    }
+
+    // Drivers that do not report the owning context fall back to the last
+    // partition, which is what this code did before the owner was reported at
+    // all. It is only correct when this process owns a single partition.
+    const auto& last = partitions.back().second;
+    geometry.valid = true;
+    geometry.startCol = static_cast<uint8_t>(last.get<uint64_t>("start_col", 0));
+    geometry.numCols = static_cast<uint32_t>(last.get<uint64_t>("num_cols", 0));
+
+    xrt_core::message::send(severity_level::debug, "XRT",
+        "AIE dtrace: Could not match a partition to hardware context slot "
+        + std::to_string(slotIdx) + "; using the last reported partition (start_col="
+        + std::to_string(geometry.startCol) + ", num_cols="
+        + std::to_string(geometry.numCols) + ").");
+
+    return geometry;
   }
 
   std::vector<L2L2InstrumentPoint> parseL2L2DesignPoints(const std::string& spec)

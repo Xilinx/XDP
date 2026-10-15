@@ -25,7 +25,7 @@ namespace xdp {
   using severity_level = xrt_core::message::severity_level;
 
   bool AieDtracePlugin::live = false;
-  bool AieDtracePlugin::configuredOnePartition = false;
+  std::atomic<bool> AieDtracePlugin::configuredOnePartition{false};
 
   AieDtracePlugin::AieDtracePlugin()
     : XDPPlugin()
@@ -63,6 +63,14 @@ namespace xdp {
       return itr->second->getDeviceID();
 
     return (db->getStaticInfo()).getDeviceContextUniqueId(handle);
+  }
+
+  std::shared_ptr<AieDtraceImpl> AieDtracePlugin::findImpl(void* handle) const
+  {
+    std::lock_guard<std::mutex> lock(implMutex);
+
+    auto itr = handleToAIEDtraceImpl.find(handle);
+    return (itr == handleToAIEDtraceImpl.end()) ? nullptr : itr->second;
   }
 
   void AieDtracePlugin::updateAIEDtraceDevice(void* handle, bool hw_context_flow)
@@ -116,6 +124,11 @@ namespace xdp {
     }
 #endif
 
+    // Held for the rest of the device update so a run constructor on another
+    // thread either sees no implementation for this context or sees a fully
+    // installed one, never one that is midway through being replaced.
+    std::lock_guard<std::mutex> lock(implMutex);
+
     auto deviceID = getDeviceIDFromHandle(handle);
 
     {
@@ -148,9 +161,9 @@ namespace xdp {
     if (metadata->isConfigOnePartition() && metadata->isConfigured())
       configuredOnePartition = true;
 
-    std::unique_ptr<AieDtraceImpl> implementation;
+    std::shared_ptr<AieDtraceImpl> implementation;
 #if defined(XDP_VE2_BUILD)
-    implementation = std::make_unique<AieDtrace_VE2Impl>(db, metadata, deviceID);
+    implementation = std::make_shared<AieDtrace_VE2Impl>(db, metadata, deviceID);
 #else
     xrt_core::message::send(severity_level::warning, "XRT",
                           "AIE dtrace: no implementation for this build; skipping.");
@@ -162,13 +175,26 @@ namespace xdp {
     handleToAIEDtraceImpl[handle] = std::move(implementation);
   }
 
+  void AieDtracePlugin::retireImpl(void* handle, AieDtraceImpl& impl)
+  {
+    (db->getStaticInfo()).unregisterPluginFromHwContext(handle);
+
+    // Last chance to tell the user that the application did not run enough
+    // inferences to collect everything they configured.
+    impl.reportUnusedSelections();
+  }
+
   void AieDtracePlugin::writeAll(bool /*openNewFiles*/)
   {
-    for (const auto& kv : handleToAIEDtraceImpl)
-      endPollforDevice(kv.first);
+    {
+      std::lock_guard<std::mutex> lock(implMutex);
+      for (const auto& kv : handleToAIEDtraceImpl)
+        retireImpl(kv.first, *kv.second);
+
+      handleToAIEDtraceImpl.clear();
+    }
 
     XDPPlugin::endWrite();
-    handleToAIEDtraceImpl.clear();
   }
 
   void AieDtracePlugin::endPollforDevice(void* handle)
@@ -176,11 +202,15 @@ namespace xdp {
     if (!handle)
       return;
 
-    (db->getStaticInfo()).unregisterPluginFromHwContext(handle);
+    std::lock_guard<std::mutex> lock(implMutex);
 
     auto itr = handleToAIEDtraceImpl.find(handle);
-    if (itr == handleToAIEDtraceImpl.end())
+    if (itr == handleToAIEDtraceImpl.end()) {
+      (db->getStaticInfo()).unregisterPluginFromHwContext(handle);
       return;
+    }
+
+    retireImpl(handle, *itr->second);
 
     // Drop implementation without endPoll(): dtrace must not read/offload on hwctx teardown;
     // ~AieDtrace_VE2Impl releases FAL resources only.
@@ -193,13 +223,14 @@ namespace xdp {
     if (!xrt_core::config::get_aie_dtrace())
       return;
 
-    auto itr = handleToAIEDtraceImpl.find(hwctx);
-    if (itr == handleToAIEDtraceImpl.end()) {
+    auto impl = findImpl(hwctx);
+    if (!impl) {
       xrt_core::message::send(severity_level::debug, "XRT",
                               "AIE dtrace: no implementation for hwctx in runConstructorHook");
       return;
     }
-    itr->second->generateCTForRun(run_impl_ptr, hwctx, run_uid, kernel_name, elf_handle);
+
+    impl->generateCTsForRun(run_impl_ptr, hwctx, run_uid, kernel_name, elf_handle);
   }
 
   void AieDtracePlugin::runStartImpl(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
@@ -208,10 +239,15 @@ namespace xdp {
     if (!xrt_core::config::get_aie_dtrace())
       return;
 
-    (void)run_impl_ptr;
-    (void)hwctx;
-    (void)run_uid;
-    (void)kernel_name;
+    auto impl = findImpl(hwctx);
+    if (!impl) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+                              "AIE dtrace: no implementation for hwctx in runStartHook; "
+                              "this inference will not be profiled.");
+      return;
+    }
+
+    impl->applyCTForRun(run_impl_ptr, hwctx, run_uid, kernel_name);
   }
 
   void AieDtracePlugin::runWaitImpl(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
@@ -229,6 +265,11 @@ namespace xdp {
 
   void AieDtracePlugin::endPoll()
   {
+    std::lock_guard<std::mutex> lock(implMutex);
+
+    for (const auto& kv : handleToAIEDtraceImpl)
+      kv.second->reportUnusedSelections();
+
     // Destroy implementations directly; no counter read or sample offload in teardown.
     handleToAIEDtraceImpl.clear();
   }

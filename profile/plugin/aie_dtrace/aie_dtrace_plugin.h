@@ -4,6 +4,10 @@
 #ifndef XDP_AIE_DTRACE_PLUGIN_DOT_H
 #define XDP_AIE_DTRACE_PLUGIN_DOT_H
 
+#include <atomic>
+#include <memory>
+#include <mutex>
+
 #include "xdp/profile/plugin/aie_dtrace/aie_dtrace_impl.h"
 #include "xdp/profile/plugin/aie_dtrace/aie_dtrace_metadata.h"
 #include "xdp/profile/plugin/vp_base/vp_base_plugin.h"
@@ -25,6 +29,10 @@ namespace xdp {
     // aie_dtrace_cb.cpp must NOT call these directly; it calls the
     // public XDPPlugin::run*Hook wrappers, which filter out runs
     // submitted by XDP plugins themselves before delegating here.
+    //
+    // The CT files are built here rather than at run start because this is
+    // where the ELF, and so the SAVE_TIMESTAMPS locations they program, is
+    // available; run start only picks which of them this inference uses.
     void runConstructorImpl(void* run_impl_ptr, void* hwctx, uint32_t run_uid,
                             const std::string& kernel_name,
                             void* elf_handle) override;
@@ -36,12 +44,23 @@ namespace xdp {
 
   private:
     void writeAll(bool openNewFiles) override;
-    uint64_t getDeviceIDFromHandle(void* handle);
     void endPoll();
 
+    // Callers must hold implMutex.
+    uint64_t getDeviceIDFromHandle(void* handle);
+    void retireImpl(void* handle, AieDtraceImpl& impl);
+
+    // Returns a shared owner so the caller can use the implementation after
+    // releasing implMutex: the run hooks do real work (ELF parsing, CT
+    // generation) that must not serialize every hardware context in the
+    // process, and teardown may erase the map entry meanwhile.
+    std::shared_ptr<AieDtraceImpl> findImpl(void* handle) const;
+
     static bool live;
-    static bool configuredOnePartition;
-    std::map<void*, std::unique_ptr<AieDtraceImpl>> handleToAIEDtraceImpl;
+    static std::atomic<bool> configuredOnePartition;
+
+    mutable std::mutex implMutex;
+    std::map<void*, std::shared_ptr<AieDtraceImpl>> handleToAIEDtraceImpl;
   };
 
 } // namespace xdp

@@ -178,37 +178,51 @@ namespace xdp::aie::dtrace {
     return points;
   }
 
-  std::vector<MemoryConflictTile> parseMemoryConflictPoints(const std::string& spec)
+  std::vector<MemoryConflictTile> parseMemoryConflictPoints(
+      const std::string& spec,
+      std::vector<std::string>* droppedDuplicates)
   {
     std::vector<MemoryConflictTile> tiles;
     if (spec.empty())
       return tiles;
 
     // Format: {column,row:bank} — column partition-relative; row is the memtile row.
-    // Bank "all" (or empty) monitors every bank; any other bank value is skipped.
+    // Bank "all" (or empty) monitors every bank, 0-7 a single bank; any other bank
+    // value is skipped.
     static const std::regex pointRegex(R"(\{\s*(\d+)\s*,\s*(\d+)\s*:\s*([^\s}]*)\s*\})");
-    std::set<std::pair<uint8_t, uint8_t>> seenTiles;
+    std::map<std::pair<uint8_t, uint8_t>, std::string> keptEntries;
     const auto begin = std::sregex_iterator(spec.begin(), spec.end(), pointRegex);
     const auto end = std::sregex_iterator();
     for (auto it = begin; it != end; ++it) {
       try {
         const unsigned long column = std::stoul((*it)[1].str());
         const unsigned long row = std::stoul((*it)[2].str());
-        const std::string bank = (*it)[3].str();
+        const std::string bankStr = (*it)[3].str();
         if (column > 255 || row > 255)
           continue;
 
-        if (!bank.empty() && bank != "all")
-          continue;
+        uint8_t bank = ALL_MEMTILE_BANKS;
+        if (!bankStr.empty() && bankStr != "all") {
+          if (bankStr.size() != 1 || bankStr[0] < '0'
+              || bankStr[0] >= static_cast<char>('0' + NUM_MEMTILE_BANKS))
+            continue;
+          bank = static_cast<uint8_t>(bankStr[0] - '0');
+        }
 
         const auto tileKey = std::make_pair(static_cast<uint8_t>(column),
                                             static_cast<uint8_t>(row));
-        if (!seenTiles.insert(tileKey).second)
+        const std::string entry = (*it)[0].str();
+        const auto kept = keptEntries.emplace(tileKey, entry);
+        if (!kept.second) {
+          if (droppedDuplicates)
+            droppedDuplicates->push_back(entry + " (kept " + kept.first->second + ")");
           continue;
+        }
 
         MemoryConflictTile tile;
         tile.column = tileKey.first;
         tile.row = tileKey.second;
+        tile.bank = bank;
         tiles.push_back(tile);
       }
       catch (const std::exception&) {

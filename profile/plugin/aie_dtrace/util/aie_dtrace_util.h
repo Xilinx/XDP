@@ -53,21 +53,28 @@ namespace xdp::aie::dtrace {
   // =========================== Memtile memory conflicts =====================================
 
   // Group_Memory_Conflict (event 111); counted on memtile perf counter 4 so L2-L2
-  // (counters 0-3) can run on the same tile.
+  // (counters 0-3) can run on the same tile. Which banks feed the event is selected
+  // by Event_Group_Memory_Conflict_Enable, which has one bit per bank (8 banks).
   static constexpr uint8_t MEMORY_CONFLICT_COUNTER = 4;
   static constexpr uint8_t GROUP_MEMORY_CONFLICT_EVENT = 111;
+  static constexpr uint8_t NUM_MEMTILE_BANKS = 8;
+  static constexpr uint8_t ALL_MEMTILE_BANKS = 0xFF;
 
   struct MemoryConflictTile {
     uint8_t column = 0;  // partition-relative
     uint8_t row = 0;     // absolute array row (required)
-    // TODO: add bank (0-7) in the next iteration for per-bank conflict monitoring.
+    uint8_t bank = ALL_MEMTILE_BANKS;  // 0-7, or ALL_MEMTILE_BANKS for every bank
   };
 
-  // Parses memory_tile_conflict_points, e.g. "{1,1:all},{5,1:all},{9,1:}".
+  // Parses memory_tile_conflict_points, e.g. "{1,1:all},{5,1:3},{9,1:}".
   // Column is partition-relative; row selects the exact memtile. Bank "all" or empty
-  // is accepted; any other bank value is skipped. Invalid entries are ignored. Each tile
-  // is returned once.
-  std::vector<MemoryConflictTile> parseMemoryConflictPoints(const std::string& spec);
+  // monitors every bank, 0-7 monitors that bank only; any other bank value is skipped.
+  // Invalid entries are ignored. Only the first entry for a tile is kept; each later
+  // entry for the same tile is reported in droppedDuplicates (if given) as
+  // "<dropped entry> (kept <first entry>)".
+  std::vector<MemoryConflictTile> parseMemoryConflictPoints(
+      const std::string& spec,
+      std::vector<std::string>* droppedDuplicates = nullptr);
 
   // Keeps tiles with column in [0, numCols) and row in validMemRows (if non-empty).
   std::vector<MemoryConflictTile> filterMemoryConflictTiles(

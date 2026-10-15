@@ -560,8 +560,9 @@ private:
       const std::vector<aie::dtrace::L2L2CounterPoint>& counterPoints);
 
   /// Enable group conflict mask and program memtile perf counter 4 for event 111.
+  /// bank 0-7 enables only that bank; ALL_MEMTILE_BANKS enables every bank.
   std::vector<CTRegisterWrite> generateMemtileConflictCounterConfig(
-      uint8_t column, uint8_t row);
+      uint8_t column, uint8_t row, uint8_t bank);
 
 private:
   VPDatabase* db;

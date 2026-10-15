@@ -1526,7 +1526,7 @@ void AieDtraceCTWriter::appendMemoryConflictsConfig(
   }
 
   for (const auto& tile : tiles) {
-    auto writes = generateMemtileConflictCounterConfig(tile.column, tile.row);
+    auto writes = generateMemtileConflictCounterConfig(tile.column, tile.row, tile.bank);
     beginWrites.insert(beginWrites.end(), writes.begin(), writes.end());
 
     CTCounterInfo info;
@@ -1540,7 +1540,9 @@ void AieDtraceCTWriter::appendMemoryConflictsConfig(
                                            "memory_tile");
     info.metricSet = "memory_conflicts";
     info.portDirection.clear();
-    info.eventType = "memtile_memory_conflict";
+    info.eventType = (tile.bank == aie::dtrace::ALL_MEMTILE_BANKS)
+        ? "memtile_memory_conflict"
+        : "memtile_memory_conflict_bank_" + std::to_string(tile.bank);
     counters.push_back(info);
   }
 
@@ -1552,7 +1554,7 @@ void AieDtraceCTWriter::appendMemoryConflictsConfig(
 }
 
 std::vector<CTRegisterWrite> AieDtraceCTWriter::generateMemtileConflictCounterConfig(
-    uint8_t column, uint8_t row)
+    uint8_t column, uint8_t row, uint8_t bank)
 {
   std::vector<CTRegisterWrite> writes;
 
@@ -1563,9 +1565,12 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generateMemtileConflictCounterCo
 
   CTRegisterWrite enableWrite;
   enableWrite.address = tileAddress + MEM_TILE_EVENT_GROUP_MEMORY_CONFLICT_ENABLE;
-  enableWrite.value = MEM_TILE_GROUP_CONFLICT_ENABLE_MASK;
+  const bool allBanks = (bank == aie::dtrace::ALL_MEMTILE_BANKS);
+  enableWrite.value = allBanks ? MEM_TILE_GROUP_CONFLICT_ENABLE_MASK : (1u << bank);
   enableWrite.comment = "Event_Group_Memory_Conflict_Enable @ " + loc
-                      + " (banks 0-7 contribute to Group_Memory_Conflict)";
+                      + (allBanks ? std::string(" (banks 0-7 contribute to Group_Memory_Conflict)")
+                                  : " (only bank " + std::to_string(bank)
+                                      + " contributes to Group_Memory_Conflict)");
   writes.push_back(enableWrite);
 
   CTRegisterWrite resetWrite;

@@ -303,11 +303,20 @@ namespace xdp {
                 "Memory conflicts will not be monitored.");
         memoryConflictsEnabled = false;
       }
-      else if (aie::dtrace::parseMemoryConflictPoints(pointsStr).empty()) {
-        xrt_core::message::send(severity_level::error, "XRT",
-            "AIE dtrace: memory_tile_conflict_points has no usable entries. "
-            "Memory conflicts will not be monitored.");
-        memoryConflictsEnabled = false;
+      else {
+        std::vector<std::string> droppedEntries;
+        if (aie::dtrace::parseMemoryConflictPoints(pointsStr, &droppedEntries).empty()) {
+          xrt_core::message::send(severity_level::error, "XRT",
+              "AIE dtrace: memory_tile_conflict_points has no usable entries. "
+              "Memory conflicts will not be monitored.");
+          memoryConflictsEnabled = false;
+        }
+        else if (!droppedEntries.empty()) {
+          xrt_core::message::send(severity_level::warning, "XRT",
+              "AIE dtrace: memory_tile_conflict_points allows one entry per memtile, so only "
+              "the first entry for each tile is used. Ignoring: "
+              + boost::algorithm::join(droppedEntries, ", ") + ".");
+        }
       }
     }
 

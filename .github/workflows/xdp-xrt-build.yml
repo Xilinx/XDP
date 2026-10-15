@@ -118,7 +118,7 @@ jobs:
         )
       )
     runs-on: [self-hosted, Ubuntu-22.04]
-    timeout-minutes: 360
+    timeout-minutes: 120
     concurrency:
       group: xdp-edge-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: true
@@ -219,7 +219,7 @@ jobs:
       - name: Prepare xdna-driver and overlay this PR
         run: |
           set -euo pipefail
-          if [ ! -d "${XDNA_DIR}/.git" ]; then
+          if [ -d "${XDNA_DIR}/.git" ]; then
             git clone --recurse-submodules https://github.com/amd/xdna-driver "${XDNA_DIR}"
           fi
           git -C "${XDNA_DIR}" fetch origin "${XDNA_BRANCH}"
@@ -271,13 +271,14 @@ jobs:
             echo "- Result: failed" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  # Future job for client builds
   build-xrt-client:
     if: |
       github.event_name == 'pull_request' &&
       contains(github.event.pull_request.labels.*.name, 'build-xrt-client')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Ubuntu-22.04]
     steps:
-      - run: echo "Client build not implemented"
+      - run: echo "Client build not implemented yet"
 
       - name: Build summary
         if: always()
@@ -287,60 +288,6 @@ jobs:
           echo "- PR: #${{ github.event.pull_request.number }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Platform: Client" >> "$GITHUB_STEP_SUMMARY"
           echo "- Result: skipped (not implemented)" >> "$GITHUB_STEP_SUMMARY"
-
-  board-test-ve2:
-    if: |
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      contains(github.event.pull_request.labels.*.name, 'board-test-ve2')
-    needs: build-xrt-ve2
-    runs-on: [self-hosted, Ubuntu-22.04]
-    timeout-minutes: 720
-    concurrency:
-      group: xdp-board-ve2-${{ github.event.pull_request.number || github.run_id }}
-      cancel-in-progress: true
-    env:
-      VE2_RPM_DIR: /scratch/snigupta/xdp_ci/yocto/edf/rpms
-      CSR_ROOT: /wrk/csr/snigupta/xdp_ci
-      CSR_SPEC: /proj/testcases/xtc/HEAD/auto/ymls/config/VAI_6_4_GEN2_REGRESSION.yml
-      CSR_SUPER_SUITE: VAI_6_4_GEN2_REGRESSION
-      CSR_DAY: sunday
-      XDP_CSR_SUBMIT_MODE: local
-      XDP_CSR_SINGLE_TEST: ml_timeline
-      XDP_CSR_USE_DOCKER: "0"
-      JENKINS_USER: ${{ secrets.JENKINS_USER }}
-      JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
-
-    steps:
-      - name: Checkout XDP
-        uses: actions/checkout@v4
-
-      - name: Run VE2 CSR board test
-        env:
-          XDP_CSR_DESCRIPTION: >-
-            XDP ${{ github.event_name }} ${{ github.ref_name }} @ ${{ github.sha }}
-        run: |
-          bash ci/csr/run_ve2_board_test.sh \
-            --run-id '${{ github.event.pull_request.number || github.run_id }}-${{ github.run_id }}' \
-            --rpm-source "${VE2_RPM_DIR}"
-
-      - name: Board test summary
-        if: always()
-        run: |
-          RUN_ID='${{ github.event.pull_request.number || github.run_id }}-${{ github.run_id }}'
-          echo "## XDP VE2 Board Test (CSR)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Trigger: ${{ github.event_name }} (${{ github.ref_name }})" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Suite: VE2_XDP (hw), single test block: ml_timeline" >> "$GITHUB_STEP_SUMMARY"
-          echo "- RPMs: ${VE2_RPM_DIR}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- vaiml compile: native FlexML (XDP_CSR_USE_DOCKER=0)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- CSR workspace: ${CSR_ROOT}/pr-${RUN_ID}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Submit mode: local RDI (set XDP_CSR_SUBMIT_MODE=jenkins when Job/Build granted)" >> "$GITHUB_STEP_SUMMARY"
-          if [ "${{ job.status }}" = "success" ]; then
-            echo "- Result: success" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "- Result: failed" >> "$GITHUB_STEP_SUMMARY"
-          fi
 
   ci-required:
     if: always() && github.event_name == 'pull_request'

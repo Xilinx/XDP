@@ -204,9 +204,9 @@ jobs:
     env:
       # Persistent checkout. build_ve2.sh writes Yocto to ../../yocto/edf
       # relative to xdna-driver/build, so RPMs land in VE2_RPM_DIR.
-      XDNA_DIR: /scratch/snigupta/xdp_ci/xdna-driver
+      XDNA_DIR: "${GITHUB_WORKSPACE}/ve2-build/xdna-driver"
       XDNA_BRANCH: ve2_accel
-      VE2_RPM_DIR: /scratch/snigupta/xdp_ci/yocto/edf/rpms
+      VE2_RPM_DIR: "${GITHUB_WORKSPACE}/ve2-build/yocto/edf/rpms"
 
     steps:
       - name: Checkout XDP
@@ -215,11 +215,6 @@ jobs:
           path: xdp-pr
           fetch-depth: 0
           submodules: recursive
-      
-      - name: Print workspace
-        run: |
-          echo "github.workspace: ${{ github.workspace }}"
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
 
       - name: Prepare xdna-driver and overlay this PR
         run: |

@@ -25,7 +25,7 @@ jobs:
           !contains(github.event.pull_request.labels.*.name, 'build-xrt-client')
         )
       )
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Ubuntu-22.04]
     timeout-minutes: 60
     concurrency:
       group: xdp-alveo-${{ github.event.pull_request.number || github.run_id }}
@@ -215,6 +215,11 @@ jobs:
           path: xdp-pr
           fetch-depth: 0
           submodules: recursive
+      
+      - name: Print workspace
+        run: |
+          echo "github.workspace: ${{ github.workspace }}"
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
 
       - name: Prepare xdna-driver and overlay this PR
         run: |
@@ -238,6 +243,10 @@ jobs:
       - name: Build VE2 RPMs
         run: |
           set -euo pipefail
+          mkdir -p /scratch/snigupta/bin
+          curl -o /scratch/snigupta/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
+          chmod a+x /scratch/snigupta/bin/repo
+          PATH: /scratch/snigupta/bin:${{ env.PATH }}
           cd "${XDNA_DIR}/build"
           bash build_ve2.sh | tee /tmp/build_ve2.log
           if grep -q "bitbake xrt failed" /tmp/build_ve2.log; then

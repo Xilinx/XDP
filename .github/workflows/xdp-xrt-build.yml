@@ -30,6 +30,8 @@ jobs:
     concurrency:
       group: xdp-alveo-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: true
+    env:
+      SUDO: /tools/aecg-sudo/sudo/bin/sudo
 
     steps:
       - name: Checkout XDP
@@ -52,9 +54,9 @@ jobs:
         run: |
           cd XRT/src/runtime_src/tools/scripts
           chmod +x xrtdeps.sh
-          sudo ./xrtdeps.sh
-          sudo apt-get update
-          sudo apt-get install -y \
+          $SUDO ./xrtdeps.sh
+          $SUDO apt-get update
+          $SUDO apt-get install -y \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu \
             crossbuild-essential-arm64
@@ -204,9 +206,9 @@ jobs:
     env:
       # Persistent checkout. build_ve2.sh writes Yocto to ../../yocto/edf
       # relative to xdna-driver/build, so RPMs land in VE2_RPM_DIR.
-      XDNA_DIR: "${GITHUB_WORKSPACE}/ve2-build/xdna-driver"
+      XDNA_DIR: ${{ github.workspace }}/ve2-build/xdna-driver
       XDNA_BRANCH: ve2_accel
-      VE2_RPM_DIR: "${GITHUB_WORKSPACE}/ve2-build/yocto/edf/rpms"
+      VE2_RPM_DIR: ${{ github.workspace }}/ve2-build/yocto/edf/rpms
 
     steps:
       - name: Checkout XDP
@@ -238,10 +240,16 @@ jobs:
       - name: Build VE2 RPMs
         run: |
           set -euo pipefail
+          mkdir -p "${GITHUB_WORKSPACE}/bin"
+          if ! command -v repo >/dev/null || [[ "$(repo --version 2>&1 | grep -oP 'repo launcher version \K[0-9.]+' || true)" < "2.5" ]]; then
+            curl -fsSL -o "${GITHUB_WORKSPACE}/bin/repo" https://storage.googleapis.com/git-repo-downloads/repo
+            chmod a+x "${GITHUB_WORKSPACE}/bin/repo"
+          fi
+          export PATH="${GITHUB_WORKSPACE}/bin:$PATH"
+
           mkdir -p /scratch/snigupta/bin
           curl -o /scratch/snigupta/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
           chmod a+x /scratch/snigupta/bin/repo
-          PATH: /scratch/snigupta/bin:${{ env.PATH }}
           cd "${XDNA_DIR}/build"
           bash build_ve2.sh | tee /tmp/build_ve2.log
           if grep -q "bitbake xrt failed" /tmp/build_ve2.log; then
@@ -259,7 +267,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xrt-ve2-build-${{ github.event.pull_request.number || github.run_id }}
-          path: /scratch/snigupta/xdp_ci/yocto/edf/rpms/xrt*.rpm
+          path: "${VE2_RPM_DIR}/xrt*.rpm"
           retention-days: 1
 
       - name: Build summary

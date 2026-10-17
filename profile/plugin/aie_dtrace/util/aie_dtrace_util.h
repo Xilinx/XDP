@@ -64,19 +64,22 @@ namespace xdp::aie::dtrace {
     uint8_t column = 0;  // partition-relative
     uint8_t row = 0;     // absolute array row (required)
     uint8_t bank = ALL_MEMTILE_BANKS;  // 0-7, or ALL_MEMTILE_BANKS for every bank
+    bool allTiles = false;  // {all:bank}: every memtile in the partition (column/row unused)
   };
 
-  // Parses memory_tile_conflict_points, e.g. "{1,1:all},{5,1:3},{9,1:}".
+  // Parses memory_tile_conflict_points, e.g. "{1,1:all},{5,1:3},{9,1:}" or "{all:0}".
   // Column is partition-relative; row selects the exact memtile. Bank "all" or empty
   // monitors every bank, 0-7 monitors that bank only; any other bank value is skipped.
-  // Invalid entries are ignored. Only the first entry for a tile is kept; each later
-  // entry for the same tile is reported in droppedDuplicates (if given) as
-  // "<dropped entry> (kept <first entry>)".
+  // Invalid entries are ignored. The first valid {all:bank} entry is returned alone:
+  // entries before it are dropped and entries after it are not read. Otherwise only the
+  // first entry for a tile is kept. Each dropped entry is reported in droppedEntries
+  // (if given) as "<dropped entry> (kept <kept entry>)".
   std::vector<MemoryConflictTile> parseMemoryConflictPoints(
       const std::string& spec,
-      std::vector<std::string>* droppedDuplicates = nullptr);
+      std::vector<std::string>* droppedEntries = nullptr);
 
   // Keeps tiles with column in [0, numCols) and row in validMemRows (if non-empty).
+  // An allTiles entry expands to every column in [0, numCols) on every row in validMemRows.
   std::vector<MemoryConflictTile> filterMemoryConflictTiles(
       uint32_t numCols,
       const std::vector<uint8_t>& validMemRows,

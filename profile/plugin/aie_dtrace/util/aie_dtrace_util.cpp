@@ -180,54 +180,69 @@ namespace xdp::aie::dtrace {
 
   std::vector<MemoryConflictTile> parseMemoryConflictPoints(
       const std::string& spec,
-      std::vector<std::string>* droppedDuplicates)
+      std::vector<std::string>* droppedEntries)
   {
     std::vector<MemoryConflictTile> tiles;
     if (spec.empty())
       return tiles;
 
-    // Format: {column,row:bank} — column partition-relative; row is the memtile row.
-    // Bank "all" (or empty) monitors every bank, 0-7 a single bank; any other bank
-    // value is skipped.
-    static const std::regex pointRegex(R"(\{\s*(\d+)\s*,\s*(\d+)\s*:\s*([^\s}]*)\s*\})");
-    std::map<std::pair<uint8_t, uint8_t>, std::string> keptEntries;
+    // Format: {column,row:bank} or {all:bank} — column partition-relative; row is the
+    // memtile row. Bank "all" (or empty) monitors every bank, 0-7 a single bank; any
+    // other bank value is skipped.
+    static const std::regex pointRegex(
+        R"(\{\s*(?:(all)|(\d+)\s*,\s*(\d+))\s*:\s*([^\s}]*)\s*\})");
+    std::vector<std::pair<MemoryConflictTile, std::string>> entries;
     const auto begin = std::sregex_iterator(spec.begin(), spec.end(), pointRegex);
     const auto end = std::sregex_iterator();
     for (auto it = begin; it != end; ++it) {
       try {
-        const unsigned long column = std::stoul((*it)[1].str());
-        const unsigned long row = std::stoul((*it)[2].str());
-        const std::string bankStr = (*it)[3].str();
-        if (column > 255 || row > 255)
-          continue;
+        MemoryConflictTile tile;
+        if ((*it)[1].matched) {
+          tile.allTiles = true;
+        }
+        else {
+          const unsigned long column = std::stoul((*it)[2].str());
+          const unsigned long row = std::stoul((*it)[3].str());
+          if (column > 255 || row > 255)
+            continue;
+          tile.column = static_cast<uint8_t>(column);
+          tile.row = static_cast<uint8_t>(row);
+        }
 
-        uint8_t bank = ALL_MEMTILE_BANKS;
+        const std::string bankStr = (*it)[4].str();
         if (!bankStr.empty() && bankStr != "all") {
           if (bankStr.size() != 1 || bankStr[0] < '0'
               || bankStr[0] >= static_cast<char>('0' + NUM_MEMTILE_BANKS))
             continue;
-          bank = static_cast<uint8_t>(bankStr[0] - '0');
+          tile.bank = static_cast<uint8_t>(bankStr[0] - '0');
         }
 
-        const auto tileKey = std::make_pair(static_cast<uint8_t>(column),
-                                            static_cast<uint8_t>(row));
-        const std::string entry = (*it)[0].str();
-        const auto kept = keptEntries.emplace(tileKey, entry);
-        if (!kept.second) {
-          if (droppedDuplicates)
-            droppedDuplicates->push_back(entry + " (kept " + kept.first->second + ")");
-          continue;
+        // The first valid {all:bank} replaces earlier entries; later ones are not read.
+        if (tile.allTiles) {
+          if (droppedEntries) {
+            for (const auto& earlier : entries)
+              droppedEntries->push_back(earlier.second + " (kept " + (*it)[0].str() + ")");
+          }
+          tiles.push_back(tile);
+          return tiles;
         }
 
-        MemoryConflictTile tile;
-        tile.column = tileKey.first;
-        tile.row = tileKey.second;
-        tile.bank = bank;
-        tiles.push_back(tile);
+        entries.emplace_back(tile, (*it)[0].str());
       }
       catch (const std::exception&) {
         continue;
       }
+    }
+
+    std::map<std::pair<uint8_t, uint8_t>, std::string> keptEntries;
+    for (const auto& [tile, entry] : entries) {
+      const auto kept = keptEntries.emplace(std::make_pair(tile.column, tile.row), entry);
+      if (!kept.second) {
+        if (droppedEntries)
+          droppedEntries->push_back(entry + " (kept " + kept.first->second + ")");
+        continue;
+      }
+      tiles.push_back(tile);
     }
     return tiles;
   }
@@ -242,6 +257,18 @@ namespace xdp::aie::dtrace {
       return filtered;
 
     for (const auto& tile : tiles) {
+      if (tile.allTiles) {
+        for (uint32_t column = 0; column < numCols && column <= 255; ++column) {
+          for (const auto row : validMemRows) {
+            MemoryConflictTile expanded;
+            expanded.column = static_cast<uint8_t>(column);
+            expanded.row = row;
+            expanded.bank = tile.bank;
+            filtered.push_back(expanded);
+          }
+        }
+        continue;
+      }
       if (tile.column >= numCols)
         continue;
       if (!validMemRows.empty()

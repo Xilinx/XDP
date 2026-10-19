@@ -230,6 +230,12 @@ jobs:
           git -C "${XDNA_DIR}" pull --ff-only origin "${XDNA_BRANCH}"
           git -C "${XDNA_DIR}" submodule update --init --recursive
 
+          # TEMP for testing: use XRT master instead of pinned submodule SHA
+          git -C "${XDNA_DIR}/xrt" fetch origin master
+          git -C "${XDNA_DIR}/xrt" checkout master
+          git -C "${XDNA_DIR}/xrt" pull --ff-only origin master
+          git -C "${XDNA_DIR}/xrt" submodule update --init --recursive
+
           # First-time Yocto setup would otherwise reset xrt and drop the overlay.
           sed -i 's/^[[:space:]]*git submodule update --init --recursive --force/# git submodule update --init --recursive --force/' \
             "${XDNA_DIR}/build/build_ve2.sh"

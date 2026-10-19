@@ -206,9 +206,9 @@ jobs:
     env:
       # Persistent checkout. build_ve2.sh writes Yocto to ../../yocto/edf
       # relative to xdna-driver/build, so RPMs land in VE2_RPM_DIR.
-      XDNA_DIR: ${{ github.workspace }}/ve2-build/xdna-driver
+      XDNA_DIR: ve2-build/xdna-driver
       XDNA_BRANCH: ve2_accel
-      VE2_RPM_DIR: ${{ github.workspace }}/ve2-build/yocto/edf/rpms
+      VE2_RPM_DIR: ve2-build/yocto/edf/rpms
 
     steps:
       - name: Checkout XDP
@@ -253,9 +253,6 @@ jobs:
           fi
           export PATH="${GITHUB_WORKSPACE}/bin:$PATH"
 
-          mkdir -p /scratch/snigupta/bin
-          curl -o /scratch/snigupta/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
-          chmod a+x /scratch/snigupta/bin/repo
           cd "${XDNA_DIR}/build"
           bash build_ve2.sh | tee /tmp/build_ve2.log
           if grep -q "bitbake xrt failed" /tmp/build_ve2.log; then
@@ -273,7 +270,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xrt-ve2-build-${{ github.event.pull_request.number || github.run_id }}
-          path: "${VE2_RPM_DIR}/xrt*.rpm"
+          path: ${{ env.VE2_RPM_DIR }}/xrt*.rpm
           retention-days: 1
 
       - name: Build summary

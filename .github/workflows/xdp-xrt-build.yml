@@ -1,10 +1,26 @@
+# XDP Build — build XRT with this PR's XDP tree overlaid for each platform.
+#
+# Triggers:
+#   - pull_request → master (opened / sync / reopened / labeled / unlabeled)
+#   - push → ci/xdp-multi-platform-builds (fork / branch testing)
+#   - workflow_dispatch (manual)
+#
+# Platform selection on pull_request:
+#   - Add label build-xrt-alveo | build-xrt-edge | build-xrt-ve2 | build-xrt-client
+#     to run only that platform's job.
+#   - With none of those labels, all four jobs run in parallel.
+#   - push / workflow_dispatch always schedule all four jobs.
+#
+# Jobs are independent (no needs: between builds) so they can run in parallel
+# when enough self-hosted runners are available.
+
 name: XDP Build
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
     branches: [master]
-  # Fork testing: push to this branch runs VE2 build + CSR board test.
+  # Fork testing
   push:
     branches: [ci/xdp-multi-platform-builds]
   workflow_dispatch:
@@ -14,9 +30,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Alveo — native XRT build
+  # Label: build-xrt-alveo
+  # ---------------------------------------------------------------------------
   build-xrt-alveo:
     if: |
-      github.event_name == 'pull_request' && (
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && (
         contains(github.event.pull_request.labels.*.name, 'build-xrt-alveo') ||
         (
           !contains(github.event.pull_request.labels.*.name, 'build-xrt-alveo') &&
@@ -24,7 +46,7 @@ jobs:
           !contains(github.event.pull_request.labels.*.name, 'build-xrt-ve2') &&
           !contains(github.event.pull_request.labels.*.name, 'build-xrt-client')
         )
-      )
+      ))
     runs-on: [self-hosted, Ubuntu-22.04]
     timeout-minutes: 60
     concurrency:
@@ -34,21 +56,29 @@ jobs:
       SUDO: /tools/aecg-sudo/sudo/bin/sudo
 
     steps:
+      - name: Register path masks
+        run: |
+          echo "::add-mask::${{ secrets.MASK_SCRATCH_PREFIX }}"
+          echo "::add-mask::${{ secrets.MASK_HOME_PREFIX }}"
+
+      # Check out this PR's XDP sources into $GITHUB_WORKSPACE/xdp-pr
       - name: Checkout XDP
         uses: actions/checkout@v4
         with:
           path: xdp-pr
           fetch-depth: 0
 
+      # Fresh XRT tree next to xdp-pr (under $GITHUB_WORKSPACE)
       - name: Clone XRT
         run: |
           git clone https://github.com/Xilinx/XRT.git XRT
           git -C XRT submodule update --init --recursive
 
+      # Replace stock XDP with this PR so the Alveo build compiles PR code
       - name: Overlay XDP
         run: |
           rm -rf XRT/src/runtime_src/xdp
-          cp -r xdp-pr XRT/src/runtime_src/xdp
+          cp -r "${GITHUB_WORKSPACE}/xdp-pr" XRT/src/runtime_src/xdp
 
       - name: Setup build environment
         run: |
@@ -108,9 +138,15 @@ jobs:
             echo "- Result: failed" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  # ---------------------------------------------------------------------------
+  # Edge — Versal aarch RPM build (xrt + zocl)
+  # Label: build-xrt-edge
+  # ---------------------------------------------------------------------------
   build-xrt-edge:
     if: |
-      github.event_name == 'pull_request' && (
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && (
         contains(github.event.pull_request.labels.*.name, 'build-xrt-edge') ||
         (
           !contains(github.event.pull_request.labels.*.name, 'build-xrt-alveo') &&
@@ -118,7 +154,7 @@ jobs:
           !contains(github.event.pull_request.labels.*.name, 'build-xrt-ve2') &&
           !contains(github.event.pull_request.labels.*.name, 'build-xrt-client')
         )
-      )
+      ))
     runs-on: [self-hosted, Ubuntu-22.04]
     timeout-minutes: 120
     concurrency:
@@ -128,6 +164,11 @@ jobs:
       SUDO: /tools/aecg-sudo/sudo/bin/sudo
 
     steps:
+      - name: Register path masks
+        run: |
+          echo "::add-mask::${{ secrets.MASK_SCRATCH_PREFIX }}"
+          echo "::add-mask::${{ secrets.MASK_HOME_PREFIX }}"
+
       - name: Checkout XDP
         uses: actions/checkout@v4
         with:
@@ -143,7 +184,7 @@ jobs:
       - name: Overlay XDP
         run: |
           rm -rf XRT/src/runtime_src/xdp
-          cp -r xdp-pr XRT/src/runtime_src/xdp
+          cp -r "${GITHUB_WORKSPACE}/xdp-pr" XRT/src/runtime_src/xdp
 
       - name: Setup build environment
         run: |
@@ -187,28 +228,32 @@ jobs:
             echo "- Result: failed" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  # ---------------------------------------------------------------------------
+  # VE2 — Yocto / xdna-driver bitbake
+  # Label: build-xrt-ve2
+  # ---------------------------------------------------------------------------
   build-xrt-ve2:
     if: |
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
-      contains(github.event.pull_request.labels.*.name, 'build-xrt-ve2') ||
-      (
-        !contains(github.event.pull_request.labels.*.name, 'build-xrt-alveo') &&
-        !contains(github.event.pull_request.labels.*.name, 'build-xrt-edge') &&
-        !contains(github.event.pull_request.labels.*.name, 'build-xrt-ve2') &&
-        !contains(github.event.pull_request.labels.*.name, 'build-xrt-client')
-      )
+      (github.event_name == 'pull_request' && (
+        contains(github.event.pull_request.labels.*.name, 'build-xrt-ve2') ||
+        (
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-alveo') &&
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-edge') &&
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-ve2') &&
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-client')
+        )
+      ))
     runs-on: [self-hosted, Ubuntu-22.04]
     timeout-minutes: 480
     concurrency:
       group: xdp-ve2-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: true
     env:
-      # Persistent checkout. build_ve2.sh writes Yocto to ../../yocto/edf
-      # relative to xdna-driver/build, so RPMs land in VE2_RPM_DIR.
-      XDNA_DIR: ve2-build/xdna-driver
+      XDNA_DIR: ${{ github.workspace }}/ve2-build/xdna-driver
       XDNA_BRANCH: ve2_accel
-      VE2_RPM_DIR: ve2-build/yocto/edf/rpms
+      VE2_RPM_DIR: ${{ github.workspace }}/ve2-build/yocto/edf/rpms
 
     steps:
       - name: Register path masks
@@ -223,40 +268,36 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      # Clone xdna-driver at XDNA_BRANCH, prevent build_ve2.sh from resetting
+      # the xrt submodule, then overlay this PR's XDP into xrt.
       - name: Prepare xdna-driver and overlay this PR
         run: |
           set -euo pipefail
           if [ -d "${XDNA_DIR}/.git" ]; then
             rm -rf "${XDNA_DIR}"
           fi
-          git clone --recurse-submodules https://github.com/amd/xdna-driver "${XDNA_DIR}"
-          git -C "${XDNA_DIR}" fetch origin "${XDNA_BRANCH}"
-          git -C "${XDNA_DIR}" checkout "${XDNA_BRANCH}"
-          git -C "${XDNA_DIR}" pull --ff-only origin "${XDNA_BRANCH}"
-          git -C "${XDNA_DIR}" submodule update --init --recursive
-
-          # TEMP for testing: use XRT master instead of pinned submodule SHA
-          git -C "${XDNA_DIR}/xrt" fetch origin master
-          git -C "${XDNA_DIR}/xrt" checkout master
-          git -C "${XDNA_DIR}/xrt" pull --ff-only origin master
-          git -C "${XDNA_DIR}/xrt" submodule update --init --recursive
+          git clone --recurse-submodules -b "${XDNA_BRANCH}" \
+            https://github.com/amd/xdna-driver "${XDNA_DIR}"
 
           # First-time Yocto setup would otherwise reset xrt and drop the overlay.
           sed -i 's/^[[:space:]]*git submodule update --init --recursive --force/# git submodule update --init --recursive --force/' \
             "${XDNA_DIR}/build/build_ve2.sh"
 
           rm -rf "${XDNA_DIR}/xrt/src/runtime_src/xdp"
-          cp -a xdp-pr "${XDNA_DIR}/xrt/src/runtime_src/xdp"
+          cp -a "${GITHUB_WORKSPACE}/xdp-pr" "${XDNA_DIR}/xrt/src/runtime_src/xdp"
 
+      # Ensure Google's `repo` launcher is on PATH (needed by build_ve2.sh).
       - name: Build VE2 RPMs
         run: |
           set -euo pipefail
-          mkdir -p bin
+          mkdir -p "${GITHUB_WORKSPACE}/bin"
           if ! command -v repo >/dev/null || [[ "$(repo --version 2>&1 | grep -oP 'repo launcher version \K[0-9.]+' || true)" < "2.5" ]]; then
-            curl -fsSL -o bin/repo https://storage.googleapis.com/git-repo-downloads/repo
-            chmod a+x bin/repo
+            curl -fsSL -o "${GITHUB_WORKSPACE}/bin/repo" \
+              https://storage.googleapis.com/git-repo-downloads/repo
+            chmod a+x "${GITHUB_WORKSPACE}/bin/repo"
           fi
-          export PATH="$PWD/bin:$PATH"   # absolute; stays valid after cd
+          export PATH="${GITHUB_WORKSPACE}/bin:$PATH"
+
           cd "${XDNA_DIR}/build"
           bash build_ve2.sh | tee /tmp/build_ve2.log
           if grep -q "bitbake xrt failed" /tmp/build_ve2.log; then
@@ -291,13 +332,30 @@ jobs:
             echo "- Result: failed" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # Future job for client builds
+  # ---------------------------------------------------------------------------
+  # Client — placeholder (not implemented yet)
+  # Label: build-xrt-client
+  # ---------------------------------------------------------------------------
   build-xrt-client:
     if: |
-      github.event_name == 'pull_request' &&
-      contains(github.event.pull_request.labels.*.name, 'build-xrt-client')
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && (
+        contains(github.event.pull_request.labels.*.name, 'build-xrt-client') ||
+        (
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-alveo') &&
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-edge') &&
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-ve2') &&
+          !contains(github.event.pull_request.labels.*.name, 'build-xrt-client')
+        )
+      ))
     runs-on: [self-hosted, Ubuntu-22.04]
     steps:
+      - name: Register path masks
+        run: |
+          echo "::add-mask::${{ secrets.MASK_SCRATCH_PREFIX }}"
+          echo "::add-mask::${{ secrets.MASK_HOME_PREFIX }}"
+
       - run: echo "Client build not implemented yet"
 
       - name: Build summary
@@ -309,6 +367,10 @@ jobs:
           echo "- Platform: Client" >> "$GITHUB_STEP_SUMMARY"
           echo "- Result: skipped (not implemented)" >> "$GITHUB_STEP_SUMMARY"
 
+  # ---------------------------------------------------------------------------
+  # Gate — on PRs only: fail the workflow if any *scheduled* build failed.
+  # Skipped jobs (wrong label set) count as OK so selective label runs work.
+  # ---------------------------------------------------------------------------
   ci-required:
     if: always() && github.event_name == 'pull_request'
     needs: [build-xrt-alveo, build-xrt-edge, build-xrt-ve2, build-xrt-client]

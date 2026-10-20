@@ -211,6 +211,11 @@ jobs:
       VE2_RPM_DIR: ve2-build/yocto/edf/rpms
 
     steps:
+      - name: Register path masks
+        run: |
+          echo "::add-mask::${{ secrets.MASK_SCRATCH_PREFIX }}"
+          echo "::add-mask::${{ secrets.MASK_HOME_PREFIX }}"
+
       - name: Checkout XDP
         uses: actions/checkout@v4
         with:
@@ -241,18 +246,17 @@ jobs:
             "${XDNA_DIR}/build/build_ve2.sh"
 
           rm -rf "${XDNA_DIR}/xrt/src/runtime_src/xdp"
-          cp -a "${GITHUB_WORKSPACE}/xdp-pr" "${XDNA_DIR}/xrt/src/runtime_src/xdp"
+          cp -a xdp-pr "${XDNA_DIR}/xrt/src/runtime_src/xdp"
 
       - name: Build VE2 RPMs
         run: |
           set -euo pipefail
-          mkdir -p "${GITHUB_WORKSPACE}/bin"
+          mkdir -p bin
           if ! command -v repo >/dev/null || [[ "$(repo --version 2>&1 | grep -oP 'repo launcher version \K[0-9.]+' || true)" < "2.5" ]]; then
-            curl -fsSL -o "${GITHUB_WORKSPACE}/bin/repo" https://storage.googleapis.com/git-repo-downloads/repo
-            chmod a+x "${GITHUB_WORKSPACE}/bin/repo"
+            curl -fsSL -o bin/repo https://storage.googleapis.com/git-repo-downloads/repo
+            chmod a+x bin/repo
           fi
-          export PATH="${GITHUB_WORKSPACE}/bin:$PATH"
-
+          export PATH="$PWD/bin:$PATH"   # absolute; stays valid after cd
           cd "${XDNA_DIR}/build"
           bash build_ve2.sh | tee /tmp/build_ve2.log
           if grep -q "bitbake xrt failed" /tmp/build_ve2.log; then

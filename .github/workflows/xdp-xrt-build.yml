@@ -2,17 +2,13 @@
 #
 # Triggers:
 #   - pull_request → master (opened / sync / reopened / labeled / unlabeled)
-#   - push → ci/xdp-multi-platform-builds (fork / branch testing)
 #   - workflow_dispatch (manual)
 #
 # Platform selection on pull_request:
 #   - Add label build-xrt-alveo | build-xrt-edge | build-xrt-ve2 | build-xrt-client
 #     to run only that platform's job.
 #   - With none of those labels, all four jobs run in parallel.
-#   - push / workflow_dispatch always schedule all four jobs.
-#
-# Jobs are independent (no needs: between builds) so they can run in parallel
-# when enough self-hosted runners are available.
+#   - workflow_dispatch always schedule all four jobs.
 
 name: XDP Build
 
@@ -20,9 +16,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
     branches: [master]
-  # Fork testing
-  push:
-    branches: [ci/xdp-multi-platform-builds]
   workflow_dispatch:
 
 concurrency:
@@ -36,7 +29,6 @@ jobs:
   # ---------------------------------------------------------------------------
   build-xrt-alveo:
     if: |
-      github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && (
         contains(github.event.pull_request.labels.*.name, 'build-xrt-alveo') ||
@@ -129,7 +121,6 @@ jobs:
   # ---------------------------------------------------------------------------
   build-xrt-edge:
     if: |
-      github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && (
         contains(github.event.pull_request.labels.*.name, 'build-xrt-edge') ||
@@ -211,7 +202,6 @@ jobs:
   # ---------------------------------------------------------------------------
   build-xrt-ve2:
     if: |
-      github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && (
         contains(github.event.pull_request.labels.*.name, 'build-xrt-ve2') ||
@@ -312,7 +302,6 @@ jobs:
   # ---------------------------------------------------------------------------
   build-xrt-client:
     if: |
-      github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && (
         contains(github.event.pull_request.labels.*.name, 'build-xrt-client') ||

@@ -52,8 +52,6 @@ jobs:
     concurrency:
       group: xdp-alveo-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: true
-    env:
-      SUDO: /tools/aecg-sudo/sudo/bin/sudo
 
     steps:
       - name: Register path masks
@@ -61,35 +59,22 @@ jobs:
           echo "::add-mask::${{ secrets.MASK_SCRATCH_PREFIX }}"
           echo "::add-mask::${{ secrets.MASK_HOME_PREFIX }}"
 
-      # Check out this PR's XDP sources into $GITHUB_WORKSPACE/xdp-pr
       - name: Checkout XDP
         uses: actions/checkout@v4
         with:
           path: xdp-pr
           fetch-depth: 0
 
-      # Fresh XRT tree next to xdp-pr (under $GITHUB_WORKSPACE)
       - name: Clone XRT
         run: |
+          rm -rf XRT
           git clone https://github.com/Xilinx/XRT.git XRT
           git -C XRT submodule update --init --recursive
 
-      # Replace stock XDP with this PR so the Alveo build compiles PR code
       - name: Overlay XDP
         run: |
           rm -rf XRT/src/runtime_src/xdp
           cp -r "${GITHUB_WORKSPACE}/xdp-pr" XRT/src/runtime_src/xdp
-
-      - name: Setup build environment
-        run: |
-          cd XRT/src/runtime_src/tools/scripts
-          chmod +x xrtdeps.sh
-          $SUDO ./xrtdeps.sh
-          $SUDO apt-get update
-          $SUDO apt-get install -y \
-            gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu \
-            crossbuild-essential-arm64
 
       - name: Build XRT for Alveo
         run: |
@@ -160,8 +145,6 @@ jobs:
     concurrency:
       group: xdp-edge-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: true
-    env:
-      SUDO: /tools/aecg-sudo/sudo/bin/sudo
 
     steps:
       - name: Register path masks
@@ -185,12 +168,6 @@ jobs:
         run: |
           rm -rf XRT/src/runtime_src/xdp
           cp -r "${GITHUB_WORKSPACE}/xdp-pr" XRT/src/runtime_src/xdp
-
-      - name: Setup build environment
-        run: |
-          cd XRT/src/runtime_src/tools/scripts
-          chmod +x xrtdeps.sh
-          $SUDO ./xrtdeps.sh
 
       - name: Build XRT for Edge
         run: |
@@ -268,8 +245,6 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      # Clone xdna-driver at XDNA_BRANCH, prevent build_ve2.sh from resetting
-      # the xrt submodule, then overlay this PR's XDP into xrt.
       - name: Prepare xdna-driver and overlay this PR
         run: |
           set -euo pipefail
@@ -286,7 +261,6 @@ jobs:
           rm -rf "${XDNA_DIR}/xrt/src/runtime_src/xdp"
           cp -a "${GITHUB_WORKSPACE}/xdp-pr" "${XDNA_DIR}/xrt/src/runtime_src/xdp"
 
-      # Ensure Google's `repo` launcher is on PATH (needed by build_ve2.sh).
       - name: Build VE2 RPMs
         run: |
           set -euo pipefail

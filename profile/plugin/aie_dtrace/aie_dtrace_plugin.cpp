@@ -6,6 +6,8 @@
 #include "xdp/profile/plugin/aie_dtrace/aie_dtrace_plugin.h"
 #include "xdp/profile/plugin/aie_dtrace/util/aie_dtrace_util.h"
 
+#include <sstream>
+
 #include "core/common/api/hw_context_int.h"
 #include "core/common/config_reader.h"
 #include "core/common/message.h"
@@ -56,11 +58,14 @@ namespace xdp {
     return AieDtracePlugin::live;
   }
 
-  uint64_t AieDtracePlugin::getDeviceIDFromHandle(void* handle)
+  uint64_t AieDtracePlugin::getDeviceIDFromHandle(void* handle, bool isFullELFFlow)
   {
     auto itr = handleToAIEDtraceImpl.find(handle);
     if (itr != handleToAIEDtraceImpl.end())
       return itr->second->getDeviceID();
+
+    if (isFullELFFlow)
+      return (db->getStaticInfo()).getHwCtxImplUidElf(handle);
 
     return (db->getStaticInfo()).getDeviceContextUniqueId(handle);
   }
@@ -85,7 +90,23 @@ namespace xdp {
     if (!handle)
       return;
 
-    if (!((db->getStaticInfo()).continueXDPConfig(hw_context_flow)))
+    // Full ELF carries AIE metadata in xrt::elf (no xclbin). Query the flow
+    // before continueXDPConfig so a missing xclbin does not abort setup.
+    bool isFullELFFlow = false;
+    if (hw_context_flow) {
+      xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+      try {
+        isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(ctx);
+      }
+      catch (const std::exception& e) {
+        std::stringstream msg;
+        msg << e.what() << " AIE dtrace cannot be enabled before complete configuration.";
+        xrt_core::message::send(severity_level::warning, "XRT", msg.str());
+        return;
+      }
+    }
+
+    if (!isFullELFFlow && !((db->getStaticInfo()).continueXDPConfig(hw_context_flow)))
       return;
 
     {
@@ -95,15 +116,6 @@ namespace xdp {
             severity_level::warning, "XRT",
             "AIE dtrace: a previous partition was already configured; skipping "
             "(config_one_partition=true).");
-        return;
-      }
-    }
-
-    if (hw_context_flow) {
-      xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
-      if (xrt_core::hw_context_int::get_elf_flow(ctx)) {
-        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
-                                "AIE dtrace is not yet supported for Full ELF flow.");
         return;
       }
     }
@@ -129,9 +141,25 @@ namespace xdp {
     // installed one, never one that is midway through being replaced.
     std::lock_guard<std::mutex> lock(implMutex);
 
-    auto deviceID = getDeviceIDFromHandle(handle);
+    auto deviceID = getDeviceIDFromHandle(handle, isFullELFFlow);
 
-    {
+    if (isFullELFFlow) {
+      xrt::hw_context ctx = xrt_core::hw_context_int::create_hw_context_from_implementation(handle);
+      auto elfMap = xrt_core::hw_context_int::get_elf_map(ctx);
+      if (elfMap.empty()) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+                                "AIE dtrace ELF flow: hw_context has no registered ELFs. Skipping.");
+        return;
+      }
+      auto elf = util::getAieMetadataElf(elfMap);
+      if (!elf) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+                                "AIE dtrace ELF flow: no AIE metadata ELF found. Skipping.");
+        return;
+      }
+      (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(deviceID, device, std::move(*elf));
+    }
+    else {
 #ifdef XDP_CLIENT_BUILD
       (db->getStaticInfo()).updateDeviceFromCoreDevice(deviceID, device);
       (db->getStaticInfo()).setDeviceName(deviceID, "win_device");

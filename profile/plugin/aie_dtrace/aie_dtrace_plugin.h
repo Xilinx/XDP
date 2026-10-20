@@ -47,7 +47,7 @@ namespace xdp {
     void endPoll();
 
     // Callers must hold implMutex.
-    uint64_t getDeviceIDFromHandle(void* handle);
+    uint64_t getDeviceIDFromHandle(void* handle, bool isFullELFFlow);
     void retireImpl(void* handle, AieDtraceImpl& impl);
 
     // Returns a shared owner so the caller can use the implementation after

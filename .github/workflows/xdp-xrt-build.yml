@@ -289,7 +289,6 @@ jobs:
           echo "- Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- PR: #${{ github.event.pull_request.number }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Platform: VE2 (xdna-driver ${XDNA_BRANCH})" >> "$GITHUB_STEP_SUMMARY"
-          echo "- RPM directory: ${VE2_RPM_DIR}" >> "$GITHUB_STEP_SUMMARY"
           if find "${VE2_RPM_DIR}" -name 'xrt*.rpm' 2>/dev/null | grep -q .; then
             echo "- Result: success" >> "$GITHUB_STEP_SUMMARY"
           else

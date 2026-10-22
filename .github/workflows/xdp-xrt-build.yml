@@ -114,6 +114,7 @@ jobs:
           else
             echo "- Result: failed" >> "$GITHUB_STEP_SUMMARY"
           fi
+          rm -rf "${GITHUB_WORKSPACE}/XRT" "${GITHUB_WORKSPACE}/xdp-pr"
 
   # ---------------------------------------------------------------------------
   # Edge — Versal aarch RPM build (xrt + zocl)
@@ -195,6 +196,7 @@ jobs:
           else
             echo "- Result: failed" >> "$GITHUB_STEP_SUMMARY"
           fi
+          rm -rf "${GITHUB_WORKSPACE}/XRT" "${GITHUB_WORKSPACE}/xdp-pr"
 
   # ---------------------------------------------------------------------------
   # VE2 — Yocto / xdna-driver
@@ -263,6 +265,7 @@ jobs:
           export PATH="${GITHUB_WORKSPACE}/bin:$PATH"
 
           cd "${XDNA_DIR}/build"
+          bash build_ve2.sh -clean 
           bash build_ve2.sh | tee /tmp/build_ve2.log
           if grep -q "bitbake xrt failed" /tmp/build_ve2.log; then
             echo "bitbake xrt failed"
@@ -294,6 +297,8 @@ jobs:
           else
             echo "- Result: failed" >> "$GITHUB_STEP_SUMMARY"
           fi
+          rm -rf "${XDNA_DIR}"
+          rm -rf "${GITHUB_WORKSPACE}/XRT" "${GITHUB_WORKSPACE}/xdp-pr"
 
   # ---------------------------------------------------------------------------
   # Client — placeholder (not implemented yet)
@@ -333,7 +338,7 @@ jobs:
   # Gate — on PRs only: fail the workflow if any *scheduled* build failed.
   # Skipped jobs (wrong label set) count as OK so selective label runs work.
   # ---------------------------------------------------------------------------
-  ci-required:
+  xdp-builds-passed:
     if: always() && github.event_name == 'pull_request'
     needs: [build-xrt-alveo, build-xrt-edge, build-xrt-ve2, build-xrt-client]
     runs-on: ubuntu-latest

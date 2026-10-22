@@ -48,8 +48,15 @@ jobs:
     steps:
       - name: Register path masks
         run: |
-          echo "::add-mask::${{ secrets.MASK_SCRATCH_PREFIX }}"
-          echo "::add-mask::${{ secrets.MASK_HOME_PREFIX }}"
+          MASK_FILE="${GITHUB_WORKSPACE}/../../../mask-paths.txt"
+          if [[ -f "$MASK_FILE" ]]; then
+            while IFS= read -r p || [[ -n "$p" ]]; do
+              [[ -z "$p" || "$p" =~ ^# ]] && continue
+              echo "::add-mask::$p"
+            done < "$MASK_FILE"
+          else
+            echo "No local mask file; skipping"
+          fi
 
       - name: Checkout XDP
         uses: actions/checkout@v4
@@ -141,8 +148,15 @@ jobs:
     steps:
       - name: Register path masks
         run: |
-          echo "::add-mask::${{ secrets.MASK_SCRATCH_PREFIX }}"
-          echo "::add-mask::${{ secrets.MASK_HOME_PREFIX }}"
+          MASK_FILE="${GITHUB_WORKSPACE}/../../../mask-paths.txt"
+          if [[ -f "$MASK_FILE" ]]; then
+            while IFS= read -r p || [[ -n "$p" ]]; do
+              [[ -z "$p" || "$p" =~ ^# ]] && continue
+              echo "::add-mask::$p"
+            done < "$MASK_FILE"
+          else
+            echo "No local mask file; skipping"
+          fi
 
       - name: Checkout XDP
         uses: actions/checkout@v4
@@ -227,8 +241,15 @@ jobs:
     steps:
       - name: Register path masks
         run: |
-          echo "::add-mask::${{ secrets.MASK_SCRATCH_PREFIX }}"
-          echo "::add-mask::${{ secrets.MASK_HOME_PREFIX }}"
+          MASK_FILE="${GITHUB_WORKSPACE}/../../../mask-paths.txt"
+          if [[ -f "$MASK_FILE" ]]; then
+            while IFS= read -r p || [[ -n "$p" ]]; do
+              [[ -z "$p" || "$p" =~ ^# ]] && continue
+              echo "::add-mask::$p"
+            done < "$MASK_FILE"
+          else
+            echo "No local mask file; skipping"
+          fi
 
       - name: Checkout XDP
         uses: actions/checkout@v4
@@ -320,8 +341,15 @@ jobs:
     steps:
       - name: Register path masks
         run: |
-          echo "::add-mask::${{ secrets.MASK_SCRATCH_PREFIX }}"
-          echo "::add-mask::${{ secrets.MASK_HOME_PREFIX }}"
+          MASK_FILE="${GITHUB_WORKSPACE}/../../../mask-paths.txt"
+          if [[ -f "$MASK_FILE" ]]; then
+            while IFS= read -r p || [[ -n "$p" ]]; do
+              [[ -z "$p" || "$p" =~ ^# ]] && continue
+              echo "::add-mask::$p"
+            done < "$MASK_FILE"
+          else
+            echo "No local mask file; skipping"
+          fi
 
       - run: echo "Client build not implemented yet"
 

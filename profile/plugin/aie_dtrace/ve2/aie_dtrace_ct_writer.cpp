@@ -1072,8 +1072,7 @@ bool AieDtraceCTWriter::writeCounterCTFile(
   if (hasL2L2Counters)
     ctFile << "# Memtile L2-L2 inter-stamp halo counters when tile_based_memory_tile_metrics includes input_ports\n";
   if (hasConflictCounters)
-    ctFile << "# Memtile Group_Memory_Conflict counters (perf ctr 4) when tile_based_memory_tile_metrics includes memory_conflicts"
-              " (reset after every probe read, so values are per step)\n";
+    ctFile << "# Memtile Group_Memory_Conflict counters (perf ctr 4) when tile_based_memory_tile_metrics includes memory_conflicts\n";
   ctFile << "\n";
 
   ctFile << "begin\n";
@@ -1198,13 +1197,9 @@ bool AieDtraceCTWriter::writeCounterCTFile(
     // Each counter is assigned a sequential result variable (_0, _1, _2, ...)
     // so the dtrace JSON dump emits one key per counter ("_0", "_1", ...) in
     // probe order; counter semantics live in the COUNTER_METADATA block above.
-    // Memory conflict counters are cleared right after their read so each
-    // probe reports the conflicts since the previous probe, not a running total.
     for (size_t i = 0; i < asmFileInfo.counters.size(); i++) {
       const auto& ctr = asmFileInfo.counters[i];
       ctFile << "    _" << i << " = read_reg(" << formatAddress(ctr.address) << ")\n";
-      if (ctr.metricSet == "memory_conflicts")
-        ctFile << "    write_reg(" << formatAddress(ctr.address) << ", 0x00000000)\n";
     }
 
     ctFile << "}\n\n";

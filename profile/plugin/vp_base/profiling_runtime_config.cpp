@@ -423,9 +423,23 @@ namespace xdp::profiling_runtime_config {
       const bool memTileFieldFromBlob = ci.mem_tile.has_value() && !ci.mem_tile->empty();
       const bool blobPortsSet = ci.memory_tile_input_ports.has_value()
                              && !ci.memory_tile_input_ports->empty();
-      const bool memTileUsesBlob = memTileFieldFromBlob || blobPortsSet;
+      // mem_tile may be a ';' list (input_ports;memory_conflicts). Match the
+      // metric inside that list, not the whole string.
+      bool runHasMemTile = false;
+      bool runRequestsL2L2 = false;
+      for (const auto& run : ci.profile_runs) {
+        if (!run.mem_tile.has_value() || run.mem_tile->empty())
+          continue;
+        runHasMemTile = true;
+        if (memTileRequestsMetric(*run.mem_tile, INPUT_PORTS_METRIC_SET))
+          runRequestsL2L2 = true;
+      }
+      const bool memTileUsesBlob = memTileFieldFromBlob || blobPortsSet || runHasMemTile;
+      const bool l2l2Requested = runRequestsL2L2
+          || (memTileFieldFromBlob
+              && memTileRequestsMetric(*ci.mem_tile, INPUT_PORTS_METRIC_SET));
 
-      if (memTileFieldFromBlob && *ci.mem_tile == INPUT_PORTS_METRIC_SET) {
+      if (l2l2Requested) {
         if (blobPortsSet)
           return *ci.memory_tile_input_ports;
         return {};

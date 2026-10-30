@@ -119,7 +119,11 @@ class AieDtraceMetadata {
           && !configMetrics[CORE_MODULE_IDX].empty();
       const bool memTileConfigured = MEM_TILE_MODULE_IDX < numModules
           && !configMetrics[MEM_TILE_MODULE_IDX].empty();
-      return shimConfigured || coreConfigured || memTileConfigured;
+      // L2-L2 and memory_conflicts do not fill configMetrics. They still count
+      // as configured, so config_one_partition applies when either is the only
+      // memtile feature. Unifying all three into that map is a later change.
+      return shimConfigured || coreConfigured || memTileConfigured
+          || l2L2TransferEnabled || memoryConflictsEnabled;
     }
 
     bool isConfigOnePartition() const { return configOnePartition; }

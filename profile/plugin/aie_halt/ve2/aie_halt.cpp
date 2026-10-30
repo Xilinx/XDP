@@ -43,25 +43,55 @@ namespace xdp {
     tranxHandler = std::make_unique<xdp::aie::VE2Transaction>();
   }
 
-  void AIEHaltVE2Impl::updateDevice(void* hwCtxImpl)
+  void AIEHaltVE2Impl::updateDevice(void* /*hwCtxImpl*/)
   {
-    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-              "In AIEHaltVE2Impl::updateDevice");
-
-    xrt::hw_context hwContext =
-      xrt_core::hw_context_int::create_hw_context_from_implementation(hwCtxImpl);
-
-    // Primary path: generate the halt control code on the fly using aie-codegen.
-    if (generateHaltControlCode(hwCtxImpl, hwContext))
-      return;
-
-    // Fallback path: load a prebuilt control code ELF from disk.
-    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-              "Could not generate AIE Halt control code. Falling back to prebuilt control code ELF.");
-    loadHaltElf(hwContext);
   }
 
-  bool AIEHaltVE2Impl::generateHaltControlCode(void* hwCtxImpl, xrt::hw_context hwContext)
+  bool AIEHaltVE2Impl::prepareHalt(void* hwCtxImpl, const std::string& userKernelName,
+                                   xrt::kernel& haltKernel)
+  {
+    // Temporary: every kernel name on this context reuses one halt ELF.
+    // A later change might generate a specialized ELF per kernel name that
+    // writes a kernel id to spare registers
+    (void)userKernelName;
+    if (mHaltKernel) {
+      haltKernel = *mHaltKernel;
+      return true;
+    }
+
+    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+              "In AIEHaltVE2Impl::prepareHalt");
+
+    xrt::kernel created;
+    if (!generateHaltControlCode(hwCtxImpl, created)) {
+      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+                "Could not generate AIE Halt control code. Falling back to prebuilt control code ELF.");
+      if (!loadHaltElf(created))
+        return false;
+    }
+
+    mHaltKernel = created;
+    haltKernel = *mHaltKernel;
+    return true;
+  }
+
+  bool AIEHaltVE2Impl::scheduleHalt(const xrt::kernel& haltKernel)
+  {
+    try {
+      xrt::run rn{haltKernel};
+      rn.start();
+      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+                "In AIEHaltVE2Impl run start, going to wait");
+      rn.wait2();
+    } catch (const std::exception& e) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+                std::string("AIE Halt run failed: ") + e.what());
+      return false;
+    }
+    return true;
+  }
+
+  bool AIEHaltVE2Impl::generateHaltControlCode(void* hwCtxImpl, xrt::kernel& haltKernel)
   {
     using severity_level = xrt_core::message::severity_level;
 
@@ -70,8 +100,8 @@ namespace xdp {
     // in AIE_TRACE_METADATA, falling back to AIE_METADATA.
     xdp::aie::driver_config meta_config;
     try {
-      auto device = xrt_core::hw_context_int::get_core_device(hwContext);
-      xrt::xclbin xrtXclbin = device->get_xclbin(hwContext.get_xclbin_uuid());
+      auto device = xrt_core::hw_context_int::get_core_device(mHwContext);
+      xrt::xclbin xrtXclbin = device->get_xclbin(mHwContext.get_xclbin_uuid());
 
       auto data = xrt_core::xclbin_int::get_axlf_section(xrtXclbin, AIE_TRACE_METADATA);
       if (!data.first || !data.second)
@@ -104,9 +134,9 @@ namespace xdp {
     size_t partitionSize = 0;
     uint8_t numColumns = meta_config.num_columns;
     try {
-      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
+      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(mHwContext);
       if (isFullELFFlow) {
-        partitionSize = xrt_core::hw_context_int::get_partition_size(hwContext);
+        partitionSize = xrt_core::hw_context_int::get_partition_size(mHwContext);
         if (partitionSize > 0)
           numColumns = static_cast<uint8_t>(partitionSize);
       }
@@ -179,19 +209,25 @@ namespace xdp {
       }
     }
 
-    // Assemble the recorded ASM into an ELF and run it on XDP_KERNEL.
-    if (!tranxHandler->submitTransaction(&aieDevInst, hwContext)) {
+    // Assemble the recorded ASM into an ELF and open its kernel. The run is
+    // started later by scheduleHalt.
+    if (!tranxHandler->completeASM(&aieDevInst) || !tranxHandler->generateELF()) {
       xrt_core::message::send(severity_level::warning, "XRT",
-                "Failed to generate/submit AIE Halt control code.");
+                "Failed to generate AIE Halt control code.");
+      return false;
+    }
+    if (!tranxHandler->prepareKernel(mHwContext, haltKernel)) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+                "Failed to prepare AIE Halt kernel.");
       return false;
     }
 
     xrt_core::message::send(severity_level::info, "XRT",
-              "Successfully generated and scheduled AIE Halt control code.");
+              "Successfully generated AIE Halt control code.");
     return true;
   }
 
-  void AIEHaltVE2Impl::loadHaltElf(xrt::hw_context hwContext)
+  bool AIEHaltVE2Impl::loadHaltElf(xrt::kernel& haltKernel)
   {
     std::string inputCtrlCode = xrt_core::config::get_aie_halt_settings_control_code();
     if (inputCtrlCode.empty()) {
@@ -206,44 +242,37 @@ namespace xdp {
     } catch (...) {
       std::string msg = "Failed to load " + inputCtrlCode + ". Cannot configure AIE to halt.";
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg);
-      return;
+      return false;
     }
 
     // Full-ELF flow registers the ELF via add_config() and opens the kernel by
     // name; the xclbin flow uses an explicit xrt::module.
     bool isFullELFFlow = false;
     try {
-      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
+      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(mHwContext);
     } catch (const std::exception& e) {
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
                 std::string("Failed to query ELF flow for AIE halt, assuming xclbin flow: ") + e.what());
     }
 
-    xrt::kernel krnl;
     try {
       if (isFullELFFlow) {
-        hwContext.add_config(haltElf);
-        krnl = xrt::ext::kernel{hwContext, "XDP_KERNEL:IPUV1CNN"};
+        mHwContext.add_config(haltElf);
+        haltKernel = xrt::ext::kernel{mHwContext, "XDP_KERNEL:IPUV1CNN"};
       }
       else {
         xrt::module mod{haltElf};
-        krnl = xrt::ext::kernel{hwContext, mod, "XDP_KERNEL:{IPUV1CNN}"};
+        haltKernel = xrt::ext::kernel{mHwContext, mod, "XDP_KERNEL:{IPUV1CNN}"};
       }
     } catch (...) {
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
                 "XDP_KERNEL not found in HW Context. Cannot configure AIE to halt.");
-      return;
+      return false;
     }
 
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
               "In AIEHaltVE2Impl New Kernel Object for XDP_KERNEL created for running control code Elf");
-
-    xrt::run rn{krnl};
-    rn.start();
-    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-              "In AIEHaltVE2Impl run start, going to wait");
-
-    rn.wait2();
+    return true;
   }
 
   void AIEHaltVE2Impl::finishflushDevice(void* /*hwCtxImpl*/)

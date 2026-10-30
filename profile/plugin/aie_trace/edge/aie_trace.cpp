@@ -666,11 +666,21 @@ namespace xdp {
           traceEndEvent = comboEvents.at(1);
         }
 
+        auto iter0 = configChannel0.find(tile);
+        auto iter1 = configChannel1.find(tile);
+        uint8_t channel0 = (iter0 == configChannel0.end()) ? 0 : iter0->second;
+        uint8_t channel1 = (iter1 == configChannel1.end()) ? 1 : iter1->second;
+
+        // Remap core DMA stall events to the requested channel
+        if (type == module_type::core)
+          aie::trace::modifyEvents(type, tile.subtype, metricSet, channel0, memoryEvents,
+                                   metadata->getHardwareGen());
+
         // Configure event ports on stream switch
         // NOTE: These are events from the core module stream switch
         //       outputted on the memory module trace stream. 
         streamPorts = aie::trace::configStreamSwitchPorts(aieDevInst, tile,
-            xaieTile, loc, type, metricSet, 0, 0, memoryEvents, aieConfig);
+            xaieTile, loc, type, metricSet, channel0, channel1, memoryEvents, aieConfig);
           
         // Set overall start/end for trace capture
         if (memoryTrace->setCntrEvent(traceStartEvent, traceEndEvent) != XAIE_OK)
@@ -690,10 +700,6 @@ namespace xdp {
 
         // Specify Sel0/Sel1 for memory tile events 21-44
         if (type == module_type::mem_tile) {
-          auto iter0 = configChannel0.find(tile);
-          auto iter1 = configChannel1.find(tile);
-          uint8_t channel0 = (iter0 == configChannel0.end()) ? 0 : iter0->second;
-          uint8_t channel1 = (iter1 == configChannel1.end()) ? 1 : iter1->second;
           aie::trace::configEventSelections(aieDevInst, tile, loc, type, metricSet, channel0, 
                                             channel1, cfgTile->memory_tile_trace_config);
         }
@@ -729,7 +735,7 @@ namespace xdp {
           numMemoryTraceEvents++;
           
           // Configure edge events (as needed)
-          aie::trace::configEdgeEvents(aieDevInst, tile, type, metricSet, memoryEvents[i]);
+          aie::trace::configEdgeEvents(aieDevInst, tile, type, metricSet, memoryEvents[i], channel0);
 
           // Update config file
           // Get Trace slot

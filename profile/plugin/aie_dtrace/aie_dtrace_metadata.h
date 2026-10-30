@@ -12,8 +12,38 @@
 
 #include "xdp/profile/database/static_info/aie_constructs.h"
 #include "xdp/profile/database/static_info/filetypes/base_filetype_impl.h"
+#include "xdp/profile/plugin/vp_base/profiling_runtime_config.h"
 
 namespace xdp {
+
+// Everything that distinguishes one inference's CT file from another's. The
+// Nth profiled inference of a kernel is programmed with metricSelections[N],
+// so this has to be self-contained rather than something the CT writer reads
+// back off the shared, whole-context config maps.
+struct MetricSelection {
+  bool includeBandwidth = false;
+  std::string bandwidthMetricSet = "peak_read_bandwidth";
+  uint8_t bandwidthChannel = 0;
+  std::string coreMetricSet;     // empty means no core (aie) tile metrics
+  bool includeL2L2 = false;
+  // Memory conflicts use mem tile counter 4, so they can be on in the same
+  // inference as L2-L2 or a per-tile mem tile metric set.
+  bool includeMemoryConflicts = false;
+  std::string memTileMetricSet;  // empty means no per-tile mem tile counters
+  uint8_t memTileChannel = 0;    // MM2S channel for output/mm2s_channels_details
+  // Empty means every mem tile column in the partition. A "<column>:<metric>"
+  // prefix lists those columns here.
+  std::vector<uint8_t> memTileColumns;
+
+  bool empty() const {
+    return !includeBandwidth && coreMetricSet.empty() && !includeL2L2
+        && !includeMemoryConflicts && memTileMetricSet.empty();
+  }
+
+  // Human-readable "interface_tile=..., aie_tile=..." form used in log
+  // messages and to distinguish CT files in diagnostics.
+  std::string describe() const;
+};
 
 class AieDtraceMetadata {
   private:
@@ -42,9 +72,9 @@ class AieDtraceMetadata {
     void* handle = nullptr;
     bool configOnePartition = false;
     bool l2L2TransferEnabled = false;
+    // Memory conflicts count on mem tile counter 4, which neither L2-L2 nor the
+    // per-tile metric sets use, so they can be enabled alongside either.
     bool memoryConflictsEnabled = false;
-    // Mem tile DMA channel metric set (output_channels_details / mm2s_channels_details).
-    bool memTileDmaChannelsEnabled = false;
 
     // True when the mem tile setting asked for every column rather than naming
     // one, in which case configMetrics holds a single placeholder entry.
@@ -54,9 +84,17 @@ class AieDtraceMetadata {
     std::map<tile_type, uint8_t> configChannel0;
     std::map<tile_type, uint8_t> configChannel1;
 
+    // One entry per inference to profile, in execution order. Always holds at
+    // least one entry once the metadata is configured.
+    std::vector<MetricSelection> metricSelections;
+    bool multiInference = false;
+
     const aie::BaseFiletypeImpl* metadataReader = nullptr;
 
     void checkDtraceSettings();
+    MetricSelection buildSelectionFromProfileRun(
+        const profiling_runtime_config::profile_run_t& run, size_t index) const;
+    MetricSelection buildSelectionFromConfigMetrics();
     void getConfigMetricsForInterfaceTiles(int moduleIdx,
                                            const std::vector<std::string>& metricsSettings);
     void getConfigMetricsForAIETiles(int moduleIdx,
@@ -85,20 +123,19 @@ class AieDtraceMetadata {
     }
 
     bool isConfigOnePartition() const { return configOnePartition; }
-
     bool isL2L2Enabled() const { return l2L2TransferEnabled; }
-
     bool isMemoryConflictsEnabled() const { return memoryConflictsEnabled; }
 
-    bool isMemTileDmaChannelsEnabled() const { return memTileDmaChannelsEnabled; }
+    // Per-inference metric selections, in execution order.
+    const std::vector<MetricSelection>& getMetricSelections() const { return metricSelections; }
 
-    // When true the mem tile metric applies to every column in the partition and
-    // the config map holds only a placeholder column.
-    bool isMemTileAllColumns() const { return memTileAllColumns; }
+    // True when the user asked for a "profile_runs" sequence rather than a
+    // single configuration applied to every inference.
+    bool isMultiInference() const { return multiInference; }
 
     bool aieMetadataEmpty() { return metadataReader == nullptr; }
 
-    std::vector<std::string> getSettingsVector(std::string settingsString);
+    std::vector<std::string> getSettingsVector(std::string settingsString) const;
 
     std::vector<std::pair<tile_type, std::string>> getConfigMetricsVec(int module);
 

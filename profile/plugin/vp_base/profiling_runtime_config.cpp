@@ -74,15 +74,125 @@ namespace xdp::profiling_runtime_config {
       }
     }
 
+    // True when a mem_tile value (a ';' separated list, e.g. "input_ports;memory_conflicts")
+    // requests one metric, ignoring spaces the same way aie_dtrace splits the list.
+    bool
+    memTileRequestsMetric(const std::string& memTile, const std::string& metric)
+    {
+      std::string cleaned = memTile;
+      boost::replace_all(cleaned, " ", "");
+      std::vector<std::string> parts;
+      boost::split(parts, cleaned, boost::is_any_of(";"));
+      for (const auto& part : parts) {
+        if (part == metric)
+          return true;
+        std::vector<std::string> fields;
+        boost::split(fields, part, boost::is_any_of(":"));
+        if (std::find(fields.begin(), fields.end(), metric) != fields.end())
+          return true;
+      }
+      return false;
+    }
+
+    // The four per-inference tile keys, shared by an entry of "profile_runs"
+    // and by control_instrumentation's own single-configuration form.
+    const std::set<std::string>&
+    tile_keys()
+    {
+      static const std::set<std::string> keys{
+        "aie_tile", "mem_tile", "interface_tile", "memory_tile_input_ports",
+        "memory_tile_conflict_points"
+      };
+      return keys;
+    }
+
+    void
+    warn_unknown_key(const std::string& scope, const std::string& key,
+                     const std::set<std::string>& known_keys)
+    {
+      std::stringstream msg;
+      msg << "Unknown key '" << scope << "." << key << "' ignored. Supported keys:";
+      const char* sep = " ";
+      for (const auto& k : known_keys) {
+        msg << sep << k;
+        sep = ", ";
+      }
+      warn(msg.str());
+    }
+
+    // Parse one entry of the "profile_runs" array. Unlike the top-level form
+    // these are not logged individually; the resolved sequence is logged once
+    // by the caller.
+    profile_run_t
+    parse_profile_run(const pt::ptree& tree, size_t index)
+    {
+      profile_run_t run;
+
+      for (const auto& kv : tree) {
+        const auto& key = kv.first;
+        const auto value = kv.second.get_value<std::string>("");
+
+        if (key == "aie_tile")
+          run.aie_tile = value;
+        else if (key == "mem_tile")
+          run.mem_tile = value;
+        else if (key == "interface_tile")
+          run.interface_tile = value;
+        else if (key == "memory_tile_input_ports")
+          run.memory_tile_input_ports = value;
+        else if (key == "memory_tile_conflict_points")
+          run.memory_tile_conflict_points = value;
+        else
+          warn_unknown_key("profiling_runtime_config.control_instrumentation.profile_runs["
+                           + std::to_string(index) + "]", key, tile_keys());
+      }
+
+      return run;
+    }
+
+    // Shorthand form: "profile_runs": "<super metric set>". A super metric set
+    // names a fixed sequence of per-inference selections, so a user who wants
+    // the standard report does not have to spell the sequence out.
+    std::vector<profile_run_t>
+    expand_super_metric_set(const std::string& name)
+    {
+      std::vector<profile_run_t> runs;
+
+      if (name != "compute_io_bound") {
+        warn("Unknown super metric set 'profiling_runtime_config.control_instrumentation."
+             "profile_runs=" + name + "'. Supported: compute_io_bound. "
+             "No profile runs configured.");
+        return runs;
+      }
+
+      // Compute boundness on the first inference, then the four DDR bandwidth
+      // channels that cannot share a run because they contend for the same
+      // interface tile counters.
+      runs.resize(4);
+      runs[0].aie_tile = "compute_io_bound";
+      runs[0].interface_tile = "detailed_ddr_read_bandwidth:0";
+      runs[1].interface_tile = "detailed_ddr_read_bandwidth:1";
+      runs[2].interface_tile = "detailed_ddr_write_bandwidth:0";
+      runs[3].interface_tile = "detailed_ddr_write_bandwidth:1";
+
+      info("profiling_runtime_config.control_instrumentation.profile_runs='" + name
+           + "' expanded to " + std::to_string(runs.size()) + " inferences.");
+
+      return runs;
+    }
+
+    // A kernel is profiled for at most this many inferences. A longer
+    // profile_runs list is truncated, and a kernel that keeps running past
+    // the list is not profiled further.
+    constexpr size_t max_profiled_inferences = 4;
+
     // Parse the control_instrumentation subtree: copy known string keys into
     // the returned struct and warn about any unknown keys.
     control_instrumentation_t
     parse_control_instrumentation(const pt::ptree& ci_tree)
     {
-      static const std::set<std::string> known_keys{
-        "aie_tile", "mem_tile", "interface_tile", "memory_tile_input_ports",
-        "memory_tile_conflict_points"
-      };
+      std::set<std::string> known_keys = tile_keys();
+      known_keys.insert("profile_runs");
 
       control_instrumentation_t ci;
 
@@ -117,17 +227,43 @@ namespace xdp::profiling_runtime_config {
             info("profiling_runtime_config.control_instrumentation.memory_tile_conflict_points='"
                  + value + "'");
         }
-        else {
-          std::stringstream msg;
-          msg << "Unknown key 'profiling_runtime_config.control_instrumentation."
-              << key << "' ignored. Supported keys:";
-          const char* sep = " ";
-          for (const auto& k : known_keys) {
-            msg << sep << k;
-            sep = ", ";
+        else if (key == "profile_runs") {
+          // A ptree node with no children is a scalar, i.e. the shorthand
+          // string; one with children is the JSON array, whose elements ptree
+          // exposes as children with empty keys.
+          if (kv.second.empty()) {
+            ci.profile_runs = expand_super_metric_set(value);
           }
-          warn(msg.str());
+          else {
+            size_t index = 0;
+            for (const auto& entry : kv.second)
+              ci.profile_runs.push_back(parse_profile_run(entry.second, index++));
+          }
+          if (ci.profile_runs.size() > max_profiled_inferences) {
+            warn("profiling_runtime_config.control_instrumentation.profile_runs has "
+                 + std::to_string(ci.profile_runs.size())
+                 + " entries; only the first "
+                 + std::to_string(max_profiled_inferences)
+                 + " inferences of each kernel are profiled.");
+            ci.profile_runs.resize(max_profiled_inferences);
+          }
+          ci.has_explicit_profile_runs = !ci.profile_runs.empty();
         }
+        else {
+          warn_unknown_key("profiling_runtime_config.control_instrumentation", key, known_keys);
+        }
+      }
+
+      // Without an explicit sequence the single configuration above is itself
+      // the one and only profile run, so consumers never have to branch on
+      // which form the blob used.
+      if (ci.profile_runs.empty()) {
+        profile_run_t single;
+        single.aie_tile = ci.aie_tile;
+        single.mem_tile = ci.mem_tile;
+        single.interface_tile = ci.interface_tile;
+        single.memory_tile_input_ports = ci.memory_tile_input_ports;
+        ci.profile_runs.push_back(std::move(single));
       }
 
       return ci;
@@ -216,7 +352,8 @@ namespace xdp::profiling_runtime_config {
                      || out.ci.mem_tile.has_value()
                      || out.ci.interface_tile.has_value()
                      || out.ci.memory_tile_input_ports.has_value()
-                     || out.ci.memory_tile_conflict_points.has_value();
+                     || out.ci.memory_tile_conflict_points.has_value()
+                     || out.ci.has_explicit_profile_runs;
           }
 
           if (const auto et_opt = root.get_child_optional("event_trace")) {
@@ -250,17 +387,6 @@ namespace xdp::profiling_runtime_config {
       return has_event_trace() ? blobValue : iniGetter();
     }
 
-    // True when the mem_tile value lists metricSet, splitting on ';' and ':' and
-    // ignoring spaces the same way aie_dtrace splits tile_based_memory_tile_metrics.
-    bool
-    mem_tile_requests(std::string memTile, const std::string& metricSet)
-    {
-      boost::replace_all(memTile, " ", "");
-      std::vector<std::string> parts;
-      boost::split(parts, memTile, boost::is_any_of(";:"));
-      return std::find(parts.begin(), parts.end(), metricSet) != parts.end();
-    }
-
   } // anonymous namespace
 
   bool
@@ -281,6 +407,12 @@ namespace xdp::profiling_runtime_config {
     return get_parsed().ci;
   }
 
+  const std::vector<profile_run_t>&
+  profile_runs()
+  {
+    return get_parsed().ci.profile_runs;
+  }
+
   std::string
   resolveMemoryTileInputPorts()
   {
@@ -291,11 +423,9 @@ namespace xdp::profiling_runtime_config {
       const bool memTileFieldFromBlob = ci.mem_tile.has_value() && !ci.mem_tile->empty();
       const bool blobPortsSet = ci.memory_tile_input_ports.has_value()
                              && !ci.memory_tile_input_ports->empty();
-      const bool blobPointsSet = ci.memory_tile_conflict_points.has_value()
-                              && !ci.memory_tile_conflict_points->empty();
-      const bool memTileUsesBlob = memTileFieldFromBlob || blobPortsSet || blobPointsSet;
+      const bool memTileUsesBlob = memTileFieldFromBlob || blobPortsSet;
 
-      if (memTileFieldFromBlob && mem_tile_requests(*ci.mem_tile, INPUT_PORTS_METRIC_SET)) {
+      if (memTileFieldFromBlob && *ci.mem_tile == INPUT_PORTS_METRIC_SET) {
         if (blobPortsSet)
           return *ci.memory_tile_input_ports;
         return {};
@@ -316,19 +446,33 @@ namespace xdp::profiling_runtime_config {
     if (has_control_instrumentation()) {
       const auto& ci = control_instrumentation();
       const bool memTileFieldFromBlob = ci.mem_tile.has_value() && !ci.mem_tile->empty();
-      const bool blobPortsSet = ci.memory_tile_input_ports.has_value()
-                             && !ci.memory_tile_input_ports->empty();
       const bool blobPointsSet = ci.memory_tile_conflict_points.has_value()
                               && !ci.memory_tile_conflict_points->empty();
-      const bool memTileUsesBlob = memTileFieldFromBlob || blobPortsSet || blobPointsSet;
+      // Any mem tile key in the blob makes it the only source, matching the
+      // rule for the input ports above.
+      bool runHasMemTile = false;
+      bool runRequestsConflicts = false;
+      for (const auto& run : ci.profile_runs) {
+        if (!run.mem_tile.has_value() || run.mem_tile->empty())
+          continue;
+        runHasMemTile = true;
+        if (memTileRequestsMetric(*run.mem_tile, MEMORY_CONFLICTS_METRIC_SET))
+          runRequestsConflicts = true;
+      }
+      const bool memTileUsesBlob = memTileFieldFromBlob
+          || (ci.memory_tile_input_ports.has_value() && !ci.memory_tile_input_ports->empty())
+          || blobPointsSet
+          || runHasMemTile;
+      const bool conflictsRequested = runRequestsConflicts
+          || (memTileFieldFromBlob
+              && memTileRequestsMetric(*ci.mem_tile, MEMORY_CONFLICTS_METRIC_SET));
 
-      if (memTileFieldFromBlob && mem_tile_requests(*ci.mem_tile, MEMORY_CONFLICTS_METRIC_SET)) {
+      if (conflictsRequested) {
         if (blobPointsSet)
           return *ci.memory_tile_conflict_points;
         return {};
       }
 
-      // Partial blob mem-tile config: do not fall back to xrt.ini points.
       if (memTileUsesBlob)
         return {};
     }

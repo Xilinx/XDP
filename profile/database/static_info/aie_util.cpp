@@ -419,6 +419,11 @@ namespace xdp::aie {
         boost::property_tree::ptree pt;
         pt.put("start_col", e.start_col);
         pt.put("num_cols", e.num_cols);
+        // The query is device-wide, so it also reports partitions belonging to
+        // other contexts and other processes. These two identify the owner:
+        // "id" is the driver's context id, which matches hwctx_handle::get_slotidx().
+        pt.put("id", e.metadata.id);
+        pt.put("pid", e.pid);
         infoPt.push_back(std::make_pair("", pt));
       }
     }

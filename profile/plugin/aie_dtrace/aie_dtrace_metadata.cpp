@@ -37,6 +37,22 @@ namespace xdp {
   }
 
   static constexpr const char* INPUT_PORTS_METRIC_SET = "input_ports";
+  static constexpr const char* MEMORY_CONFLICTS_METRIC_SET = "memory_conflicts";
+
+  // True when one of the ';' separated mem tile settings requests a given metric.
+  bool settingsRequestMetric(const std::vector<std::string>& metricsSettings,
+                             const std::string& metric)
+  {
+    for (const auto& setting : metricsSettings) {
+      std::vector<std::string> parts;
+      boost::split(parts, setting, boost::is_any_of(":"));
+      for (const auto& part : parts) {
+        if (part == metric)
+          return true;
+      }
+    }
+    return false;
+  }
 
   bool settingsRequestL2L2Transfer(const std::vector<std::string>& metricsSettings)
   {
@@ -135,21 +151,35 @@ namespace xdp {
 
     // Memory tile / L2-L2: blob and xrt.ini are separate config sources. If either
     // mem_tile or memory_tile_input_ports is present and non-empty in control_instrumentation,
-    // the whole mem-tile L2-L2 config must come from the blob (both fields). Otherwise
-    // both tile_based_memory_tile_metrics and memory_tile_input_ports must be in xrt.ini.
+    // the whole mem-tile config must come from the blob. Otherwise
+    // tile_based_memory_tile_metrics, memory_tile_input_ports and
+    // memory_tile_conflict_points must be in xrt.ini. Memory conflicts follow the
+    // same rules as L2-L2 but with memory_tile_conflict_points, and are requested
+    // with a ';' list (e.g. input_ports;memory_conflicts).
     const std::string memTileSettings =
         xrt_core::config::get_aie_dtrace_settings_tile_based_memory_tile_metrics();
+    const auto iniMemTileSettingsVec = getSettingsVector(memTileSettings);
     const bool iniL2L2Enabled = !memTileSettings.empty()
-        && settingsRequestL2L2Transfer(getSettingsVector(memTileSettings));
+        && settingsRequestL2L2Transfer(iniMemTileSettingsVec);
+    const bool iniConflictsEnabled = !memTileSettings.empty()
+        && settingsRequestMetric(iniMemTileSettingsVec, MEMORY_CONFLICTS_METRIC_SET);
     const std::string iniPorts =
         xrt_core::config::get_aie_dtrace_settings_memory_tile_input_ports();
     const bool iniPortsSet = !iniPorts.empty();
+    const bool iniPointsSet =
+        !xrt_core::config::get_aie_dtrace_settings_memory_tile_conflict_points().empty();
     // The design points (which memory tile ports exist) are a property of the
     // design, so they stay global even when the metric sets vary per inference;
     // only whether to instrument them in a given inference is per-entry.
     const bool anyRunWantsL2L2 = useProfileRuns
-        && std::any_of(runs.begin(), runs.end(), [](const auto& r) {
-             return r.mem_tile.has_value() && *r.mem_tile == INPUT_PORTS_METRIC_SET;
+        && std::any_of(runs.begin(), runs.end(), [this](const auto& r) {
+             return r.mem_tile.has_value()
+                 && settingsRequestL2L2Transfer(getSettingsVector(*r.mem_tile));
+           });
+    const bool anyRunWantsConflicts = useProfileRuns
+        && std::any_of(runs.begin(), runs.end(), [this](const auto& r) {
+             return r.mem_tile.has_value()
+                 && settingsRequestMetric(getSettingsVector(*r.mem_tile), MEMORY_CONFLICTS_METRIC_SET);
            });
 
     if (useProfileRuns
@@ -162,12 +192,41 @@ namespace xdp {
           "(or AIE_dtrace_settings.memory_tile_input_ports) for every inference.");
     }
 
+    if (useProfileRuns
+        && std::any_of(runs.begin(), runs.end(), [](const auto& r) {
+             return r.memory_tile_conflict_points.has_value()
+                 && !r.memory_tile_conflict_points->empty();
+           })) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+          "AIE dtrace: memory_tile_conflict_points inside a profile_runs entry is not supported; "
+          "conflict points are taken from control_instrumentation.memory_tile_conflict_points "
+          "(or AIE_dtrace_settings.memory_tile_conflict_points) for every inference.");
+    }
+
     const bool blobPortsSet = usingBlob && ci.memory_tile_input_ports.has_value()
                            && !ci.memory_tile_input_ports->empty();
+    const bool blobPointsSet = usingBlob && ci.memory_tile_conflict_points.has_value()
+                            && !ci.memory_tile_conflict_points->empty();
     const bool memTileFieldFromBlob = usingBlob && effMemTile.has_value()
                                    && !effMemTile->empty();
     const bool memTileUsesBlob = usingBlob
-                              && (memTileFieldFromBlob || blobPortsSet || anyRunWantsL2L2);
+        && (memTileFieldFromBlob || blobPortsSet || blobPointsSet
+            || anyRunWantsL2L2 || anyRunWantsConflicts);
+
+    if (memTileUsesBlob) {
+      std::vector<std::string> ignoredIniKeys;
+      if (!memTileSettings.empty())
+        ignoredIniKeys.push_back("tile_based_memory_tile_metrics");
+      if (iniPortsSet)
+        ignoredIniKeys.push_back("memory_tile_input_ports");
+      if (iniPointsSet)
+        ignoredIniKeys.push_back("memory_tile_conflict_points");
+      if (!ignoredIniKeys.empty())
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: profiling_runtime_config.control_instrumentation contains mem tile "
+            "settings, so these AIE_dtrace_settings keys in xrt.ini are ignored: "
+            + boost::algorithm::join(ignoredIniKeys, ", ") + ".");
+    }
 
     // Mem tile settings that are not L2-L2 select a per-tile counter metric set such
     // as output_channels_details. Both families program the same mem tile performance
@@ -176,9 +235,14 @@ namespace xdp {
     std::vector<std::string> memTileMetricsSettings;
 
     bool l2L2FromBlob = false;
+    bool conflictsFromBlob = false;
     if (memTileUsesBlob) {
       const bool blobEnablesL2L2 = anyRunWantsL2L2
-          || (memTileFieldFromBlob && *effMemTile == INPUT_PORTS_METRIC_SET);
+          || (memTileFieldFromBlob
+              && settingsRequestL2L2Transfer(getSettingsVector(*effMemTile)));
+      const bool blobEnablesConflicts = anyRunWantsConflicts
+          || (memTileFieldFromBlob
+              && settingsRequestMetric(getSettingsVector(*effMemTile), MEMORY_CONFLICTS_METRIC_SET));
 
       if (blobEnablesL2L2) {
         l2L2TransferEnabled = true;
@@ -187,18 +251,45 @@ namespace xdp {
             "AIE dtrace: enabling L2-L2 via mem_tile metric '"
             + std::string(INPUT_PORTS_METRIC_SET)
             + "' from Debug.profiling_runtime_config.");
-      } else if (memTileFieldFromBlob) {
+      } else if (memTileFieldFromBlob && !blobEnablesConflicts) {
         xrt_core::message::send(severity_level::info, "XRT",
             "AIE dtrace: using mem_tile metric '" + *effMemTile
             + "' from Debug.profiling_runtime_config.");
         memTileMetricsSettings = getSettingsVector("all:" + *effMemTile);
       }
+      if (blobEnablesConflicts) {
+        memoryConflictsEnabled = true;
+        conflictsFromBlob = true;
+        xrt_core::message::send(severity_level::info, "XRT",
+            "AIE dtrace: enabling memory conflicts via mem_tile metric '"
+            + std::string(MEMORY_CONFLICTS_METRIC_SET)
+            + "' from Debug.profiling_runtime_config.");
+        // memory_conflicts is not a per-tile metric set, so the remainder of the
+        // list (e.g. output_channels_details alongside it) still goes to the parser.
+        if (memTileFieldFromBlob && !blobEnablesL2L2) {
+          std::string perTileMetrics = *effMemTile;
+          boost::replace_all(perTileMetrics, MEMORY_CONFLICTS_METRIC_SET, "");
+          boost::replace_all(perTileMetrics, " ", "");
+          if (!perTileMetrics.empty() && (perTileMetrics != ";"))
+            memTileMetricsSettings = getSettingsVector("all:" + perTileMetrics);
+        }
+      }
     }
     else {
       l2L2TransferEnabled = iniL2L2Enabled;
+      memoryConflictsEnabled = iniConflictsEnabled;
       if (!iniL2L2Enabled && !memTileSettings.empty())
         memTileMetricsSettings = getSettingsVector(memTileSettings);
     }
+
+    // Memory conflicts are not a per-tile metric set; keep them out of that parser.
+    memTileMetricsSettings.erase(
+        std::remove_if(memTileMetricsSettings.begin(), memTileMetricsSettings.end(),
+            [](const std::string& setting) {
+              return settingsRequestMetric(std::vector<std::string>{setting},
+                                           MEMORY_CONFLICTS_METRIC_SET);
+            }),
+        memTileMetricsSettings.end());
 
     if (l2L2TransferEnabled && !memTileMetricsSettings.empty()) {
       xrt_core::message::send(severity_level::warning, "XRT",
@@ -222,6 +313,20 @@ namespace xdp {
           "AIE dtrace: AIE_dtrace_settings.memory_tile_input_ports is set but "
           "tile_based_memory_tile_metrics does not include 'input_ports'. Add "
           "tile_based_memory_tile_metrics=all:input_ports (or equivalent) to enable L2-L2.");
+    }
+
+    if (blobPointsSet && !conflictsFromBlob) {
+      xrt_core::message::send(severity_level::error, "XRT",
+          "AIE dtrace: profiling_runtime_config.control_instrumentation."
+          "memory_tile_conflict_points is set but mem_tile does not include "
+          "'memory_conflicts'. Ignoring memory_tile_conflict_points.");
+    }
+
+    if (iniPointsSet && !iniConflictsEnabled && !memTileUsesBlob) {
+      xrt_core::message::send(severity_level::error, "XRT",
+          "AIE dtrace: AIE_dtrace_settings.memory_tile_conflict_points is set but "
+          "tile_based_memory_tile_metrics does not include 'memory_conflicts'. "
+          "Ignoring memory_tile_conflict_points.");
     }
 
     if (l2L2TransferEnabled) {
@@ -252,6 +357,44 @@ namespace xdp {
               "L2-L2 counters will not be appended to the CT.");
         }
         l2L2TransferEnabled = false;
+      }
+    }
+
+    if (memoryConflictsEnabled) {
+      const std::string pointsStr = profiling_runtime_config::resolveMemoryTileConflictPoints();
+      if (pointsStr.empty()) {
+        xrt_core::message::send(severity_level::error, "XRT",
+            conflictsFromBlob
+              ? "AIE dtrace: profiling_runtime_config.control_instrumentation.mem_tile "
+                "includes 'memory_conflicts' but memory_tile_conflict_points is missing or empty "
+                "(e.g. \"memory_tile_conflict_points\": \"{1,1:all},{5,1:all}\"). "
+                "Memory conflicts will not be monitored."
+              : "AIE dtrace: AIE_dtrace_settings.tile_based_memory_tile_metrics includes "
+                "'memory_conflicts' but memory_tile_conflict_points is missing or empty "
+                "(e.g. memory_tile_conflict_points={1,1:all},{5,1:all}). "
+                "Memory conflicts will not be monitored.");
+        memoryConflictsEnabled = false;
+      }
+      else {
+        std::vector<std::string> droppedEntries;
+        const auto parsedTiles =
+            aie::dtrace::parseMemoryConflictPoints(pointsStr, &droppedEntries);
+        if (parsedTiles.empty()) {
+          xrt_core::message::send(severity_level::error, "XRT",
+              "AIE dtrace: memory_tile_conflict_points has no usable entries. "
+              "Memory conflicts will not be monitored.");
+          memoryConflictsEnabled = false;
+        }
+        else if (!droppedEntries.empty()) {
+          const std::string rule = parsedTiles.front().allTiles
+              ? "AIE dtrace: memory_tile_conflict_points has an {all:<bank>} entry, which "
+                "covers every memtile, so entries before it are dropped and entries after "
+                "it are not read."
+              : "AIE dtrace: memory_tile_conflict_points allows one entry per memtile, so only "
+                "the first entry for each tile is used.";
+          xrt_core::message::send(severity_level::warning, "XRT",
+              rule + " Ignoring: " + boost::algorithm::join(droppedEntries, ", ") + ".");
+        }
       }
     }
 
@@ -295,6 +438,10 @@ namespace xdp {
       msg << sep << "mem_tile=" << INPUT_PORTS_METRIC_SET;
       sep = ", ";
     }
+    if (includeMemoryConflicts) {
+      msg << sep << "mem_tile=" << MEMORY_CONFLICTS_METRIC_SET;
+      sep = ", ";
+    }
     if (!memTileMetricSet.empty())
       msg << sep << "mem_tile=" << memTileMetricSet
           << ":" << static_cast<int>(memTileChannel);
@@ -335,6 +482,7 @@ namespace xdp {
     }
 
     selection.includeL2L2 = l2L2TransferEnabled;
+    selection.includeMemoryConflicts = memoryConflictsEnabled;
 
     // Per-tile mem tile counters (output_channels_details / mm2s_channels_details).
     // L2-L2 and these share the mem tile performance counters, and the constructor
@@ -417,12 +565,40 @@ namespace xdp {
     }
 
     if (run.mem_tile.has_value() && !run.mem_tile->empty()) {
-      if (*run.mem_tile == INPUT_PORTS_METRIC_SET) {
+      // A ';' list can request more than one mem tile feature, the same way
+      // tile_based_memory_tile_metrics does (e.g. "input_ports;memory_conflicts").
+      const auto memSettings = getSettingsVector(*run.mem_tile);
+      const bool wantsL2L2 = settingsRequestL2L2Transfer(memSettings);
+      const bool wantsConflicts =
+          settingsRequestMetric(memSettings, MEMORY_CONFLICTS_METRIC_SET);
+      if (wantsL2L2)
         selection.includeL2L2 = l2L2TransferEnabled;
+      if (wantsConflicts)
+        selection.includeMemoryConflicts = memoryConflictsEnabled;
+
+      // Whatever is left is a per-tile metric set. L2-L2 already owns counters
+      // 0-3, so that set is refused when both were requested. memory_conflicts
+      // uses counter 4 and stays.
+      std::string perTileSetting;
+      for (const auto& setting : memSettings) {
+        if (setting.empty()
+            || settingsRequestL2L2Transfer({setting})
+            || settingsRequestMetric({setting}, MEMORY_CONFLICTS_METRIC_SET))
+          continue;
+        perTileSetting = setting;
+        break;
       }
-      else {
+
+      if (selection.includeL2L2 && !perTileSetting.empty()) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: " + scope + " requests L2-L2 and a per-tile mem tile metric "
+            "set. Keeping L2-L2 and ignoring '" + perTileSetting + "'.");
+        perTileSetting.clear();
+      }
+
+      if (!perTileSetting.empty()) {
         std::vector<std::string> parts;
-        boost::split(parts, *run.mem_tile, boost::is_any_of(":"));
+        boost::split(parts, perTileSetting, boost::is_any_of(":"));
         auto metricPos = std::find_if(parts.begin(), parts.end(),
             [this](const std::string& part) { return isMemTileMetricSet(part); });
 
@@ -430,7 +606,7 @@ namespace xdp {
           xrt_core::message::send(severity_level::warning, "XRT",
               "AIE dtrace: " + scope + ".mem_tile='" + *run.mem_tile
               + "' is not a known mem tile metric set. Supported: input_ports, "
-                "output_channels_details, mm2s_channels_details, off.");
+                "memory_conflicts, output_channels_details, mm2s_channels_details, off.");
         }
         else if (*metricPos != "off") {
           selection.memTileMetricSet = *metricPos;
@@ -480,6 +656,7 @@ namespace xdp {
       "tile_based_aie_metrics",
       "tile_based_memory_tile_metrics",
       "memory_tile_input_ports",
+      "memory_tile_conflict_points",
       "configure_aie_hardware",
       "config_one_partition",
     };
@@ -501,7 +678,7 @@ namespace xdp {
   }
 
   std::vector<std::string>
-  AieDtraceMetadata::getSettingsVector(std::string settingsString)
+  AieDtraceMetadata::getSettingsVector(std::string settingsString) const
   {
     if (settingsString.empty())
       return {};

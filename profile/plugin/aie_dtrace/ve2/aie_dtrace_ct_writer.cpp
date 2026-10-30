@@ -1510,6 +1510,117 @@ bool AieDtraceCTWriter::appendMemTileConfig(
   return true;
 }
 
+//=============================================== Memtile memory conflicts ==================================
+
+void AieDtraceCTWriter::appendMemoryConflictsConfig(
+    void* hwctx,
+    bool includeMemoryConflicts,
+    std::vector<CTCounterInfo>& counters,
+    std::vector<CTRegisterWrite>& beginWrites)
+{
+  if (!includeMemoryConflicts || !metadata || !metadata->isMemoryConflictsEnabled())
+    return;
+
+  if (!hwctx) {
+    xrt_core::message::send(severity_level::debug, "XRT",
+        "AIE dtrace: No hwctx provided for memory_conflicts configuration");
+    return;
+  }
+
+  const auto partition = aie::dtrace::getPartitionGeometry(hwctx);
+  if (!partition.valid || partition.numCols == 0)
+    return;
+
+  const uint32_t numCols = partition.numCols;
+
+  std::vector<uint8_t> validMemRows;
+  auto driverConfig = metadata->getAIEConfigMetadata();
+  for (uint32_t i = 0; i < driverConfig.mem_num_rows; ++i)
+    validMemRows.push_back(static_cast<uint8_t>(driverConfig.mem_row_start + i));
+
+  const auto parsedTiles = aie::dtrace::parseMemoryConflictPoints(
+      profiling_runtime_config::resolveMemoryTileConflictPoints());
+  auto tiles = aie::dtrace::filterMemoryConflictTiles(numCols, validMemRows, parsedTiles);
+  if (tiles.empty()) {
+    std::stringstream msg;
+    msg << "AIE dtrace: no memory_tile_conflict_points tile is inside this partition "
+        << "(start_col=" << static_cast<int>(partitionStartCol)
+        << ", num_cols=" << numCols << "). Memory conflicts will not be monitored.";
+    xrt_core::message::send(severity_level::error, "XRT", msg.str());
+    return;
+  }
+
+  for (const auto& tile : tiles) {
+    auto writes = generateMemtileConflictCounterConfig(tile.column, tile.row, tile.bank);
+    beginWrites.insert(beginWrites.end(), writes.begin(), writes.end());
+
+    CTCounterInfo info;
+    info.column = tile.column;
+    info.row = tile.row;
+    info.counterNumber = aie::dtrace::MEMORY_CONFLICT_COUNTER;
+    info.channel = 0;
+    info.module = "memory_tile";
+    info.address = calculateCounterAddress(tile.column, tile.row,
+                                           aie::dtrace::MEMORY_CONFLICT_COUNTER,
+                                           "memory_tile");
+    info.metricSet = "memory_conflicts";
+    info.portDirection.clear();
+    info.eventType = (tile.bank == aie::dtrace::ALL_MEMTILE_BANKS)
+        ? "memtile_memory_conflict"
+        : "memtile_memory_conflict_bank_" + std::to_string(tile.bank);
+    counters.push_back(info);
+  }
+
+  std::stringstream msg;
+  msg << "AIE dtrace: Appending " << tiles.size()
+      << " memtile memory_conflicts counter(s) to CT (start_col="
+      << static_cast<int>(partitionStartCol) << ", num_cols=" << numCols << ")";
+  xrt_core::message::send(severity_level::info, "XRT", msg.str());
+}
+
+std::vector<CTRegisterWrite> AieDtraceCTWriter::generateMemtileConflictCounterConfig(
+    uint8_t column, uint8_t row, uint8_t bank)
+{
+  std::vector<CTRegisterWrite> writes;
+
+  uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
+                         (static_cast<uint64_t>(row) << rowShift);
+  const std::string loc = "memtile (" + std::to_string(column) + ","
+                        + std::to_string(row) + ")";
+
+  CTRegisterWrite enableWrite;
+  enableWrite.address = tileAddress + MEM_TILE_EVENT_GROUP_MEMORY_CONFLICT_ENABLE;
+  const bool allBanks = (bank == aie::dtrace::ALL_MEMTILE_BANKS);
+  enableWrite.value = allBanks ? MEM_TILE_GROUP_CONFLICT_ENABLE_MASK : (1u << bank);
+  enableWrite.comment = "Event_Group_Memory_Conflict_Enable @ " + loc
+                      + (allBanks ? std::string(" (banks 0-7 contribute to Group_Memory_Conflict)")
+                                  : " (only bank " + std::to_string(bank)
+                                      + " contributes to Group_Memory_Conflict)");
+  writes.push_back(enableWrite);
+
+  CTRegisterWrite resetWrite;
+  resetWrite.address = tileAddress + MEM_TILE_BASE_OFFSET
+                     + (aie::dtrace::MEMORY_CONFLICT_COUNTER * 4);
+  resetWrite.value = 0;
+  resetWrite.comment = "Reset memtile PerfCounter"
+                     + std::to_string(aie::dtrace::MEMORY_CONFLICT_COUNTER)
+                     + " @ " + loc;
+  writes.push_back(resetWrite);
+
+  // PerfCtrl3: [7:0]=Cnt4_Start, [15:8]=Cnt4_Stop, [23:16]=Cnt5_Start, [31:24]=Cnt5_Stop
+  const uint32_t ev = aie::dtrace::GROUP_MEMORY_CONFLICT_EVENT;
+  CTRegisterWrite ctrlWrite;
+  ctrlWrite.address = tileAddress + MEM_TILE_PERF_CTRL3_OFFSET;
+  ctrlWrite.value = (ev << 0) | (ev << 8);  // ctr4 start=stop=Group_Memory_Conflict; ctr5 unused
+  ctrlWrite.comment = "Memtile PerfCtrl3 @ " + loc
+                    + " (ctr4 = Group_Memory_Conflict event "
+                    + std::to_string(ev) + ")";
+  writes.push_back(ctrlWrite);
+
+  return writes;
+}
+//============================================================================================================
+
 bool AieDtraceCTWriter::generateCT(
     const std::string& outputPath,
     void* hwctx,
@@ -1548,10 +1659,12 @@ bool AieDtraceCTWriter::generateCT(
         "AIE dtrace: Unsupported core (aie) tile metric set '" + selection.coreMetricSet
         + "'; no core tile counters configured.");
 
-  // Both mem tile families program the same performance counters, so a single
-  // selection carries at most one of them. L2-L2 is per inference; the per-tile
-  // metric set is selection.memTileMetricSet.
+  // L2-L2 and the per-tile mem tile metric sets both program counters 0-3, so a
+  // selection carries at most one of them. Memory conflicts use counter 4.
   appendL2L2Config(hwctx, selection.includeL2L2, allCounters, beginBlockWrites);
+
+  appendMemoryConflictsConfig(hwctx, selection.includeMemoryConflicts,
+                              allCounters, beginBlockWrites);
 
   // Mem tile counters live on rows between the shim and the core tiles, so they land in
   // the same column-keyed UC groups as the other two families.

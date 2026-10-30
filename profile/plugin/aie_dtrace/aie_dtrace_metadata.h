@@ -26,6 +26,9 @@ struct MetricSelection {
   uint8_t bandwidthChannel = 0;
   std::string coreMetricSet;     // empty means no core (aie) tile metrics
   bool includeL2L2 = false;
+  // Memory conflicts use mem tile counter 4, so they can be on in the same
+  // inference as L2-L2 or a per-tile mem tile metric set.
+  bool includeMemoryConflicts = false;
   std::string memTileMetricSet;  // empty means no per-tile mem tile counters
   uint8_t memTileChannel = 0;    // MM2S channel for output/mm2s_channels_details
   // Empty means every mem tile column in the partition. A "<column>:<metric>"
@@ -34,7 +37,7 @@ struct MetricSelection {
 
   bool empty() const {
     return !includeBandwidth && coreMetricSet.empty() && !includeL2L2
-        && memTileMetricSet.empty();
+        && !includeMemoryConflicts && memTileMetricSet.empty();
   }
 
   // Human-readable "interface_tile=..., aie_tile=..." form used in log
@@ -69,6 +72,9 @@ class AieDtraceMetadata {
     void* handle = nullptr;
     bool configOnePartition = false;
     bool l2L2TransferEnabled = false;
+    // Memory conflicts count on mem tile counter 4, which neither L2-L2 nor the
+    // per-tile metric sets use, so they can be enabled alongside either.
+    bool memoryConflictsEnabled = false;
 
     // True when the mem tile setting asked for every column rather than naming
     // one, in which case configMetrics holds a single placeholder entry.
@@ -113,10 +119,16 @@ class AieDtraceMetadata {
           && !configMetrics[CORE_MODULE_IDX].empty();
       const bool memTileConfigured = MEM_TILE_MODULE_IDX < numModules
           && !configMetrics[MEM_TILE_MODULE_IDX].empty();
-      return shimConfigured || coreConfigured || memTileConfigured;
+      // L2-L2 and memory_conflicts do not fill configMetrics. They still count
+      // as configured, so config_one_partition applies when either is the only
+      // memtile feature. Unifying all three into that map is a later change.
+      return shimConfigured || coreConfigured || memTileConfigured
+          || l2L2TransferEnabled || memoryConflictsEnabled;
     }
 
     bool isConfigOnePartition() const { return configOnePartition; }
+    bool isL2L2Enabled() const { return l2L2TransferEnabled; }
+    bool isMemoryConflictsEnabled() const { return memoryConflictsEnabled; }
 
     // Per-inference metric selections, in execution order.
     const std::vector<MetricSelection>& getMetricSelections() const { return metricSelections; }
@@ -127,7 +139,7 @@ class AieDtraceMetadata {
 
     bool aieMetadataEmpty() { return metadataReader == nullptr; }
 
-    std::vector<std::string> getSettingsVector(std::string settingsString);
+    std::vector<std::string> getSettingsVector(std::string settingsString) const;
 
     std::vector<std::pair<tile_type, std::string>> getConfigMetricsVec(int module);
 

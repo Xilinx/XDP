@@ -3,10 +3,13 @@
 
 #define XDP_CORE_SOURCE
 
+#include <algorithm>
 #include <set>
 #include <sstream>
 #include <string>
+#include <vector>
 
+#include <boost/algorithm/string.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
@@ -71,13 +74,34 @@ namespace xdp::profiling_runtime_config {
       }
     }
 
+    // True when a mem_tile value (a ';' separated list, e.g. "input_ports;memory_conflicts")
+    // requests one metric, ignoring spaces the same way aie_dtrace splits the list.
+    bool
+    memTileRequestsMetric(const std::string& memTile, const std::string& metric)
+    {
+      std::string cleaned = memTile;
+      boost::replace_all(cleaned, " ", "");
+      std::vector<std::string> parts;
+      boost::split(parts, cleaned, boost::is_any_of(";"));
+      for (const auto& part : parts) {
+        if (part == metric)
+          return true;
+        std::vector<std::string> fields;
+        boost::split(fields, part, boost::is_any_of(":"));
+        if (std::find(fields.begin(), fields.end(), metric) != fields.end())
+          return true;
+      }
+      return false;
+    }
+
     // The four per-inference tile keys, shared by an entry of "profile_runs"
     // and by control_instrumentation's own single-configuration form.
     const std::set<std::string>&
     tile_keys()
     {
       static const std::set<std::string> keys{
-        "aie_tile", "mem_tile", "interface_tile", "memory_tile_input_ports"
+        "aie_tile", "mem_tile", "interface_tile", "memory_tile_input_ports",
+        "memory_tile_conflict_points"
       };
       return keys;
     }
@@ -116,6 +140,8 @@ namespace xdp::profiling_runtime_config {
           run.interface_tile = value;
         else if (key == "memory_tile_input_ports")
           run.memory_tile_input_ports = value;
+        else if (key == "memory_tile_conflict_points")
+          run.memory_tile_conflict_points = value;
         else
           warn_unknown_key("profiling_runtime_config.control_instrumentation.profile_runs["
                            + std::to_string(index) + "]", key, tile_keys());
@@ -193,6 +219,12 @@ namespace xdp::profiling_runtime_config {
           ci.memory_tile_input_ports = value;
           if (!value.empty())
             info("profiling_runtime_config.control_instrumentation.memory_tile_input_ports='"
+                 + value + "'");
+        }
+        else if (key == "memory_tile_conflict_points") {
+          ci.memory_tile_conflict_points = value;
+          if (!value.empty())
+            info("profiling_runtime_config.control_instrumentation.memory_tile_conflict_points='"
                  + value + "'");
         }
         else if (key == "profile_runs") {
@@ -320,6 +352,7 @@ namespace xdp::profiling_runtime_config {
                      || out.ci.mem_tile.has_value()
                      || out.ci.interface_tile.has_value()
                      || out.ci.memory_tile_input_ports.has_value()
+                     || out.ci.memory_tile_conflict_points.has_value()
                      || out.ci.has_explicit_profile_runs;
           }
 
@@ -390,9 +423,23 @@ namespace xdp::profiling_runtime_config {
       const bool memTileFieldFromBlob = ci.mem_tile.has_value() && !ci.mem_tile->empty();
       const bool blobPortsSet = ci.memory_tile_input_ports.has_value()
                              && !ci.memory_tile_input_ports->empty();
-      const bool memTileUsesBlob = memTileFieldFromBlob || blobPortsSet;
+      // mem_tile may be a ';' list (input_ports;memory_conflicts). Match the
+      // metric inside that list, not the whole string.
+      bool runHasMemTile = false;
+      bool runRequestsL2L2 = false;
+      for (const auto& run : ci.profile_runs) {
+        if (!run.mem_tile.has_value() || run.mem_tile->empty())
+          continue;
+        runHasMemTile = true;
+        if (memTileRequestsMetric(*run.mem_tile, INPUT_PORTS_METRIC_SET))
+          runRequestsL2L2 = true;
+      }
+      const bool memTileUsesBlob = memTileFieldFromBlob || blobPortsSet || runHasMemTile;
+      const bool l2l2Requested = runRequestsL2L2
+          || (memTileFieldFromBlob
+              && memTileRequestsMetric(*ci.mem_tile, INPUT_PORTS_METRIC_SET));
 
-      if (memTileFieldFromBlob && *ci.mem_tile == INPUT_PORTS_METRIC_SET) {
+      if (l2l2Requested) {
         if (blobPortsSet)
           return *ci.memory_tile_input_ports;
         return {};
@@ -403,6 +450,47 @@ namespace xdp::profiling_runtime_config {
         return {};
     }
     return xrt_core::config::get_aie_dtrace_settings_memory_tile_input_ports();
+  }
+
+  std::string
+  resolveMemoryTileConflictPoints()
+  {
+    static constexpr const char* MEMORY_CONFLICTS_METRIC_SET = "memory_conflicts";
+
+    if (has_control_instrumentation()) {
+      const auto& ci = control_instrumentation();
+      const bool memTileFieldFromBlob = ci.mem_tile.has_value() && !ci.mem_tile->empty();
+      const bool blobPointsSet = ci.memory_tile_conflict_points.has_value()
+                              && !ci.memory_tile_conflict_points->empty();
+      // Any mem tile key in the blob makes it the only source, matching the
+      // rule for the input ports above.
+      bool runHasMemTile = false;
+      bool runRequestsConflicts = false;
+      for (const auto& run : ci.profile_runs) {
+        if (!run.mem_tile.has_value() || run.mem_tile->empty())
+          continue;
+        runHasMemTile = true;
+        if (memTileRequestsMetric(*run.mem_tile, MEMORY_CONFLICTS_METRIC_SET))
+          runRequestsConflicts = true;
+      }
+      const bool memTileUsesBlob = memTileFieldFromBlob
+          || (ci.memory_tile_input_ports.has_value() && !ci.memory_tile_input_ports->empty())
+          || blobPointsSet
+          || runHasMemTile;
+      const bool conflictsRequested = runRequestsConflicts
+          || (memTileFieldFromBlob
+              && memTileRequestsMetric(*ci.mem_tile, MEMORY_CONFLICTS_METRIC_SET));
+
+      if (conflictsRequested) {
+        if (blobPointsSet)
+          return *ci.memory_tile_conflict_points;
+        return {};
+      }
+
+      if (memTileUsesBlob)
+        return {};
+    }
+    return xrt_core::config::get_aie_dtrace_settings_memory_tile_conflict_points();
   }
 
   bool

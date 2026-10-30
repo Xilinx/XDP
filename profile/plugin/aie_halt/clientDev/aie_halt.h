@@ -20,6 +20,8 @@
 #include "xdp/config.h"
 #include "xdp/profile/plugin/aie_halt/aie_halt_impl.h"
 
+#include <optional>
+
 namespace xdp {
 
   class AIEHaltClientDevImpl : public AIEHaltImpl
@@ -30,8 +32,17 @@ namespace xdp {
 
       ~AIEHaltClientDevImpl() = default;
 
-      virtual void updateDevice(void* hwCtxImpl);
-      virtual void finishflushDevice(void* hwCtxImpl);
+      void updateDevice(void* hwCtxImpl) override;
+      void finishflushDevice(void* hwCtxImpl) override;
+      bool prepareHalt(void* hwCtxImpl, const std::string& userKernelName,
+                       xrt::kernel& haltKernel) override;
+      bool scheduleHalt(const xrt::kernel& haltKernel) override;
+
+    private:
+      // temporarily cache a single halt kernel
+      // this won't be needed if a unique halt is generated for every kernel
+      std::optional<xrt::kernel> mHaltKernel;
+      void* mHwCtxImpl = nullptr;
   };
 
 }

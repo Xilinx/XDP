@@ -54,16 +54,39 @@ namespace xdp {
 #pragma warning(push)
 #pragma warning(disable: 4702)
 #endif
-  void AIEHaltClientDevImpl::updateDevice(void* hwCtxImpl)
+  void AIEHaltClientDevImpl::updateDevice(void* /*hwCtxImpl*/)
+  {
+  }
+
+  bool AIEHaltClientDevImpl::prepareHalt(void* hwCtxImpl, const std::string& userKernelName,
+                                         xrt::kernel& haltKernel)
+  {
+    // Temporary: the xclbin provides one XDP_KERNEL, reused for every kernel
+    // name on this context. A later change might generate a specialized ELF per
+    // kernel name that writes a kernel id to spare registers
+    (void)userKernelName;
+    mHwCtxImpl = hwCtxImpl;
+    if (mHaltKernel) {
+      haltKernel = *mHaltKernel;
+      return true;
+    }
+
+    aie::ClientTransaction txnHandler(mHwContext, "AIE Halt");
+    if (!txnHandler.initializeKernel("XDP_KERNEL"))
+      return false;
+
+    mHaltKernel = txnHandler.getKernel();
+    haltKernel = *mHaltKernel;
+    return true;
+  }
+
+  bool AIEHaltClientDevImpl::scheduleHalt(const xrt::kernel& haltKernel)
   {
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-              "In AIEHaltClientDevImpl::updateDevice");
+              "In AIEHaltClientDevImpl::scheduleHalt");
 
-    std::unique_ptr<aie::ClientTransaction> txnHandler
-        = std::make_unique<aie::ClientTransaction>(mHwContext, "AIE Halt");
-
-    if (!txnHandler->initializeKernel("XDP_KERNEL"))
-      return;
+    aie::ClientTransaction txnHandler(mHwContext, "AIE Halt");
+    txnHandler.useKernel(haltKernel);
 
     boost::property_tree::ptree aieMetadata;
     try {
@@ -73,7 +96,7 @@ namespace xdp {
 
       if (!data.first || !data.second) {
         xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "Empty AIE Metadata in xclbin");
-        return;
+        return false;
       }
 
       std::stringstream ss;
@@ -84,7 +107,7 @@ namespace xdp {
       std::string msg("AIE Metadata could not be read/processed from xclbin: ");
       msg += e.what();
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg);
-      return;
+      return false;
     }
 
     xdp::aie::driver_config meta_config = xdp::aie::getDriverConfig(aieMetadata, "aie_metadata.driver_config");
@@ -108,12 +131,12 @@ namespace xdp {
     auto RC = XAie_CfgInitialize(&aieDevInst, &cfg);
     if (RC != XAIE_OK) {
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "AIE Driver Initialization Failed.");
-      return;
+      return false;
     }
 
     uint64_t startCol = 0, numCols = 0;
 
-    boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(hwCtxImpl);
+    boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(mHwCtxImpl);
     for (const auto& e : aiePartitionPt) {
       startCol = e.second.get<uint64_t>("start_col");
       numCols  = e.second.get<uint64_t>("num_cols");
@@ -139,9 +162,10 @@ namespace xdp {
     }
 
     uint8_t* txnBin = XAie_ExportSerializedTransaction(&aieDevInst, 1, 0);
-    if (!txnHandler->submitTransaction(txnBin))
-      return;
+    if (!txnHandler.submitTransaction(txnBin))
+      return false;
     XAie_ClearTransaction(&aieDevInst);
+    return true;
   }
 #ifdef _WIN32
 #pragma warning(pop)

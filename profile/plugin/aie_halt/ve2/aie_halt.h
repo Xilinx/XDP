@@ -18,6 +18,7 @@
 #define XDP_PLUGIN_AIE_HALT_VE2_IMPL_H
 
 #include <memory>
+#include <optional>
 
 #include "xdp/config.h"
 #include "xdp/profile/plugin/aie_halt/aie_halt_impl.h"
@@ -48,17 +49,23 @@ namespace xdp {
 
       void updateDevice(void* hwCtxImpl) override;
       void finishflushDevice(void* hwCtxImpl) override;
+      bool prepareHalt(void* hwCtxImpl, const std::string& userKernelName,
+                       xrt::kernel& haltKernel) override;
+      bool scheduleHalt(const xrt::kernel& haltKernel) override;
 
     private:
-      // Primary path: generate the halt control code on the fly via aie-codegen.
-      // Returns true if it was generated and scheduled successfully.
-      bool generateHaltControlCode(void* hwCtxImpl, xrt::hw_context hwContext);
+      // Primary path: generate the halt control code and open its kernel.
+      // Does not start a run.
+      bool generateHaltControlCode(void* hwCtxImpl, xrt::kernel& haltKernel);
 
-      // Fallback path: load and run a prebuilt control code ELF from disk.
-      void loadHaltElf(xrt::hw_context hwContext);
+      // Fallback path: open a prebuilt control code ELF kernel. Does not start a run.
+      bool loadHaltElf(xrt::kernel& haltKernel);
 
       XAie_DevInst aieDevInst = {0};
       std::unique_ptr<xdp::aie::VE2Transaction> tranxHandler;
+      // temporarily cache a single halt kernel
+      // this won't be needed if a unique halt is generated for every kernel
+      std::optional<xrt::kernel> mHaltKernel;
   };
 
 }

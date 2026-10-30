@@ -18,6 +18,9 @@
 #define XDP_PLUGIN_AIE_HALT_IMPL_H
 
 #include "core/include/xrt/xrt_hw_context.h"
+#include "core/include/xrt/xrt_kernel.h"
+
+#include <string>
 
 namespace xdp {
 
@@ -40,6 +43,11 @@ namespace xdp {
 
       virtual void updateDevice(void*) = 0;
       virtual void finishflushDevice(void*) = 0;
+
+      virtual bool prepareHalt(void* hwCtxImpl, const std::string& userKernelName,
+                               xrt::kernel& haltKernel) = 0;
+
+      virtual bool scheduleHalt(const xrt::kernel& haltKernel) = 0;
 
       void setHwContext(xrt::hw_context ctx)
       {

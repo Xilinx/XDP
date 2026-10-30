@@ -20,6 +20,11 @@
 #include "xdp/profile/plugin/aie_halt/aie_halt_impl.h"
 #include "xdp/profile/plugin/vp_base/vp_base_plugin.h"
 
+#include "core/include/xrt/xrt_kernel.h"
+
+#include <memory>
+#include <string>
+#include <unordered_map>
 
 namespace xdp {
 
@@ -43,17 +48,19 @@ namespace xdp {
                       const std::string& kernel_name) override;
 
     private:
-    void configureDevice();
+
+    struct ContextHaltElfs {
+      std::unique_ptr<AIEHaltImpl> implementation;
+      std::unordered_map<std::string, xrt::kernel> kernelHaltElfs;
+    };
+
+    bool prepareHalt(void* hwCtxImpl, const std::string& kernelName);
+    bool scheduleHalt(void* hwCtxImpl, const std::string& kernelName);
+    ContextHaltElfs* ensureContext(void* hwCtxImpl);
 
     static bool live;
 
-    struct DeviceData {
-      bool valid;
-      std::unique_ptr<AIEHaltImpl> implementation;
-    } DeviceDataEntry;
-
-    void* mHwCtxImpl = nullptr;
-    bool mDeferredConfiguration = false;
+    std::unordered_map<void*, ContextHaltElfs> contextHaltElfs;
   };
 
 } // end namespace xdp

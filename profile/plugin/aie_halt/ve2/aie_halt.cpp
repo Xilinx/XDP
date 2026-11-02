@@ -75,7 +75,7 @@ namespace xdp {
     return true;
   }
 
-  bool AIEHaltVE2Impl::scheduleHalt(const xrt::kernel& haltKernel)
+  bool AIEHaltVE2Impl::scheduleHalt(void* /*hwCtxImpl*/, const xrt::kernel& haltKernel)
   {
     try {
       xrt::run rn{haltKernel};

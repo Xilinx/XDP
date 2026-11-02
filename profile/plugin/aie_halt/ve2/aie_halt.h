@@ -51,7 +51,7 @@ namespace xdp {
       void finishflushDevice(void* hwCtxImpl) override;
       bool prepareHalt(void* hwCtxImpl, const std::string& userKernelName,
                        xrt::kernel& haltKernel) override;
-      bool scheduleHalt(const xrt::kernel& haltKernel) override;
+      bool scheduleHalt(void* hwCtxImpl, const xrt::kernel& haltKernel) override;
 
     private:
       // Primary path: generate the halt control code and open its kernel.

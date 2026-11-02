@@ -47,7 +47,7 @@ namespace xdp {
       virtual bool prepareHalt(void* hwCtxImpl, const std::string& userKernelName,
                                xrt::kernel& haltKernel) = 0;
 
-      virtual bool scheduleHalt(const xrt::kernel& haltKernel) = 0;
+      virtual bool scheduleHalt(void* hwCtxImpl, const xrt::kernel& haltKernel) = 0;
 
       void setHwContext(xrt::hw_context ctx)
       {

@@ -177,7 +177,7 @@ namespace xdp {
     if (kernelIt == contextIt->second.kernelHaltElfs.end())
       return false;
 
-    return contextIt->second.implementation->scheduleHalt(kernelIt->second);
+    return contextIt->second.implementation->scheduleHalt(hwCtxImpl, kernelIt->second);
 #else
     (void)hwCtxImpl;
     (void)kernelName;

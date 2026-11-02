@@ -65,7 +65,7 @@ namespace xdp {
     // name on this context. A later change might generate a specialized ELF per
     // kernel name that writes a kernel id to spare registers
     (void)userKernelName;
-    mHwCtxImpl = hwCtxImpl;
+    (void)hwCtxImpl;
     if (mHaltKernel) {
       haltKernel = *mHaltKernel;
       return true;
@@ -80,7 +80,7 @@ namespace xdp {
     return true;
   }
 
-  bool AIEHaltClientDevImpl::scheduleHalt(const xrt::kernel& haltKernel)
+  bool AIEHaltClientDevImpl::scheduleHalt(void* hwCtxImpl, const xrt::kernel& haltKernel)
   {
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
               "In AIEHaltClientDevImpl::scheduleHalt");
@@ -136,7 +136,7 @@ namespace xdp {
 
     uint64_t startCol = 0, numCols = 0;
 
-    boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(mHwCtxImpl);
+    boost::property_tree::ptree aiePartitionPt = xdp::aie::getAIEPartitionInfo(hwCtxImpl);
     for (const auto& e : aiePartitionPt) {
       startCol = e.second.get<uint64_t>("start_col");
       numCols  = e.second.get<uint64_t>("num_cols");

@@ -373,6 +373,17 @@ private:
       std::vector<CTRegisterWrite>& beginWrites);
 
   /**
+   * @brief Append memtile Group_Memory_Conflict counters (perf counter 4) for listed tiles
+   * @param hwctx Hardware context handle for partition column bounds
+   * @param counters [in,out] Accumulated counter list
+   * @param beginWrites [in,out] Accumulated begin-block register writes
+   */
+  void appendMemoryConflictsConfig(void* hwctx,
+      bool includeMemoryConflicts,
+      std::vector<CTCounterInfo>& counters,
+      std::vector<CTRegisterWrite>& beginWrites);
+
+  /**
    * @brief Append the mem tile (L2) MM2S counters and begin-block writes
    *
    * Programs the first-row mem tile of every selected column with three counters
@@ -548,6 +559,11 @@ private:
       uint8_t column,
       const std::vector<aie::dtrace::L2L2CounterPoint>& counterPoints);
 
+  /// Enable group conflict mask and program memtile perf counter 4 for event 111.
+  /// bank 0-7 enables only that bank; ALL_MEMTILE_BANKS enables every bank.
+  std::vector<CTRegisterWrite> generateMemtileConflictCounterConfig(
+      uint8_t column, uint8_t row, uint8_t bank);
+
 private:
   VPDatabase* db;
   std::shared_ptr<AieDtraceMetadata> metadata;
@@ -569,10 +585,13 @@ private:
   static constexpr uint64_t STREAM_SWITCH_EVENT_PORT_SEL_OFFSET = 0x0003FF00;
   static constexpr uint64_t MEM_TILE_PERF_CTRL0_OFFSET          = 0x00091000;
   static constexpr uint64_t MEM_TILE_PERF_CTRL1_OFFSET          = 0x00091004;
+  static constexpr uint64_t MEM_TILE_PERF_CTRL3_OFFSET          = 0x0009100c; // ctr 5-4 start/stop
+  static constexpr uint64_t MEM_TILE_EVENT_GROUP_MEMORY_CONFLICT_ENABLE = 0x00094514;
   static constexpr uint64_t PERF_CTRL_OFFSET = 0x00031000;
 
   static constexpr uint8_t PORT_RUNNING_0_MEM_TILE_EVENT = 80;  // PORT_RUNNING_N = 80 + 4*N
   static constexpr uint8_t PORT_STALLED_0_MEM_TILE_EVENT = 81;  // PORT_STALLED_N = 81 + 4*N
+  static constexpr uint32_t MEM_TILE_GROUP_CONFLICT_ENABLE_MASK = 0x000000FFu;
 
   // Core (aie) module offsets for the compute_io_bound metric (aie2ps).
   // Performance_Control0 (0x00037500) is deliberately never written: it holds counter

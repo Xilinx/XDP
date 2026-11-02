@@ -255,7 +255,9 @@ namespace xdp {
         xrt_core::message::send(severity_level::info, "XRT",
             "AIE dtrace: using mem_tile metric '" + *effMemTile
             + "' from Debug.profiling_runtime_config.");
-        memTileMetricsSettings = getSettingsVector("all:" + *effMemTile);
+        // Keep a leading column. A bare metric still means every column.
+        // Prefixing "all:" would hide that column.
+        memTileMetricsSettings = getSettingsVector(*effMemTile);
       }
       if (blobEnablesConflicts) {
         memoryConflictsEnabled = true;
@@ -264,15 +266,10 @@ namespace xdp {
             "AIE dtrace: enabling memory conflicts via mem_tile metric '"
             + std::string(MEMORY_CONFLICTS_METRIC_SET)
             + "' from Debug.profiling_runtime_config.");
-        // memory_conflicts is not a per-tile metric set, so the remainder of the
-        // list (e.g. output_channels_details alongside it) still goes to the parser.
-        if (memTileFieldFromBlob && !blobEnablesL2L2) {
-          std::string perTileMetrics = *effMemTile;
-          boost::replace_all(perTileMetrics, MEMORY_CONFLICTS_METRIC_SET, "");
-          boost::replace_all(perTileMetrics, " ", "");
-          if (!perTileMetrics.empty() && (perTileMetrics != ";"))
-            memTileMetricsSettings = getSettingsVector("all:" + perTileMetrics);
-        }
+        // Pass the list through. The filter below drops memory_conflicts, and
+        // a column in front of the other metric stays (5:output_channels_details).
+        if (memTileFieldFromBlob && !blobEnablesL2L2)
+          memTileMetricsSettings = getSettingsVector(*effMemTile);
       }
     }
     else {

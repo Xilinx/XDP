@@ -1148,6 +1148,8 @@ bool AieDtraceCTWriter::writeCounterCTFile(
           ctFile << "\"s\"";
         else if (ctr.eventType == "clock")
           ctFile << "\"c\"";
+        else if (ctr.eventType == "running_tlast")
+          ctFile << "\"t\"";
         else
           ctFile << "\"" << ctr.eventType << "\"";
       }
@@ -1428,7 +1430,7 @@ std::vector<BandwidthCounterConfig> AieDtraceCTWriter::getPlioBandwidthCounterCo
 {
   // Slave/input south port. Counters 0 and 1 stay the first port's running and
   // stall event counts. Counter 2 is the clock counter, so a second port uses
-  // counters 3 and 4.
+  // counters 3 and 4. Counter 5 is the first port's Running-to-TLAST clock.
   static constexpr uint8_t portCounters[] = {0, 1, 3, 4};
 
   std::vector<BandwidthCounterConfig> configs;
@@ -1443,6 +1445,11 @@ std::vector<BandwidthCounterConfig> AieDtraceCTWriter::getPlioBandwidthCounterCo
   }
 
   configs.push_back({PLIO_CLOCK_COUNTER, 0, 0, false, "input", "clock"});
+  if (!channels.empty()) {
+    uint8_t ch = channels.front();
+    uint8_t portIdx = xdp::aie::dtrace::getPlioSouthStreamPortIndex(ch);
+    configs.push_back({PLIO_RUNNING_TLAST_COUNTER, ch, portIdx, false, "input", "running_tlast"});
+  }
   return configs;
 }
 
@@ -1493,8 +1500,10 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePlioPerfCounterConfig(
   // AIE2PS shim PL stream-switch port events (per monitor slot s): base + 4*s.
   constexpr uint8_t PORT_RUNNING_BASE = 134;  // XAIE2PS_EVENTS_PL_STREAM_SWITCH_PORT_RUNNING_0
   constexpr uint8_t PORT_STALLED_BASE = 135;
+  constexpr uint8_t PORT_TLAST_BASE = 136;    // XAIE2PS_EVENTS_PL_STREAM_SWITCH_PORT_TLAST_0
   auto runningEvent = [](uint8_t s) { return static_cast<uint8_t>(PORT_RUNNING_BASE + s * 4); };
   auto stalledEvent = [](uint8_t s) { return static_cast<uint8_t>(PORT_STALLED_BASE + s * 4); };
+  auto tlastEvent = [](uint8_t s) { return static_cast<uint8_t>(PORT_TLAST_BASE + s * 4); };
 
   // Reset all six shim performance counters once. Task jprobes do not reset.
   for (uint8_t i = 0; i < NUM_SHIM_PERF_COUNTERS; ++i) {
@@ -1539,6 +1548,12 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePlioPerfCounterConfig(
       // Start on PL User Event 1. The jprobe sets the stop event to PERF_CNT_0
       // after writing the next running-count ceiling.
       setStartOnly(cfg.counterNumber, static_cast<uint8_t>(PL_USER_EVENT_1));
+    }
+    else if (cfg.eventType == "running_tlast") {
+      // First south port, monitor slot 0. The first Port Running event starts
+      // the counter, and it counts every clock until Port TLAST. The next
+      // packet's Running event starts it again, so the value sums those windows.
+      setCounter(cfg.counterNumber, runningEvent(0), tlastEvent(0));
     }
   }
 

@@ -362,7 +362,8 @@ private:
    * Counter 2 counts clocks: begin arms its start on PL User Event 1 and
    * resets it once. Each pl_wts.json jprobe sets counter 0's event-value to
    * the next cumulative byte ceiling and sets counter 2's stop event to
-   * PERF_CNT_0, then generates the user event.
+   * PERF_CNT_0, then generates the user event. Counter 5 counts every clock
+   * from the first port's Port Running event until Port TLAST.
    *
    * @param metricSet plio_read_bandwidth (slave south port)
    * @param counters [in,out] Accumulated counter list
@@ -763,10 +764,12 @@ private:
   // PLIO read: running and stalled per south port, start event == stop event.
   // The first port uses counters 0 and 1. Counter 2 counts clocks from PL User
   // Event 1 until the running counter reaches the current byte ceiling. A
-  // second port uses counters 3 and 4.
+  // second port uses counters 3 and 4. Counter 5 counts every clock from the
+  // first port's first Port Running event until Port TLAST.
   static constexpr uint8_t PLIO_COUNTERS_PER_STREAM = 2;
   static constexpr uint8_t MAX_PLIO_STREAM_PORTS = 2;
   static constexpr uint8_t PLIO_CLOCK_COUNTER = 2;
+  static constexpr uint8_t PLIO_RUNNING_TLAST_COUNTER = 5;
 
   // AIE2PS shim PL module. Event generate is what XAie_EventGenerate writes
   // for XAIE_PL_MOD (XAIE2PSGBL_PL_MODULE_EVENT_GENERATE). The value is

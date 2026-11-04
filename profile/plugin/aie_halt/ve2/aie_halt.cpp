@@ -66,10 +66,10 @@ namespace xdp {
   {
     using severity_level = xrt_core::message::severity_level;
 
-    // Detect flow first: full-ELF carries AIE_METADATA in the ELF custom
-    // section; the xclbin path uses AIE_TRACE_METADATA / AIE_METADATA axlf
-    // sections. Using get_xclbin() on full-ELF yields an empty handle and
-    // SEGVs in get_axlf_section.
+    // Detect flow first: 
+    // - full-ELF carries AIE_METADATA in the ELF custom section
+    // - the xclbin path uses AIE_TRACE_METADATA / AIE_METADATA axlf sections
+    // Using get_xclbin() on full-ELF segfaults in get_axlf_section
     bool isFullELFFlow = false;
     size_t partitionSize = 0;
     try {
@@ -87,15 +87,16 @@ namespace xdp {
       std::unique_ptr<aie::BaseFiletypeImpl> metadataReader;
 
       if (isFullELFFlow) {
+        // full elf flow: AIE info in elf custom section AIE_METADATA
         auto elfMap = xrt_core::hw_context_int::get_elf_map(hwContext);
-        auto elfOpt = util::getAieMetadataElf(elfMap);
-        if (!elfOpt) {
+        auto elfUtil = util::getAieMetadataElf(elfMap);
+        if (!elfUtil) {
           xrt_core::message::send(severity_level::warning, "XRT",
                     "AIE Halt full-ELF: no design ELF with AIE metadata in hw_context.");
           return false;
         }
         // Keep elf alive while the span from get_custom_section is used.
-        xrt::elf elf = std::move(*elfOpt);
+        xrt::elf elf = std::move(*elfUtil);
         auto aie_meta = elf.get_custom_section("AIE_METADATA");
         if (!aie_meta.data() || !aie_meta.size()) {
           xrt_core::message::send(severity_level::warning, "XRT",
@@ -111,7 +112,7 @@ namespace xdp {
         xrt_core::message::send(severity_level::debug, "XRT",
                   "AIE Halt: AIE metadata read from ELF custom section.");
       } else {
-        // xclbin flow: AIE info in AIE_TRACE_METADATA, falling back to AIE_METADATA.
+        // xclbin flow: AIE info in AIE_TRACE_METADATA, falling back to AIE_METADATA
         auto device = xrt_core::hw_context_int::get_core_device(hwContext);
         xrt::xclbin xrtXclbin = device->get_xclbin(hwContext.get_xclbin_uuid());
 

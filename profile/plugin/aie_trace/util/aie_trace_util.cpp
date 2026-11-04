@@ -476,8 +476,44 @@ namespace xdp::aie::trace {
   void modifyEvents(module_type type, io_type subtype, const std::string metricSet,
                     uint8_t channel, std::vector<XAie_Events>& events, const int hwGen)
   {
-    // Only needed for GMIO DMA channel 1
-    if ((type != module_type::shim) || (subtype == io_type::PLIO) || (channel == 0))
+    if (channel == 0)
+      return;
+
+    // Core-tile memory-module DMA stall metrics are hard-coded to channel 0 event IDs.
+    // Remap to channel 1 when the user requests it.
+    if ((type == module_type::core) || (type == module_type::dma)) {
+      if (aie::isInputSet(type, metricSet)) {
+        // MM2S
+        std::replace(events.begin(), events.end(),
+            XAIE_EVENT_DMA_MM2S_0_START_TASK_MEM,            XAIE_EVENT_DMA_MM2S_1_START_TASK_MEM);
+        std::replace(events.begin(), events.end(),
+            XAIE_EVENT_DMA_MM2S_0_FINISHED_BD_MEM,           XAIE_EVENT_DMA_MM2S_1_FINISHED_BD_MEM);
+        std::replace(events.begin(), events.end(),
+            XAIE_EVENT_DMA_MM2S_0_FINISHED_TASK_MEM,         XAIE_EVENT_DMA_MM2S_1_FINISHED_TASK_MEM);
+        std::replace(events.begin(), events.end(),
+            XAIE_EVENT_DMA_MM2S_0_STALLED_LOCK_MEM,          XAIE_EVENT_DMA_MM2S_1_STALLED_LOCK_MEM);
+        std::replace(events.begin(), events.end(),
+            XAIE_EVENT_DMA_MM2S_0_STREAM_BACKPRESSURE_MEM,   XAIE_EVENT_DMA_MM2S_1_STREAM_BACKPRESSURE_MEM);
+        std::replace(events.begin(), events.end(),
+            XAIE_EVENT_DMA_MM2S_0_MEMORY_STARVATION_MEM,     XAIE_EVENT_DMA_MM2S_1_MEMORY_STARVATION_MEM);
+      } else {
+        // S2MM
+        std::replace(events.begin(), events.end(),
+            XAIE_EVENT_DMA_S2MM_0_START_TASK_MEM,            XAIE_EVENT_DMA_S2MM_1_START_TASK_MEM);
+        std::replace(events.begin(), events.end(),
+            XAIE_EVENT_DMA_S2MM_0_FINISHED_BD_MEM,           XAIE_EVENT_DMA_S2MM_1_FINISHED_BD_MEM);
+        std::replace(events.begin(), events.end(),
+            XAIE_EVENT_DMA_S2MM_0_FINISHED_TASK_MEM,         XAIE_EVENT_DMA_S2MM_1_FINISHED_TASK_MEM);
+        std::replace(events.begin(), events.end(),
+            XAIE_EVENT_DMA_S2MM_0_STALLED_LOCK_MEM,          XAIE_EVENT_DMA_S2MM_1_STALLED_LOCK_MEM);
+        std::replace(events.begin(), events.end(),
+            XAIE_EVENT_DMA_S2MM_0_MEMORY_BACKPRESSURE_MEM,   XAIE_EVENT_DMA_S2MM_1_MEMORY_BACKPRESSURE_MEM);
+      }
+      return;
+    }
+
+    // Interface-tile GMIO DMA channel 1
+    if ((type != module_type::shim) || (subtype == io_type::PLIO))
       return;
 
     // Check type to minimize replacements

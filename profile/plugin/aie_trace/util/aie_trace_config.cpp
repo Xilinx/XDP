@@ -110,24 +110,24 @@ namespace xdp::aie::trace {
           auto slaveOrMaster = isMaster ? XAIE_STRMSW_MASTER : XAIE_STRMSW_SLAVE;
           std::string typeName = isMaster ? "S2MM" : "MM2S";
           std::string msg = "Configuring core module stream switch to monitor DMA " 
-                          + typeName + " channel " + std::to_string(channelNum);
+                          + typeName + " channel " + std::to_string(channel);
           xrt_core::message::send(severity_level::debug, "XRT", msg);
-          switchPortRsc->setPortToSelect(slaveOrMaster, DMA, channelNum);
+          switchPortRsc->setPortToSelect(slaveOrMaster, DMA, channel);
 
           // Record for runtime config file
           // NOTE: channel info informs back-end there will be events on that channel
-          config.port_trace_ids[portnum] = channelNum;
+          config.port_trace_ids[portnum] = channel;
           config.port_trace_is_master[portnum] = isMaster;
 
           if (isMaster) {
-            config.s2mm_channels[channelNum] = channelNum;
-            if (channelNum < tile.s2mm_names.size())
-              config.s2mm_names[channelNum] = tile.s2mm_names.at(channelNum);
+            config.s2mm_channels[channelNum] = channel;
+            if (channel < tile.s2mm_names.size())
+              config.s2mm_names[channelNum] = tile.s2mm_names.at(channel);
           }
           else {
-            config.mm2s_channels[channelNum] = channelNum;
-            if (channelNum < tile.mm2s_names.size())
-              config.mm2s_names[channelNum] = tile.mm2s_names.at(channelNum);
+            config.mm2s_channels[channelNum] = channel;
+            if (channel < tile.mm2s_names.size())
+              config.mm2s_names[channelNum] = tile.mm2s_names.at(channel);
           }
         }
         // Interface tiles (e.g., PLIO, GMIO)

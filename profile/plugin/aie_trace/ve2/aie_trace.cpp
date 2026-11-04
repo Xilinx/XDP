@@ -834,6 +834,10 @@ namespace xdp {
         auto iter1 = configChannel1.find(tile);
         uint8_t channel0 = (iter0 == configChannel0.end()) ? 0 : iter0->second;
         uint8_t channel1 = (iter1 == configChannel1.end()) ? 1 : iter1->second;
+
+        // Remap core DMA stall events to the requested channel
+        if (type == module_type::core)
+          aie::trace::modifyEvents(type, tile.subtype, metricSet, channel0, memoryEvents, hwGen);
         
         // Configure event ports on stream switch
         // NOTE: These are events from the core module stream switch
@@ -894,7 +898,7 @@ namespace xdp {
           numMemoryTraceEvents++;
           
           // Configure edge events (as needed)
-          aie::trace::configEdgeEvents(aieDevInst, tile, type, metricSet, memoryEvents[i]);
+          aie::trace::configEdgeEvents(aieDevInst, tile, type, metricSet, memoryEvents[i], channel0);
 
           // Update config file
           // Get Trace slot
@@ -1759,6 +1763,10 @@ namespace xdp {
         uint8_t channel0 = (iter0 == configChannel0.end()) ? 0 : iter0->second;
         uint8_t channel1 = (iter1 == configChannel1.end()) ? 1 : iter1->second;
 
+        // Remap core DMA stall events to the requested channel
+        if (type == module_type::core)
+          modifyEvents(type, tile.subtype, metricSet, channel0, memoryEvents);
+
         // Configure stream switch ports (core SS DMA monitors feeding MEM-side trace)
         configStreamSwitchPorts(tile, loc, type, metricSet, channel0, channel1, memoryEvents, aieConfig);
 
@@ -2127,8 +2135,41 @@ namespace xdp {
                                       const std::string metricSet, uint8_t channel,
                                       std::vector<XAie_Events>& events)
   {
-    // Only needed for GMIO DMA channel 1
-    if ((type != module_type::shim) || (subtype == io_type::PLIO) || (channel == 0))
+    if (channel == 0)
+      return;
+
+    // Core-tile memory-module DMA stall metrics (AIESW-42425)
+    if ((type == module_type::core) || (type == module_type::dma)) {
+      if (aie::isInputSet(type, metricSet)) {
+        std::replace(events.begin(), events.end(),
+                     XAIE_EVENT_DMA_MM2S_0_START_TASK_MEM, XAIE_EVENT_DMA_MM2S_1_START_TASK_MEM);
+        std::replace(events.begin(), events.end(),
+                     XAIE_EVENT_DMA_MM2S_0_FINISHED_BD_MEM, XAIE_EVENT_DMA_MM2S_1_FINISHED_BD_MEM);
+        std::replace(events.begin(), events.end(),
+                     XAIE_EVENT_DMA_MM2S_0_FINISHED_TASK_MEM, XAIE_EVENT_DMA_MM2S_1_FINISHED_TASK_MEM);
+        std::replace(events.begin(), events.end(),
+                     XAIE_EVENT_DMA_MM2S_0_STALLED_LOCK_MEM, XAIE_EVENT_DMA_MM2S_1_STALLED_LOCK_MEM);
+        std::replace(events.begin(), events.end(),
+                     XAIE_EVENT_DMA_MM2S_0_STREAM_BACKPRESSURE_MEM, XAIE_EVENT_DMA_MM2S_1_STREAM_BACKPRESSURE_MEM);
+        std::replace(events.begin(), events.end(),
+                     XAIE_EVENT_DMA_MM2S_0_MEMORY_STARVATION_MEM, XAIE_EVENT_DMA_MM2S_1_MEMORY_STARVATION_MEM);
+      } else {
+        std::replace(events.begin(), events.end(),
+                     XAIE_EVENT_DMA_S2MM_0_START_TASK_MEM, XAIE_EVENT_DMA_S2MM_1_START_TASK_MEM);
+        std::replace(events.begin(), events.end(),
+                     XAIE_EVENT_DMA_S2MM_0_FINISHED_BD_MEM, XAIE_EVENT_DMA_S2MM_1_FINISHED_BD_MEM);
+        std::replace(events.begin(), events.end(),
+                     XAIE_EVENT_DMA_S2MM_0_FINISHED_TASK_MEM, XAIE_EVENT_DMA_S2MM_1_FINISHED_TASK_MEM);
+        std::replace(events.begin(), events.end(),
+                     XAIE_EVENT_DMA_S2MM_0_STALLED_LOCK_MEM, XAIE_EVENT_DMA_S2MM_1_STALLED_LOCK_MEM);
+        std::replace(events.begin(), events.end(),
+                     XAIE_EVENT_DMA_S2MM_0_MEMORY_BACKPRESSURE_MEM, XAIE_EVENT_DMA_S2MM_1_MEMORY_BACKPRESSURE_MEM);
+      }
+      return;
+    }
+
+    // Interface-tile GMIO DMA channel 1
+    if ((type != module_type::shim) || (subtype == io_type::PLIO))
       return;
 
     // Check type to minimize replacements
@@ -2200,25 +2241,26 @@ namespace xdp {
           auto slaveOrMaster = isMaster ? XAIE_STRMSW_MASTER : XAIE_STRMSW_SLAVE;
           std::string typeName = isMaster ? "S2MM" : "MM2S";
           std::string msg = "Configuring core module stream switch to monitor DMA " 
-                          + typeName + " channel " + std::to_string(channelNum);
+                          + typeName + " channel " + std::to_string(channel);
           xrt_core::message::send(severity_level::debug, "XRT", msg);
-          XAie_EventSelectStrmPort(&aieDevInst, loc, portnum, slaveOrMaster, DMA, channelNum);
+          XAie_EventSelectStrmPort(&aieDevInst, loc, portnum, slaveOrMaster, DMA, channel);
 
           // Record for runtime config file
           // NOTE: channel info informs back-end there will be events on that channel
-          config.port_trace_ids[portnum] = channelNum;
+          config.port_trace_ids[portnum] = channel;
           config.port_trace_is_master[portnum] = isMaster;
-          config.port_trace_names[portnum] = tile.port_names.at(portnum);
+          if (portnum < tile.port_names.size())
+            config.port_trace_names[portnum] = tile.port_names.at(portnum);
 
           if (isMaster) {
-            config.s2mm_channels[channelNum] = channelNum;
-            if (channelNum < tile.s2mm_names.size())
-              config.s2mm_names[channelNum] = tile.s2mm_names.at(channelNum);
+            config.s2mm_channels[channelNum] = channel;
+            if (channel < tile.s2mm_names.size())
+              config.s2mm_names[channelNum] = tile.s2mm_names.at(channel);
           }
           else {
-            config.mm2s_channels[channelNum] = channelNum;
-            if (channelNum < tile.mm2s_names.size())
-              config.mm2s_names[channelNum] = tile.mm2s_names.at(channelNum);
+            config.mm2s_channels[channelNum] = channel;
+            if (channel < tile.mm2s_names.size())
+              config.mm2s_names[channelNum] = tile.mm2s_names.at(channel);
           }
         }
         // Interface tiles (e.g., PLIO, GMIO)

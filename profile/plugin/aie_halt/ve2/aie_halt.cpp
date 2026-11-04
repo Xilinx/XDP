@@ -89,15 +89,13 @@ namespace xdp {
       if (isFullELFFlow) {
         // full elf flow: AIE info in elf custom section AIE_METADATA
         auto elfMap = xrt_core::hw_context_int::get_elf_map(hwContext);
-        auto elfUtil = util::getAieMetadataElf(elfMap);
-        if (!elfUtil) {
+        auto elf = util::getAieMetadataElf(elfMap);
+        if (!elf) {
           xrt_core::message::send(severity_level::warning, "XRT",
                     "AIE Halt full-ELF: no design ELF with AIE metadata in hw_context.");
           return false;
         }
-        // Keep elf alive while the span from get_custom_section is used.
-        xrt::elf elf = std::move(*elfUtil);
-        auto aie_meta = elf.get_custom_section("AIE_METADATA");
+        auto aie_meta = elf->get_custom_section("AIE_METADATA");
         if (!aie_meta.data() || !aie_meta.size()) {
           xrt_core::message::send(severity_level::warning, "XRT",
                     "Empty AIE_METADATA custom section in ELF.");

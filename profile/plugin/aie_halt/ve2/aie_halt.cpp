@@ -183,7 +183,7 @@ namespace xdp {
     }
 
     std::stringstream msg;
-    msg << "Set AIE Core breakpoint at Lock Acquire Req Instr, Start col "
+    msg << "Set AIE Core breakpoint at Lock Acquire Req Instr and reset cores, Start col "
         << startCol << ", Num col " << numCols;
     xrt_core::message::send(severity_level::info, "XRT", msg.str());
 
@@ -206,6 +206,19 @@ namespace xdp {
       for (uint8_t r = meta_config.aie_tile_row_start; r < meta_config.num_rows; r++) {
         auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
         XAie_Write32(&aieDevInst, tileOffset + XAIE2PSGBL_CORE_MODULE_DEBUG_CONTROL1, dbg_ctrl_1_reg);
+        // Hold every core in reset before releasing any of them. A later
+        // partition is already parked past main's acquire, and this breakpoint
+        // only fires on a new lock-acquire request.
+        XAie_MaskWrite32(&aieDevInst, tileOffset + XAIE2PSGBL_CORE_MODULE_CORE_CONTROL,
+                         XAIE2PSGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK,
+                         XAIE2PSGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK);
+      }
+    }
+    for (uint8_t c = static_cast<uint8_t>(startCol); c < static_cast<uint8_t>(startCol + numCols); c++) {
+      for (uint8_t r = meta_config.aie_tile_row_start; r < meta_config.num_rows; r++) {
+        auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
+        XAie_MaskWrite32(&aieDevInst, tileOffset + XAIE2PSGBL_CORE_MODULE_CORE_CONTROL,
+                         XAIE2PSGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK, 0);
       }
     }
 

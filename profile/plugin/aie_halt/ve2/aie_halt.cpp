@@ -32,6 +32,7 @@
 #include "core/include/xrt/xrt_kernel.h"
 
 #include "xdp/profile/database/static_info/aie_util.h"
+#include "xdp/profile/device/utility.h"
 #include "xdp/profile/plugin/aie_halt/ve2/aie_halt.h"
 #include "xdp/profile/plugin/vp_base/utility.h"
 
@@ -65,32 +66,74 @@ namespace xdp {
   {
     using severity_level = xrt_core::message::severity_level;
 
-    // Get the xclbin via the hw context uuid (device->get_xclbin_uuid() reads
-    // the sysfs xclbinid file, which is absent on the XDNA path). AIE info is
-    // in AIE_TRACE_METADATA, falling back to AIE_METADATA.
+    // Detect flow first: 
+    // - full-ELF carries AIE_METADATA in the ELF custom section
+    // - the xclbin path uses AIE_TRACE_METADATA / AIE_METADATA axlf sections
+    // Using get_xclbin() on full-ELF segfaults in get_axlf_section
+    bool isFullELFFlow = false;
+    size_t partitionSize = 0;
+    try {
+      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
+      if (isFullELFFlow)
+        partitionSize = xrt_core::hw_context_int::get_partition_size(hwContext);
+    } catch (const std::exception& e) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+                std::string("Failed to query ELF flow for AIE halt, assuming xclbin flow: ") + e.what());
+    }
+
     xdp::aie::driver_config meta_config;
     try {
-      auto device = xrt_core::hw_context_int::get_core_device(hwContext);
-      xrt::xclbin xrtXclbin = device->get_xclbin(hwContext.get_xclbin_uuid());
-
-      auto data = xrt_core::xclbin_int::get_axlf_section(xrtXclbin, AIE_TRACE_METADATA);
-      if (!data.first || !data.second)
-        data = xrt_core::xclbin_int::get_axlf_section(xrtXclbin, AIE_METADATA);
-
-      if (!data.first || !data.second) {
-        xrt_core::message::send(severity_level::warning, "XRT", "Empty AIE Metadata in xclbin");
-        return false;
-      }
-
       boost::property_tree::ptree aieMetadata;
-      auto metadataReader = xdp::aie::readAIEMetadata(data.first, data.second, aieMetadata);
-      if (!metadataReader) {
-        xrt_core::message::send(severity_level::warning, "XRT", "Failed to parse AIE Metadata from xclbin.");
-        return false;
+      std::unique_ptr<aie::BaseFiletypeImpl> metadataReader;
+
+      if (isFullELFFlow) {
+        // full elf flow: AIE info in elf custom section AIE_METADATA
+        auto elfMap = xrt_core::hw_context_int::get_elf_map(hwContext);
+        auto elf = util::getAieMetadataElf(elfMap);
+        if (!elf) {
+          xrt_core::message::send(severity_level::warning, "XRT",
+                    "AIE Halt full-ELF: no design ELF with AIE metadata in hw_context.");
+          return false;
+        }
+        auto aie_meta = elf->get_custom_section("AIE_METADATA");
+        if (!aie_meta.data() || !aie_meta.size()) {
+          xrt_core::message::send(severity_level::warning, "XRT",
+                    "Empty AIE_METADATA custom section in ELF.");
+          return false;
+        }
+        metadataReader = xdp::aie::readAIEMetadata(aie_meta.data(), aie_meta.size(), aieMetadata);
+        if (!metadataReader) {
+          xrt_core::message::send(severity_level::warning, "XRT",
+                    "Failed to parse AIE_METADATA from ELF custom section.");
+          return false;
+        }
+        xrt_core::message::send(severity_level::debug, "XRT",
+                  "AIE Halt: AIE metadata read from ELF custom section.");
+      } else {
+        // xclbin flow: AIE info in AIE_TRACE_METADATA, falling back to AIE_METADATA
+        auto device = xrt_core::hw_context_int::get_core_device(hwContext);
+        xrt::xclbin xrtXclbin = device->get_xclbin(hwContext.get_xclbin_uuid());
+
+        auto data = xrt_core::xclbin_int::get_axlf_section(xrtXclbin, AIE_TRACE_METADATA);
+        if (!data.first || !data.second)
+          data = xrt_core::xclbin_int::get_axlf_section(xrtXclbin, AIE_METADATA);
+
+        if (!data.first || !data.second) {
+          xrt_core::message::send(severity_level::warning, "XRT", "Empty AIE Metadata in xclbin");
+          return false;
+        }
+
+        metadataReader = xdp::aie::readAIEMetadata(data.first, data.second, aieMetadata);
+        if (!metadataReader) {
+          xrt_core::message::send(severity_level::warning, "XRT",
+                    "Failed to parse AIE Metadata from xclbin.");
+          return false;
+        }
       }
+
       meta_config = metadataReader->getDriverConfig();
     } catch (const std::exception& e) {
-      std::string msg("AIE Metadata could not be read/processed from xclbin: ");
+      std::string msg("AIE Metadata could not be read/processed for AIE Halt: ");
       msg += e.what();
       xrt_core::message::send(severity_level::warning, "XRT", msg);
       return false;
@@ -100,20 +143,9 @@ namespace xdp {
     // from the hw_context's, so use the actual partition width instead of
     // metadata num_columns (halted tiles are partition-relative). The xclbin
     // flow does not enforce this and keeps num_columns.
-    bool isFullELFFlow = false;
-    size_t partitionSize = 0;
     uint8_t numColumns = meta_config.num_columns;
-    try {
-      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
-      if (isFullELFFlow) {
-        partitionSize = xrt_core::hw_context_int::get_partition_size(hwContext);
-        if (partitionSize > 0)
-          numColumns = static_cast<uint8_t>(partitionSize);
-      }
-    } catch (const std::exception& e) {
-      xrt_core::message::send(severity_level::warning, "XRT",
-                std::string("Failed to query ELF flow for AIE halt, assuming xclbin flow: ") + e.what());
-    }
+    if (isFullELFFlow && partitionSize > 0)
+      numColumns = static_cast<uint8_t>(partitionSize);
 
     XAie_Config cfg {
       meta_config.hw_gen,
@@ -250,3 +282,4 @@ namespace xdp {
   {
   }
 }
+

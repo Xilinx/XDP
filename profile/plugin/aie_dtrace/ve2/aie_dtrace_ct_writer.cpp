@@ -1146,6 +1146,10 @@ bool AieDtraceCTWriter::writeCounterCTFile(
           ctFile << "\"r\"";
         else if (ctr.eventType == "stalled")
           ctFile << "\"s\"";
+        else if (ctr.eventType == "clock")
+          ctFile << "\"c\"";
+        else if (ctr.eventType == "running_tlast")
+          ctFile << "\"t\"";
         else
           ctFile << "\"" << ctr.eventType << "\"";
       }
@@ -1167,39 +1171,9 @@ bool AieDtraceCTWriter::writeCounterCTFile(
   ctFile << "@blockclose\n";
   ctFile << "}\n\n";
 
-  for (const auto& asmFileInfo : asmFileInfoList) {
-    if (asmFileInfo.timestamps.empty() || asmFileInfo.counters.empty())
-      continue;
-
-    std::string basename = fs::path(asmFileInfo.filename).filename().string();
-
-    ctFile << "# Probes for " << basename
-           << " (columns " << asmFileInfo.colStart << "-" << asmFileInfo.colEnd << ")\n";
-
-    std::stringstream lineList;
-    lineList << "line";
-    for (size_t i = 0; i < asmFileInfo.timestamps.size(); i++) {
-      if (i > 0)
-        lineList << ",";
-      lineList << asmFileInfo.timestamps[i].lineNumber;
-    }
-
-    ctFile << "jprobe:" << basename
-           << ":uc" << asmFileInfo.ucNumber
-           << ":" << lineList.str() << "\n";
-    ctFile << "{\n";
-    ctFile << "    ts_" << asmFileInfo.asmId << " = timestamp32()\n";
-
-    // Each counter is assigned a sequential result variable (_0, _1, _2, ...)
-    // so the dtrace JSON dump emits one key per counter ("_0", "_1", ...) in
-    // probe order; counter semantics live in the COUNTER_METADATA block above.
-    for (size_t i = 0; i < asmFileInfo.counters.size(); i++) {
-      const auto& ctr = asmFileInfo.counters[i];
-      ctFile << "    _" << i << " = read_reg(" << formatAddress(ctr.address) << ")\n";
-    }
-
-    ctFile << "}\n\n";
-  }
+  // Timestamp reads and clock-stop writes share one ascending line list.
+  // Emitting either group as its own block leaves the later group unreachable.
+  writePlioReadWindowProbes(ctFile, asmFileInfoList);
 
   ctFile << "end\n";
   ctFile << "{\n";
@@ -1214,6 +1188,157 @@ bool AieDtraceCTWriter::writeCounterCTFile(
   xrt_core::message::send(severity_level::info, "XRT", msg.str());
 
   return true;
+}
+
+void AieDtraceCTWriter::writePlioReadWindowProbes(
+    std::ofstream& ctFile, const std::vector<ASMFileInfo>& asmFileInfoList)
+{
+  bool anyClock = false;
+  for (const auto& asmFileInfo : asmFileInfoList) {
+    for (const auto& ctr : asmFileInfo.counters) {
+      if (ctr.metricSet == "plio_read_bandwidth" && ctr.eventType == "clock")
+        anyClock = true;
+    }
+  }
+
+  const auto tasksByUc = anyClock
+      ? xdp::aie::dtrace::parsePlWtsJson()
+      : std::map<int, std::vector<xdp::aie::dtrace::PlWtsProbe>>{};
+  std::map<int, bool> usedUc;
+
+  // One timestamp jprobe for a contiguous run of SAVE_TIMESTAMPS lines.
+  auto writeTimestampProbe = [&](const ASMFileInfo& asmFileInfo,
+                                 const std::vector<uint32_t>& lines) {
+    if (lines.empty() || asmFileInfo.counters.empty())
+      return;
+
+    const std::string basename = fs::path(asmFileInfo.filename).filename().string();
+    ctFile << "jprobe:" << basename
+           << ":uc" << asmFileInfo.ucNumber
+           << ":line";
+    for (size_t i = 0; i < lines.size(); i++) {
+      if (i > 0)
+        ctFile << ",";
+      ctFile << lines[i];
+    }
+    ctFile << "\n{\n";
+    ctFile << "    ts_" << asmFileInfo.asmId << " = timestamp32()\n";
+    // Sequential result names (_0, _1, _2, ...) become the dump keys.
+    for (size_t i = 0; i < asmFileInfo.counters.size(); i++) {
+      ctFile << "    _" << i << " = read_reg("
+             << formatAddress(asmFileInfo.counters[i].address) << ")\n";
+    }
+    ctFile << "}\n\n";
+  };
+
+  auto writeClockProbe = [&](const ASMFileInfo& asmFileInfo,
+                             const std::vector<CTCounterInfo>& clockCounters,
+                             const xdp::aie::dtrace::PlWtsProbe& task) {
+    const std::string basename = fs::path(asmFileInfo.filename).filename().string();
+    ctFile << "# PLIO clock stop @ uc" << asmFileInfo.ucNumber
+           << " line " << task.line << " count " << task.stopCount << "\n";
+    ctFile << "jprobe:" << basename
+           << ":uc" << asmFileInfo.ucNumber
+           << ":line" << task.line << "\n";
+    ctFile << "{\n";
+    for (const auto& ctr : clockCounters) {
+      const uint64_t tileAddress = (static_cast<uint64_t>(ctr.column) << columnShift) |
+                                   (static_cast<uint64_t>(ctr.row) << rowShift);
+      // Counter 0 is the running-event counter. Its event-value is the count
+      // at which PERF_CNT_0 fires. That event is counter 2's stop.
+      const uint64_t runningEventValueAddr = tileAddress + PL_PERF_COUNTER0_EVENT_VALUE_OFFSET;
+      const uint64_t clockCtrlAddr = tileAddress + PL_PERF_CTRL2_OFFSET;
+      const uint64_t generateAddr = tileAddress + PL_EVENT_GENERATE_OFFSET;
+      const uint32_t stopField = (PL_PERF_CNT_0 << 8) & PL_COUNTER2_STOP_MASK;
+
+      ctFile << "    # running ceiling " << task.stopCount
+             << ", counter 2 stop = PERF_CNT_0, then PL User Event 1\n";
+      ctFile << "    write_reg(" << formatAddress(runningEventValueAddr) << ", 0x"
+             << std::hex << std::setfill('0') << std::setw(8) << task.stopCount
+             << std::dec << ")\n";
+      ctFile << "    mask_write_reg(" << formatAddress(clockCtrlAddr) << ", 0x"
+             << std::hex << std::setfill('0') << std::setw(8) << PL_COUNTER2_STOP_MASK
+             << ", 0x" << std::setw(8) << stopField << std::dec << ")\n";
+      ctFile << "    write_reg(" << formatAddress(generateAddr) << ", 0x"
+             << std::hex << std::setfill('0') << std::setw(8) << PL_USER_EVENT_1
+             << std::dec << ")\n";
+    }
+    ctFile << "}\n\n";
+  };
+
+  for (const auto& asmFileInfo : asmFileInfoList) {
+    if (asmFileInfo.counters.empty())
+      continue;
+
+    std::vector<CTCounterInfo> clockCounters;
+    for (const auto& ctr : asmFileInfo.counters) {
+      if (ctr.metricSet == "plio_read_bandwidth" && ctr.eventType == "clock")
+        clockCounters.push_back(ctr);
+    }
+
+    std::vector<xdp::aie::dtrace::PlWtsProbe> tasks;
+    if (!clockCounters.empty()) {
+      const auto found = tasksByUc.find(asmFileInfo.ucNumber);
+      if (found == tasksByUc.end() || found->second.empty()) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: no pl_wts.json entry for UC " + std::to_string(asmFileInfo.ucNumber)
+            + "; the PLIO clock counter is not stopped.");
+      } else {
+        tasks = found->second;
+        std::stable_sort(tasks.begin(), tasks.end(),
+            [](const auto& a, const auto& b) { return a.line < b.line; });
+        usedUc[asmFileInfo.ucNumber] = true;
+      }
+    }
+
+    std::vector<uint32_t> timestampLines;
+    timestampLines.reserve(asmFileInfo.timestamps.size());
+    for (const auto& ts : asmFileInfo.timestamps)
+      timestampLines.push_back(ts.lineNumber);
+    std::sort(timestampLines.begin(), timestampLines.end());
+
+    if (timestampLines.empty() && tasks.empty())
+      continue;
+
+    const std::string basename = fs::path(asmFileInfo.filename).filename().string();
+    ctFile << "# Probes for " << basename
+           << " (columns " << asmFileInfo.colStart << "-" << asmFileInfo.colEnd << ")\n";
+
+    // Merge the two line lists. A clock-stop line equal to a timestamp line is
+    // emitted first, so the ceiling and the user event are programmed before
+    // the counters are read.
+    size_t timestampIndex = 0;
+    size_t taskIndex = 0;
+    std::vector<uint32_t> timestampRun;
+    auto flushTimestampRun = [&]() {
+      writeTimestampProbe(asmFileInfo, timestampRun);
+      timestampRun.clear();
+    };
+
+    while (timestampIndex < timestampLines.size() || taskIndex < tasks.size()) {
+      const bool clockNext = taskIndex < tasks.size() &&
+          (timestampIndex >= timestampLines.size() ||
+           tasks[taskIndex].line <= static_cast<int>(timestampLines[timestampIndex]));
+      if (clockNext) {
+        flushTimestampRun();
+        writeClockProbe(asmFileInfo, clockCounters, tasks[taskIndex]);
+        ++taskIndex;
+      } else {
+        timestampRun.push_back(timestampLines[timestampIndex]);
+        ++timestampIndex;
+      }
+    }
+    flushTimestampRun();
+  }
+
+  for (const auto& [uc, tasks] : tasksByUc) {
+    (void)tasks;
+    if (!usedUc.count(uc)) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+          "AIE dtrace: pl_wts.json UC " + std::to_string(uc)
+          + " does not match a control program with a PLIO clock counter.");
+    }
+  }
 }
 
 std::vector<ASMFileInfo> AieDtraceCTWriter::buildAsmFileInfoList(
@@ -1267,6 +1392,11 @@ bool AieDtraceCTWriter::appendBandwidthConfig(
     void* hwctx, const std::string& metricSet, uint8_t channel,
     std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites)
 {
+  // PLIO SOUTH-port bandwidth is driven by plip_info.json columns, not the
+  // partition shim columns, so it has its own path.
+  if (xdp::aie::dtrace::isPlioBandwidthMetric(metricSet))
+    return appendPlioBandwidthConfig(metricSet, counters, beginWrites);
+
   auto shimColumns = getShimTileColumns(hwctx);
   if (shimColumns.empty()) {
     xrt_core::message::send(severity_level::warning, "XRT",
@@ -1293,6 +1423,205 @@ bool AieDtraceCTWriter::appendBandwidthConfig(
   }
 
   return true;
+}
+
+std::vector<BandwidthCounterConfig> AieDtraceCTWriter::getPlioBandwidthCounterConfigs(
+    const std::vector<uint8_t>& channels)
+{
+  // Slave/input south port. Counters 0 and 1 stay the first port's running and
+  // stall event counts. Counter 2 is the clock counter, so a second port uses
+  // counters 3 and 4. Counter 5 is the first port's Running-to-TLAST clock.
+  static constexpr uint8_t portCounters[] = {0, 1, 3, 4};
+
+  std::vector<BandwidthCounterConfig> configs;
+  uint8_t used = 0;
+  for (uint8_t ch : channels) {
+    if (used + PLIO_COUNTERS_PER_STREAM > static_cast<uint8_t>(sizeof(portCounters)))
+      break;
+    uint8_t portIdx = xdp::aie::dtrace::getPlioSouthStreamPortIndex(ch);
+    configs.push_back({portCounters[used], ch, portIdx, false, "input", "running"});
+    configs.push_back({portCounters[used + 1], ch, portIdx, false, "input", "stalled"});
+    used = static_cast<uint8_t>(used + PLIO_COUNTERS_PER_STREAM);
+  }
+
+  configs.push_back({PLIO_CLOCK_COUNTER, 0, 0, false, "input", "clock"});
+  if (!channels.empty()) {
+    uint8_t ch = channels.front();
+    uint8_t portIdx = xdp::aie::dtrace::getPlioSouthStreamPortIndex(ch);
+    configs.push_back({PLIO_RUNNING_TLAST_COUNTER, ch, portIdx, false, "input", "running_tlast"});
+  }
+  return configs;
+}
+
+std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePlioStreamSwitchPortConfig(
+    uint8_t column, const std::vector<BandwidthCounterConfig>& configs)
+{
+  std::vector<CTRegisterWrite> writes;
+  if (configs.empty())
+    return writes;
+
+  uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
+                         (static_cast<uint64_t>(SHIM_ROW) << rowShift);
+  uint64_t regAddr = tileAddress + STREAM_SWITCH_EVENT_PORT_SEL_OFFSET;
+
+  // One monitor slot per stream; the "running" config is the first of each pair.
+  uint32_t regValue = 0;
+  size_t slot = 0;
+  for (const auto& cfg : configs) {
+    if (cfg.eventType != "running")
+      continue;
+    if (slot >= PORTS_PER_REGISTER)
+      break;
+    uint8_t bitOffset = static_cast<uint8_t>(slot) * 8;
+    uint8_t slaveOrMaster = cfg.isMaster ? 1 : 0;
+    regValue |= (static_cast<uint32_t>(cfg.dmaPortIndex) << bitOffset)
+              | (static_cast<uint32_t>(slaveOrMaster) << (bitOffset + 5));
+    ++slot;
+  }
+
+  CTRegisterWrite write;
+  write.address = regAddr;
+  write.value = regValue;
+  write.comment = "PLIO SS port sel @ col " + std::to_string(column) + " (south ports)";
+  writes.push_back(write);
+  return writes;
+}
+
+std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePlioPerfCounterConfig(
+    uint8_t column, const std::vector<BandwidthCounterConfig>& configs)
+{
+  std::vector<CTRegisterWrite> writes;
+  if (configs.empty())
+    return writes;
+
+  uint64_t tileAddress = (static_cast<uint64_t>(column) << columnShift) |
+                         (static_cast<uint64_t>(SHIM_ROW) << rowShift);
+
+  // AIE2PS shim PL stream-switch port events (per monitor slot s): base + 4*s.
+  constexpr uint8_t PORT_RUNNING_BASE = 134;  // XAIE2PS_EVENTS_PL_STREAM_SWITCH_PORT_RUNNING_0
+  constexpr uint8_t PORT_STALLED_BASE = 135;
+  constexpr uint8_t PORT_TLAST_BASE = 136;    // XAIE2PS_EVENTS_PL_STREAM_SWITCH_PORT_TLAST_0
+  auto runningEvent = [](uint8_t s) { return static_cast<uint8_t>(PORT_RUNNING_BASE + s * 4); };
+  auto stalledEvent = [](uint8_t s) { return static_cast<uint8_t>(PORT_STALLED_BASE + s * 4); };
+  auto tlastEvent = [](uint8_t s) { return static_cast<uint8_t>(PORT_TLAST_BASE + s * 4); };
+
+  // Reset all six shim performance counters once. Task jprobes do not reset.
+  for (uint8_t i = 0; i < NUM_SHIM_PERF_COUNTERS; ++i) {
+    CTRegisterWrite write;
+    write.address = tileAddress + PERF_COUNTER0_OFFSET + (i * 4);
+    write.value = 0;
+    write.comment = "Reset PerfCounter" + std::to_string(i) + " @ col " + std::to_string(column);
+    writes.push_back(write);
+  }
+
+  // Per-pair start/stop control registers (counters 0/1, 2/3, 4/5).
+  static constexpr uint64_t PERF_CTRL_STARTSTOP_OFFSET[3] = {0x00031000, 0x0003100C, 0x00031014};
+  std::map<uint64_t, uint32_t> ctrlValues;
+
+  auto setCounter = [&](uint8_t counter, uint8_t startEvent, uint8_t stopEvent) {
+    uint64_t offset = PERF_CTRL_STARTSTOP_OFFSET[counter / 2];
+    bool highHalf = (counter % 2) != 0;
+    uint8_t startShift = highHalf ? 16 : 0;
+    uint8_t stopShift  = highHalf ? 24 : 8;
+    ctrlValues[offset] |= (static_cast<uint32_t>(startEvent) & 0xFF) << startShift;
+    ctrlValues[offset] |= (static_cast<uint32_t>(stopEvent)  & 0xFF) << stopShift;
+  };
+
+  auto setStartOnly = [&](uint8_t counter, uint8_t startEvent) {
+    uint64_t offset = PERF_CTRL_STARTSTOP_OFFSET[counter / 2];
+    bool highHalf = (counter % 2) != 0;
+    uint8_t startShift = highHalf ? 16 : 0;
+    ctrlValues[offset] |= (static_cast<uint32_t>(startEvent) & 0xFF) << startShift;
+  };
+
+  uint8_t slot = 0;
+  for (const auto& cfg : configs) {
+    if (cfg.eventType == "running") {
+      // Event counts: start == stop, so each port-running event increments.
+      setCounter(cfg.counterNumber, runningEvent(slot), runningEvent(slot));
+    }
+    else if (cfg.eventType == "stalled") {
+      setCounter(cfg.counterNumber, stalledEvent(slot), stalledEvent(slot));
+      ++slot;
+    }
+    else if (cfg.eventType == "clock") {
+      // Start on PL User Event 1. The jprobe sets the stop event to PERF_CNT_0
+      // after writing the next running-count ceiling.
+      setStartOnly(cfg.counterNumber, static_cast<uint8_t>(PL_USER_EVENT_1));
+    }
+    else if (cfg.eventType == "running_tlast") {
+      // First south port, monitor slot 0. The first Port Running event starts
+      // the counter, and it counts every clock until Port TLAST. The next
+      // packet's Running event starts it again, so the value sums those windows.
+      setCounter(cfg.counterNumber, runningEvent(0), tlastEvent(0));
+    }
+  }
+
+  for (const auto& [offset, value] : ctrlValues) {
+    CTRegisterWrite w;
+    w.address = tileAddress + offset;
+    w.value = value;
+    w.comment = "PLIO PerfCtrl " + formatAddress(offset) + " @ col " + std::to_string(column);
+    writes.push_back(w);
+  }
+
+  return writes;
+}
+
+bool AieDtraceCTWriter::appendPlioBandwidthConfig(
+    const std::string& metricSet,
+    std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites)
+{
+  auto plioChannels = metadata->getConfigPlioChannels();
+  if (plioChannels.empty()) {
+    xrt_core::message::send(severity_level::warning, "XRT",
+        "AIE dtrace: No PLIO columns configured for " + metricSet + ".");
+    return false;
+  }
+
+  bool appended = false;
+
+  for (const auto& [tile, channels] : plioChannels) {
+    // plip_info.json columns are absolute; the CT file uses partition-relative columns.
+    uint8_t relCol = (tile.col >= partitionStartCol)
+                   ? static_cast<uint8_t>(tile.col - partitionStartCol) : tile.col;
+
+    // Metadata only stores channels that are actually declared for this column, so
+    // there is no invented fallback here; just honor the configured (capped) set.
+    std::vector<uint8_t> chans = channels;
+    if (chans.empty())
+      continue;
+    if (chans.size() > MAX_PLIO_STREAM_PORTS)
+      chans.resize(MAX_PLIO_STREAM_PORTS);
+
+    auto configs = getPlioBandwidthCounterConfigs(chans);
+    if (configs.empty())
+      continue;
+
+    for (const auto& cfg : configs) {
+      CTCounterInfo info;
+      info.column = relCol;
+      info.row = SHIM_ROW;
+      info.counterNumber = cfg.counterNumber;
+      info.channel = cfg.channel;   // south port number
+      info.module = "interface_tile";
+      info.address = calculateCounterAddress(relCol, SHIM_ROW, cfg.counterNumber, "interface_tile");
+      info.metricSet = metricSet;
+      info.portDirection = cfg.direction;
+      info.eventType = cfg.eventType;
+      counters.push_back(info);
+    }
+
+    auto ssWrites = generatePlioStreamSwitchPortConfig(relCol, configs);
+    beginWrites.insert(beginWrites.end(), ssWrites.begin(), ssWrites.end());
+
+    auto pcWrites = generatePlioPerfCounterConfig(relCol, configs);
+    beginWrites.insert(beginWrites.end(), pcWrites.begin(), pcWrites.end());
+
+    appended = true;
+  }
+
+  return appended;
 }
 
 void AieDtraceCTWriter::appendComputeIoBoundConfig(

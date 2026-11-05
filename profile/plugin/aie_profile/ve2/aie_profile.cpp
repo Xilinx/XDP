@@ -29,7 +29,10 @@
 #include <sstream>
 #include "core/common/shim/hwctx_handle.h"
 #include "core/common/api/hw_context_int.h"
+
+#ifdef XDP_VE2_ZOCL_BUILD
 #include "shim_ve2/xdna_hwctx.h"
+#endif
 
 #include "core/common/api/bo_int.h"
 #include "xrt/xrt_bo.h"

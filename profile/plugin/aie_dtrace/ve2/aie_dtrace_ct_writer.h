@@ -354,6 +354,50 @@ private:
       std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites);
 
   /**
+   * @brief Append PLIO SOUTH-port bandwidth counters and begin-block writes
+   *
+   * PLIO columns and south channels come from plip_info.json (via metadata), not
+   * the partition shim columns. Each selected south port gets running and
+   * stalled event counts on counters 0 and 1 (start event == stop event).
+   * Counter 2 counts clocks: begin arms its start on PL User Event 1 and
+   * resets it once. Each pl_wts.json jprobe sets counter 0's event-value to
+   * the next cumulative byte ceiling and sets counter 2's stop event to
+   * PERF_CNT_0, then generates the user event. Counter 5 counts every clock
+   * from the first port's Port Running event until Port TLAST.
+   *
+   * @param metricSet plio_read_bandwidth (slave south port)
+   * @param counters [in,out] Accumulated counter list
+   * @param beginWrites [in,out] Accumulated begin-block register writes
+   * @return true if any PLIO bandwidth config was appended
+   */
+  bool appendPlioBandwidthConfig(const std::string& metricSet,
+      std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites);
+
+  // Build the PLIO counter configs for one shim column's south channels.
+  // Counters 0 and 1 are the first port's running and stall counts.
+  // Counter 2 is the clock counter.
+  std::vector<BandwidthCounterConfig> getPlioBandwidthCounterConfigs(
+      const std::vector<uint8_t>& channels);
+
+  // Stream-switch event-port selection for the PLIO south ports (one slot per stream).
+  std::vector<CTRegisterWrite> generatePlioStreamSwitchPortConfig(uint8_t column,
+      const std::vector<BandwidthCounterConfig>& configs);
+
+  // Perf control for PLIO read: running and stall event counts (start == stop),
+  // and the clock counter's start event. Its stop event is written by the jprobe.
+  std::vector<CTRegisterWrite> generatePlioPerfCounterConfig(uint8_t column,
+      const std::vector<BandwidthCounterConfig>& configs);
+
+  // Timestamp reads and PLIO clock-stop writes, one control program at a time.
+  // The dtrace runtime follows jprobes only while their asm lines stay
+  // ascending, so the two probe kinds are interleaved by line. A clock-stop
+  // probe writes counter 0's event-value ceiling, points counter 2's stop at
+  // PERF_CNT_0, then generates PL User Event 1. On a shared line it is emitted
+  // before the timestamp read.
+  void writePlioReadWindowProbes(std::ofstream& ctFile,
+      const std::vector<ASMFileInfo>& asmFileInfoList);
+
+  /**
    * @brief Append the compute_io_bound counters and begin-block writes
    * @param counters [in,out] Accumulated counter list
    * @param beginWrites [in,out] Accumulated begin-block register writes
@@ -369,6 +413,17 @@ private:
    */
   void appendL2L2Config(void* hwctx,
       bool includeL2L2,
+      std::vector<CTCounterInfo>& counters,
+      std::vector<CTRegisterWrite>& beginWrites);
+
+  /**
+   * @brief Append memtile Group_Memory_Conflict counters (perf counter 4) for listed tiles
+   * @param hwctx Hardware context handle for partition column bounds
+   * @param counters [in,out] Accumulated counter list
+   * @param beginWrites [in,out] Accumulated begin-block register writes
+   */
+  void appendMemoryConflictsConfig(void* hwctx,
+      bool includeMemoryConflicts,
       std::vector<CTCounterInfo>& counters,
       std::vector<CTRegisterWrite>& beginWrites);
 
@@ -548,6 +603,11 @@ private:
       uint8_t column,
       const std::vector<aie::dtrace::L2L2CounterPoint>& counterPoints);
 
+  /// Enable group conflict mask and program memtile perf counter 4 for event 111.
+  /// bank 0-7 enables only that bank; ALL_MEMTILE_BANKS enables every bank.
+  std::vector<CTRegisterWrite> generateMemtileConflictCounterConfig(
+      uint8_t column, uint8_t row, uint8_t bank);
+
 private:
   VPDatabase* db;
   std::shared_ptr<AieDtraceMetadata> metadata;
@@ -569,10 +629,13 @@ private:
   static constexpr uint64_t STREAM_SWITCH_EVENT_PORT_SEL_OFFSET = 0x0003FF00;
   static constexpr uint64_t MEM_TILE_PERF_CTRL0_OFFSET          = 0x00091000;
   static constexpr uint64_t MEM_TILE_PERF_CTRL1_OFFSET          = 0x00091004;
+  static constexpr uint64_t MEM_TILE_PERF_CTRL3_OFFSET          = 0x0009100c; // ctr 5-4 start/stop
+  static constexpr uint64_t MEM_TILE_EVENT_GROUP_MEMORY_CONFLICT_ENABLE = 0x00094514;
   static constexpr uint64_t PERF_CTRL_OFFSET = 0x00031000;
 
   static constexpr uint8_t PORT_RUNNING_0_MEM_TILE_EVENT = 80;  // PORT_RUNNING_N = 80 + 4*N
   static constexpr uint8_t PORT_STALLED_0_MEM_TILE_EVENT = 81;  // PORT_STALLED_N = 81 + 4*N
+  static constexpr uint32_t MEM_TILE_GROUP_CONFLICT_ENABLE_MASK = 0x000000FFu;
 
   // Core (aie) module offsets for the compute_io_bound metric (aie2ps).
   // Performance_Control0 (0x00037500) is deliberately never written: it holds counter
@@ -712,6 +775,34 @@ private:
   static constexpr uint8_t NUM_BANDWIDTH_COUNTERS = 4;
   static constexpr uint8_t SHIM_ROW = 0;
   static constexpr uint8_t PORTS_PER_REGISTER = 4;
+
+  // First shim performance counter value register (counters at +4 up to counter 5).
+  static constexpr uint64_t PERF_COUNTER0_OFFSET = 0x00031020;
+  static constexpr uint8_t  NUM_SHIM_PERF_COUNTERS = 6;
+
+  // PLIO read: running and stalled per south port, start event == stop event.
+  // The first port uses counters 0 and 1. Counter 2 counts clocks from PL User
+  // Event 1 until the running counter reaches the current byte ceiling. A
+  // second port uses counters 3 and 4. Counter 5 counts every clock from the
+  // first port's first Port Running event until Port TLAST.
+  static constexpr uint8_t PLIO_COUNTERS_PER_STREAM = 2;
+  static constexpr uint8_t MAX_PLIO_STREAM_PORTS = 2;
+  static constexpr uint8_t PLIO_CLOCK_COUNTER = 2;
+  static constexpr uint8_t PLIO_RUNNING_TLAST_COUNTER = 5;
+
+  // AIE2PS shim PL module. Event generate is what XAie_EventGenerate writes
+  // for XAIE_PL_MOD (XAIE2PSGBL_PL_MODULE_EVENT_GENERATE). The value is
+  // XAIE2PS_EVENTS_PL_USER_EVENT_1. Counter 0's event-value register
+  // (XAIE2PSGBL_PL_MODULE_PERFORMANCE_COUNTER0_EVENT_VALUE) generates
+  // XAIE2PS_EVENTS_PL_PERF_CNT_0 when the running count reaches it. That event
+  // is counter 2's stop. Performance_Ctrl2 holds counter 2's start and stop
+  // in bits [7:0] and [15:8]; counter 3 occupies the upper half.
+  static constexpr uint64_t PL_EVENT_GENERATE_OFFSET = 0x00034008;
+  static constexpr uint32_t PL_USER_EVENT_1 = 183;
+  static constexpr uint32_t PL_PERF_CNT_0 = 5;
+  static constexpr uint64_t PL_PERF_COUNTER0_EVENT_VALUE_OFFSET = 0x00031080;
+  static constexpr uint64_t PL_PERF_CTRL2_OFFSET = 0x0003100C;
+  static constexpr uint32_t PL_COUNTER2_STOP_MASK = 0x0000FF00;
 
   // Output filename
   static constexpr const char* CT_OUTPUT_FILENAME = "aie_profile.ct";

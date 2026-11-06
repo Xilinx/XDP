@@ -260,7 +260,7 @@ namespace xdp {
       // 0-based. The map keeps the count of inferences started, so the value
       // returned here is the index of this one and the stored value is the
       // count reportUnusedSelections reads. Each kernel is profiled only for
-      // its first profile_runs entries, which is at most four.
+      // its first profile_runs entries, which is at most five.
       inferenceNumber = m_inference_counts[kernel_name]++;
 
       const auto* ctFiles = findCTFiles(kernel_name);
@@ -323,7 +323,7 @@ namespace xdp {
     for (const auto& entry : m_ct_files) {
       const auto& kernel_name = entry.first;
       // The map stores how many inferences have started, not the last index.
-      // The window is inferences 0 through configured-1, at most four.
+      // The window is inferences 0 through configured-1, at most five.
       const uint64_t ran = m_inference_counts.count(kernel_name)
           ? m_inference_counts.at(kernel_name) : 0;
       const uint64_t profiled = std::min(ran, configured);

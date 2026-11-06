@@ -213,7 +213,8 @@ namespace xdp {
 
     // Later partitions are already past main's first acquire unless the cores
     // are reset. Halt the first run unless told to halt every one.
-    if (firstEver || xrt_core::config::get_aie_halt_settings_halt_on_every_run())
+    if (firstEver ||
+        xrt_core::config::detail::get_bool_value("AIE_halt_settings.halt_on_every_run", false))
       scheduleHalt(hwCtxImpl, kernel_name);
 #else
     (void)hwCtxImpl;

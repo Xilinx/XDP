@@ -8,6 +8,7 @@
 #include<cassert>
 #include<sstream>
 
+#include "core/common/config_reader.h"
 #include "core/common/device.h"
 #include "core/common/message.h"
 #include "core/common/api/hw_context_int.h"
@@ -210,8 +211,10 @@ namespace xdp {
         << " first_run_for_elf=" << firstRunForElf;
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", msg.str());
 
-    // Halt mode will come from vitisai_config.json. Until then every run starts.
-    scheduleHalt(hwCtxImpl, kernel_name);
+    // Later partitions are already past main's first acquire unless the cores
+    // are reset. Halt the first run unless told to halt every one.
+    if (firstEver || xrt_core::config::get_aie_halt_settings_halt_on_every_run())
+      scheduleHalt(hwCtxImpl, kernel_name);
 #else
     (void)hwCtxImpl;
     (void)kernel_name;

@@ -54,16 +54,39 @@ namespace xdp {
 #pragma warning(push)
 #pragma warning(disable: 4702)
 #endif
-  void AIEHaltClientDevImpl::updateDevice(void* hwCtxImpl)
+  void AIEHaltClientDevImpl::updateDevice(void* /*hwCtxImpl*/)
+  {
+  }
+
+  bool AIEHaltClientDevImpl::prepareHalt(void* hwCtxImpl, const std::string& userKernelName,
+                                         xrt::kernel& haltKernel)
+  {
+    // Temporary: the xclbin provides one XDP_KERNEL, reused for every kernel
+    // name on this context. A later change might generate a specialized ELF per
+    // kernel name that writes a kernel id to spare registers
+    (void)userKernelName;
+    (void)hwCtxImpl;
+    if (mHaltKernel) {
+      haltKernel = *mHaltKernel;
+      return true;
+    }
+
+    aie::ClientTransaction txnHandler(mHwContext, "AIE Halt");
+    if (!txnHandler.initializeKernel("XDP_KERNEL"))
+      return false;
+
+    mHaltKernel = txnHandler.getKernel();
+    haltKernel = *mHaltKernel;
+    return true;
+  }
+
+  bool AIEHaltClientDevImpl::scheduleHalt(void* hwCtxImpl, const xrt::kernel& haltKernel)
   {
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-              "In AIEHaltClientDevImpl::updateDevice");
+              "In AIEHaltClientDevImpl::scheduleHalt");
 
-    std::unique_ptr<aie::ClientTransaction> txnHandler
-        = std::make_unique<aie::ClientTransaction>(mHwContext, "AIE Halt");
-
-    if (!txnHandler->initializeKernel("XDP_KERNEL"))
-      return;
+    aie::ClientTransaction txnHandler(mHwContext, "AIE Halt");
+    txnHandler.useKernel(haltKernel);
 
     boost::property_tree::ptree aieMetadata;
     try {
@@ -73,7 +96,7 @@ namespace xdp {
 
       if (!data.first || !data.second) {
         xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "Empty AIE Metadata in xclbin");
-        return;
+        return false;
       }
 
       std::stringstream ss;
@@ -84,7 +107,7 @@ namespace xdp {
       std::string msg("AIE Metadata could not be read/processed from xclbin: ");
       msg += e.what();
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg);
-      return;
+      return false;
     }
 
     xdp::aie::driver_config meta_config = xdp::aie::getDriverConfig(aieMetadata, "aie_metadata.driver_config");
@@ -108,7 +131,7 @@ namespace xdp {
     auto RC = XAie_CfgInitialize(&aieDevInst, &cfg);
     if (RC != XAIE_OK) {
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", "AIE Driver Initialization Failed.");
-      return;
+      return false;
     }
 
     uint64_t startCol = 0, numCols = 0;
@@ -122,7 +145,7 @@ namespace xdp {
     }
 
     std::stringstream msg;
-    msg << " Set AIE Core breakpoint at Lock Acquire Req Instr, Start col "
+    msg << " Set AIE Core breakpoint at Lock Acquire Req Instr and reset cores, Start col "
         << startCol << ", Num col " << numCols << std::endl;
     xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", msg.str());
 
@@ -134,14 +157,27 @@ namespace xdp {
       for (uint8_t r = 2; r < 6 ; r++) {
         auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
         XAie_Write32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_DEBUG_CONTROL1, dbg_ctrl_1_reg);
-        //XAie_CoreDebugHalt(&aieDevInst, XAie_TileLoc(c, r));
+        // Hold every core in reset before releasing any of them. A later
+        // partition is already parked past main's acquire, and this breakpoint
+        // only fires on a new lock-acquire request.
+        XAie_MaskWrite32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_CORE_CONTROL,
+                         XAIEMLGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK,
+                         XAIEMLGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK);
+      }
+    }
+    for (uint8_t c = static_cast<uint8_t>(startCol) ; c < (static_cast<uint8_t>(startCol + numCols)) ; c++ ) {
+      for (uint8_t r = 2; r < 6 ; r++) {
+        auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
+        XAie_MaskWrite32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_CORE_CONTROL,
+                         XAIEMLGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK, 0);
       }
     }
 
     uint8_t* txnBin = XAie_ExportSerializedTransaction(&aieDevInst, 1, 0);
-    if (!txnHandler->submitTransaction(txnBin))
-      return;
+    if (!txnHandler.submitTransaction(txnBin))
+      return false;
     XAie_ClearTransaction(&aieDevInst);
+    return true;
   }
 #ifdef _WIN32
 #pragma warning(pop)

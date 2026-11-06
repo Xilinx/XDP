@@ -179,17 +179,17 @@ namespace xdp::aie {
         return true;
     }
 
-    bool VE2Transaction::submitELF(xrt::hw_context hwContext) 
+    bool VE2Transaction::prepareKernel(xrt::hw_context hwContext, xrt::kernel& kernel)
     {
         //
-        // 3. Submit ELF to microcontroller
+        // Open the generated ELF's XDP kernel. The caller starts the run.
         //
-        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", 
+        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
             "Start New Control Code Elf");
         xrt::elf profileElf;
         try {
             profileElf = xrt::elf(getElfFileName());
-        } 
+        }
         catch (...) {
             xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
             "Failed to load " + getElfFileName() + ". Cannot configure AIE to profile.");
@@ -197,7 +197,6 @@ namespace xdp::aie {
         }
 
         xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "Elf Object Created");
-        xrt::kernel kernel;
         try {
             if (m_fullElfFlow) {
                 // Full-ELF flow: register the config ELF on the hw_context and
@@ -217,16 +216,27 @@ namespace xdp::aie {
             return false;
         }
         xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "XDP_KERNEL created");
-        
+        return true;
+    }
+
+    bool VE2Transaction::submitELF(xrt::hw_context hwContext)
+    {
+        //
+        // 3. Submit ELF to microcontroller
+        //
+        xrt::kernel kernel;
+        if (!prepareKernel(hwContext, kernel))
+            return false;
+
         xrt::run run{kernel};
         xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "Kernel run created");
-        
+
         run.start();
         xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "Run started");
-        
+
         run.wait2();
         xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", "Wait done!");
-        
+
         return true;
     }
 

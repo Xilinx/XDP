@@ -28,6 +28,8 @@ namespace xdp::aie {
     public: 
       ClientTransaction(xrt::hw_context c, std::string tName) : context(c), transactionName(tName) {}
       bool initializeKernel(std::string kernelName);
+      void useKernel(xrt::kernel existingKernel) { kernel = std::move(existingKernel); }
+      xrt::kernel getKernel() const { return kernel; }
       bool submitTransaction(uint8_t* txn_ptr);
       void setTransactionName(std::string newTransactionName) {transactionName = newTransactionName;}
       int  getGroupID(int id) {return kernel.group_id(id); }

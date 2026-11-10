@@ -26,6 +26,7 @@ namespace xdp {
     static const std::set<std::string> metrics = {
       "ddr_bandwidth", "read_bandwidth", "write_bandwidth",
       "peak_read_bandwidth", "peak_write_bandwidth",
+      "plio_read_bandwidth",
       "detailed_ddr_read_bandwidth", "detailed_ddr_write_bandwidth", "off"};
     return metrics;
   }
@@ -695,6 +696,125 @@ namespace xdp {
     return coreMetricSets().count(metricSet) > 0;
   }
 
+  bool AieDtraceMetadata::addPlioBandwidthTiles(int moduleIdx,
+      const std::vector<std::string>& tokens)
+  {
+    // Locate the plio_read/write_bandwidth token in "<colspec>:<metric>[:<ch0>[:<ch1>]]".
+    int metricIdx = -1;
+    for (size_t k = 0; k < tokens.size(); ++k) {
+      if (xdp::aie::dtrace::isPlioBandwidthMetric(tokens[k])) {
+        metricIdx = static_cast<int>(k);
+        break;
+      }
+    }
+    if (metricIdx < 0)
+      return false;
+
+    const std::string& metric = tokens[metricIdx];
+
+    // Trailing tokens are user-specified south channels (max two: 6 shim counters / 3 per port).
+    static constexpr size_t MAX_PLIO_PORTS = 2;
+    std::vector<uint8_t> userChannels;
+    for (size_t k = metricIdx + 1; k < tokens.size() && userChannels.size() < MAX_PLIO_PORTS; ++k) {
+      try {
+        userChannels.push_back(aie::convertStringToUint8(tokens[k]));
+      }
+      catch (const std::invalid_argument&) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: ignoring non-integer PLIO channel '" + tokens[k] + "'.");
+      }
+    }
+
+    // Leading tokens select the column(s): "all", "<col>", or "<minCol>:<maxCol>".
+    // A bare metric with no column prefix is treated as "all".
+    bool allCols = (metricIdx == 0) || (tokens[0] == "all");
+    bool rangeCols = false;
+    uint8_t singleCol = 0, minCol = 0, maxCol = 0;
+    if (!allCols) {
+      try {
+        if (metricIdx >= 2) {
+          rangeCols = true;
+          minCol = aie::convertStringToUint8(tokens[0]);
+          maxCol = aie::convertStringToUint8(tokens[1]);
+        }
+        else {
+          singleCol = aie::convertStringToUint8(tokens[0]);
+        }
+      }
+      catch (const std::invalid_argument&) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "AIE dtrace: invalid column specification for PLIO metric, ignoring setting.");
+        return true;  // Consumed as a (malformed) PLIO setting.
+      }
+    }
+
+    auto plioPorts = xdp::aie::dtrace::parsePlioInfoJson();
+    if (plioPorts.empty()) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+          "AIE dtrace: no PLIO ports found in overlay metadata for metric set " + metric + ".");
+      return true;
+    }
+
+    // Aggregate the JSON-declared south channels per selected column (preserving order).
+    std::map<uint8_t, std::vector<uint8_t>> columnChannels;
+    for (const auto& port : plioPorts) {
+      if (!allCols) {
+        if (rangeCols && (port.column < minCol || port.column > maxCol))
+          continue;
+        if (!rangeCols && port.column != singleCol)
+          continue;
+      }
+      auto& chans = columnChannels[port.column];
+      if (std::find(chans.begin(), chans.end(), port.channel) == chans.end())
+        chans.push_back(port.channel);
+    }
+
+    for (auto& [col, jsonChannels] : columnChannels) {
+      // Only channels present in the parsed metadata are ever monitored (no invented
+      // fallback). Without a suffix we take the column's first two metadata channels;
+      // ":<chA>[:<chB>]" selects specific metadata channels (e.g. to cover the rest of
+      // a column that declares more than two channels across separate runs).
+      std::vector<uint8_t> channels;
+      if (userChannels.empty()) {
+        channels = jsonChannels;
+      }
+      else {
+        for (uint8_t ch : userChannels) {
+          if (std::find(jsonChannels.begin(), jsonChannels.end(), ch) != jsonChannels.end())
+            channels.push_back(ch);
+        }
+      }
+
+      if (channels.size() > MAX_PLIO_PORTS)
+        channels.resize(MAX_PLIO_PORTS);
+
+      if (channels.empty()) {
+        // Requested channels are not declared for this column in the metadata; skip it.
+        continue;
+      }
+
+      tile_type tile;
+      tile.col = col;
+      tile.row = 0;
+
+      auto tileItr = std::find_if(configMetrics[moduleIdx].begin(),
+          configMetrics[moduleIdx].end(), compareTileByLocMap(tile));
+      if (tileItr != configMetrics[moduleIdx].end()) {
+        xrt_core::message::send(severity_level::warning, "XRT",
+            "Tile " + std::to_string(tile.col) + ",0 is already configured with metric set "
+            + configMetrics[moduleIdx][tile] + ". Ignoring setting for set " + metric + ".");
+        continue;
+      }
+
+      configMetrics[moduleIdx][tile] = metric;
+      configChannel0[tile] = channels.front();
+      configChannel1[tile] = channels.back();
+      configPlioChannels[tile] = channels;
+    }
+
+    return true;
+  }
+
   bool AieDtraceMetadata::isMemTileMetricSet(const std::string& metricSet) const
   {
     return memTileMetricSets().count(metricSet) > 0;
@@ -842,10 +962,20 @@ namespace xdp {
       return;
 
     std::vector<std::vector<std::string>> metrics(metricsSettings.size());
+    std::vector<bool> handled(metricsSettings.size(), false);
+
+    // Pass 0: PLIO bandwidth metrics are driven by plip_info.json (overlay metadata),
+    // not by the AIE control-config interface tiles, so handle them up front and skip
+    // them in the generic column/channel passes below.
+    for (size_t i = 0; i < metricsSettings.size(); ++i) {
+      boost::split(metrics[i], metricsSettings[i], boost::is_any_of(":"));
+      handled[i] = addPlioBandwidthTiles(moduleIdx, metrics[i]);
+    }
 
     // Pass 1: all:<metric>[:<channel0>[:<channel1>]]
     for (size_t i = 0; i < metricsSettings.size(); ++i) {
-      boost::split(metrics[i], metricsSettings[i], boost::is_any_of(":"));
+      if (handled[i])
+        continue;
 
       if (metrics[i][0].compare("all") != 0)
         continue;
@@ -895,6 +1025,8 @@ namespace xdp {
 
     // Pass 2: <mincolumn>:<maxcolumn>:<metric>[:<channel0>[:<channel1>]]
     for (size_t i = 0; i < metricsSettings.size(); ++i) {
+      if (handled[i])
+        continue;
       if ((metrics[i][0].compare("all") == 0) || (metrics[i].size() < 3))
         continue;
 
@@ -950,6 +1082,8 @@ namespace xdp {
 
     // Pass 3: <singleColumn>:<metric>[:<channel0>[:<channel1>]]
     for (size_t i = 0; i < metricsSettings.size(); ++i) {
+      if (handled[i])
+        continue;
       bool isRangeSpecification = false;
       if (metrics[i].size() >= 3) {
         try {

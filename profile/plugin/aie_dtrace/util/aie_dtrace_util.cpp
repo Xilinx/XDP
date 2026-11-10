@@ -6,19 +6,22 @@
 #include "xdp/profile/plugin/aie_dtrace/util/aie_dtrace_util.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <map>
+#include <mutex>
 #include <regex>
 #include <set>
 #include <utility>
+#include <unistd.h>
+
+#include <boost/property_tree/json_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
+
 #include "core/common/api/hw_context_int.h"
 #include "core/common/config_reader.h"
 #include "core/common/message.h"
 #include "core/common/shim/hwctx_handle.h"
 #include "xdp/profile/database/static_info/aie_util.h"
-
-#include <boost/property_tree/ptree.hpp>
-#include <mutex>
-#include <unistd.h>
 
 namespace xdp::aie::dtrace {
 
@@ -120,6 +123,170 @@ namespace xdp::aie::dtrace {
        {XAIE_EVENT_PORT_RUNNING_0_PL, XAIE_EVENT_PORT_STALLED_0_PL,
         XAIE_EVENT_PORT_RUNNING_1_PL, XAIE_EVENT_PORT_STALLED_1_PL}},
     };
+  }
+
+  bool isPlioBandwidthMetric(const std::string& metricSet)
+  {
+    return metricSet == "plio_read_bandwidth";
+  }
+
+  std::map<int, std::vector<PlWtsProbe>> parsePlWtsJson()
+  {
+    std::map<int, std::vector<PlWtsProbe>> byUc;
+
+    // Tests drop pl_wts.json in the directory they are launched from.
+    // The name is a placeholder until the real file name is supplied.
+    const std::filesystem::path jsonPath =
+        std::filesystem::current_path() / "pl_wts.json";
+
+    std::error_code ec;
+    if (!std::filesystem::exists(jsonPath, ec)) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+          "AIE dtrace: PLIO task file not found: " + jsonPath.string());
+      return byUc;
+    }
+
+    boost::property_tree::ptree pt;
+    try {
+      boost::property_tree::read_json(jsonPath.string(), pt);
+    }
+    catch (const std::exception& e) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+          std::string("AIE dtrace: failed to parse ") + jsonPath.string() + ": " + e.what());
+      return byUc;
+    }
+
+    for (const auto& entry : pt) {
+      int index = 0;
+      try {
+        index = std::stoi(entry.first);
+      }
+      catch (const std::exception&) {
+        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+            "AIE dtrace: ignoring non-integer PLIO task key '" + entry.first + "'.");
+        continue;
+      }
+      if (index < 0) {
+        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+            "AIE dtrace: ignoring negative PLIO task key '" + entry.first + "'.");
+        continue;
+      }
+
+      const auto& node = entry.second;
+      auto linesNode = node.get_child_optional("pl_wts_config_lines");
+      auto bytesNode = node.get_child_optional("pl_wts_data_bytes");
+      if (!linesNode || !bytesNode) {
+        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+            "AIE dtrace: PLIO task key '" + entry.first
+            + "' is missing pl_wts_config_lines or pl_wts_data_bytes.");
+        continue;
+      }
+
+      std::vector<int> lines;
+      std::vector<long long> bytes;
+      bool ok = true;
+      try {
+        for (const auto& item : *linesNode)
+          lines.push_back(item.second.get_value<int>());
+        for (const auto& item : *bytesNode)
+          bytes.push_back(item.second.get_value<long long>());
+      }
+      catch (const std::exception&) {
+        ok = false;
+      }
+      if (!ok || lines.size() != bytes.size()) {
+        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+            "AIE dtrace: PLIO task key '" + entry.first
+            + "' has non-integer values or pl_wts_config_lines and pl_wts_data_bytes differ in length.");
+        continue;
+      }
+
+      // File key i is the i-th control program. Jprobe UC numbers are 0, 4, 8, ...
+      const int ucNumber = index * 4;
+      std::vector<PlWtsProbe> probes;
+      long long sumBytes = 0;
+      bool countsOk = true;
+      for (size_t k = 0; k < lines.size(); ++k) {
+        if (lines[k] <= 0 || bytes[k] < 0) {
+          countsOk = false;
+          break;
+        }
+        sumBytes += bytes[k];
+        const long long stop = (sumBytes + 7) / 8;
+        if (stop > static_cast<long long>(UINT32_MAX)) {
+          countsOk = false;
+          break;
+        }
+        PlWtsProbe probe;
+        probe.line = lines[k];
+        probe.stopCount = static_cast<uint32_t>(stop);
+        probes.push_back(probe);
+      }
+      if (!countsOk) {
+        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+            "AIE dtrace: PLIO task key '" + entry.first
+            + "' has a non-positive line, a negative byte count, or a stop count that does not fit in 32 bits.");
+        continue;
+      }
+      byUc[ucNumber] = std::move(probes);
+    }
+
+    return byUc;
+  }
+
+  uint8_t getPlioSouthStreamPortIndex(uint8_t channel)
+  {
+    // south0 -> physical stream-switch port 2 (slots 0/1 are tile_control/fifo).
+    static constexpr uint8_t SOUTH0_STREAM_PORT_INDEX = 2;
+    return static_cast<uint8_t>(SOUTH0_STREAM_PORT_INDEX + channel);
+  }
+
+  std::vector<PlioInfoPort> parsePlioInfoJson()
+  {
+    std::vector<PlioInfoPort> ports;
+
+    // Tests drop plip_info.json in the directory they are launched from.
+    const std::filesystem::path jsonPath =
+        std::filesystem::current_path() / "plip_info.json";
+
+    std::error_code ec;
+    if (!std::filesystem::exists(jsonPath, ec)) {
+      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+          "AIE dtrace: PLIO metadata file not found: " + jsonPath.string());
+      return ports;
+    }
+
+    try {
+      boost::property_tree::ptree pt;
+      boost::property_tree::read_json(jsonPath.string(), pt);
+
+      auto pliosItr = pt.get_child_optional("plios");
+      if (!pliosItr) {
+        xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+            "AIE dtrace: 'plios' section missing in " + jsonPath.string());
+        return ports;
+      }
+
+      for (const auto& plio : *pliosItr) {
+        const auto& node = plio.second;
+        auto colStr = node.get_optional<std::string>("column");
+        auto chStr  = node.get_optional<std::string>("channel");
+        if (!colStr)
+          continue;
+
+        PlioInfoPort port;
+        port.column  = static_cast<uint8_t>(std::stoi(*colStr));
+        port.channel = chStr ? static_cast<uint8_t>(std::stoi(*chStr)) : 0;
+        ports.push_back(port);
+      }
+    }
+    catch (const std::exception& e) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+          std::string("AIE dtrace: failed to parse PLIO metadata: ") + e.what());
+      ports.clear();
+    }
+
+    return ports;
   }
 
   PartitionGeometry getPartitionGeometry(void* hwctx)

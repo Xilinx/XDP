@@ -165,15 +165,15 @@ namespace xdp::profiling_runtime_config {
         return runs;
       }
 
-      // Compute boundness on the first inference, then the four DDR bandwidth
-      // channels that cannot share a run because they contend for the same
-      // interface tile counters.
-      runs.resize(4);
+      // Compute boundness on its own on the first inference, then the four DDR
+      // bandwidth channels, which cannot share a run because they contend for
+      // the same interface tile counters.
+      runs.resize(5);
       runs[0].aie_tile = "compute_io_bound";
-      runs[0].interface_tile = "detailed_ddr_read_bandwidth:0";
-      runs[1].interface_tile = "detailed_ddr_read_bandwidth:1";
-      runs[2].interface_tile = "detailed_ddr_write_bandwidth:0";
-      runs[3].interface_tile = "detailed_ddr_write_bandwidth:1";
+      runs[1].interface_tile = "detailed_ddr_read_bandwidth:0";
+      runs[2].interface_tile = "detailed_ddr_read_bandwidth:1";
+      runs[3].interface_tile = "detailed_ddr_write_bandwidth:0";
+      runs[4].interface_tile = "detailed_ddr_write_bandwidth:1";
 
       info("profiling_runtime_config.control_instrumentation.profile_runs='" + name
            + "' expanded to " + std::to_string(runs.size()) + " inferences.");
@@ -184,7 +184,7 @@ namespace xdp::profiling_runtime_config {
     // A kernel is profiled for at most this many inferences. A longer
     // profile_runs list is truncated, and a kernel that keeps running past
     // the list is not profiled further.
-    constexpr size_t max_profiled_inferences = 4;
+    constexpr size_t max_profiled_inferences = 5;
 
     // Parse the control_instrumentation subtree: copy known string keys into
     // the returned struct and warn about any unknown keys.

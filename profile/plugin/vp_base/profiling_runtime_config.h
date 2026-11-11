@@ -33,10 +33,11 @@
 // control_instrumentation may instead carry "profile_runs", which collects the
 // metric sets that used to require one design run each into a single run: entry
 // i is applied to inference i of each kernel. The first inference is 0, and at
-// most four inferences of a kernel are profiled. Either an explicit array:
+// most five inferences of a kernel are profiled. Either an explicit array:
 //   "control_instrumentation": {
 //     "profile_runs": [
-//       {"aie_tile":"compute_io_bound","interface_tile":"detailed_ddr_read_bandwidth:0"},
+//       {"aie_tile":"compute_io_bound"},
+//       {"interface_tile":"detailed_ddr_read_bandwidth:0"},
 //       {"interface_tile":"detailed_ddr_read_bandwidth:1"},
 //       {"interface_tile":"detailed_ddr_write_bandwidth:0"},
 //       {"interface_tile":"detailed_ddr_write_bandwidth:1"}]}
@@ -65,7 +66,7 @@ namespace xdp::profiling_runtime_config {
 
     // Per-inference metric selections in execution order: profile_runs[i] is
     // applied to inference i of each kernel. The first inference is 0, and a
-    // kernel is profiled for at most four inferences. Populated from the
+    // kernel is profiled for at most five inferences. Populated from the
     // "profile_runs" array, or from its super-metric-set shorthand. When the
     // blob carries no "profile_runs" this holds a single entry synthesized
     // from the four fields above, so a consumer can always iterate it rather

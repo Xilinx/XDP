@@ -69,15 +69,15 @@ namespace xdp {
 #endif
   }
 
-  AIEHaltPlugin::ContextHaltElfs*
+  AIEHaltPlugin::ContextHalt*
   AIEHaltPlugin::ensureContext(void* hwCtxImpl)
   {
 #if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
     if (!hwCtxImpl)
       return nullptr;
 
-    auto existing = contextHaltElfs.find(hwCtxImpl);
-    if (existing != contextHaltElfs.end())
+    auto existing = contextHalts.find(hwCtxImpl);
+    if (existing != contextHalts.end())
       return &existing->second;
 
     xrt::hw_context hwContext =
@@ -125,64 +125,30 @@ namespace xdp {
     }
     (db->getStaticInfo()).setDeviceName(deviceId, deviceName);
 
-    ContextHaltElfs context;
+    uint32_t contextId = 0;
+    try {
+      contextId = xrt_core::hw_context_int::get_slotidx(hwContext);
+    } catch (const std::exception& e) {
+      std::stringstream msg;
+      msg << "AIE Halt cannot read the hardware context id: " << e.what();
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
+      return nullptr;
+    }
+
+    ContextHalt context;
 #if defined(XDP_VE2_BUILD)
     context.implementation = std::make_unique<AIEHaltVE2Impl>(db);
 #else
     context.implementation = std::make_unique<AIEHaltClientDevImpl>(db);
 #endif
+    context.contextId = contextId;
     context.implementation->setHwContext(std::move(hwContext));
 
-    auto inserted = contextHaltElfs.emplace(hwCtxImpl, std::move(context));
+    auto inserted = contextHalts.emplace(hwCtxImpl, std::move(context));
     return &inserted.first->second;
 #else
     (void)hwCtxImpl;
     return nullptr;
-#endif
-  }
-
-  bool AIEHaltPlugin::prepareHalt(void* hwCtxImpl, const std::string& kernelName)
-  {
-#if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
-    ContextHaltElfs* context = ensureContext(hwCtxImpl);
-    if (!context)
-      return false;
-
-    if (context->kernelHaltElfs.find(kernelName) != context->kernelHaltElfs.end())
-      return false;
-
-    xrt::kernel haltKernel;
-    if (!context->implementation->prepareHalt(hwCtxImpl, kernelName, haltKernel)) {
-      if (context->kernelHaltElfs.empty())
-        contextHaltElfs.erase(hwCtxImpl);
-      return false;
-    }
-
-    context->kernelHaltElfs.emplace(kernelName, std::move(haltKernel));
-    return true;
-#else
-    (void)hwCtxImpl;
-    (void)kernelName;
-    return false;
-#endif
-  }
-
-  bool AIEHaltPlugin::scheduleHalt(void* hwCtxImpl, const std::string& kernelName)
-  {
-#if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
-    auto contextIt = contextHaltElfs.find(hwCtxImpl);
-    if (contextIt == contextHaltElfs.end())
-      return false;
-
-    auto kernelIt = contextIt->second.kernelHaltElfs.find(kernelName);
-    if (kernelIt == contextIt->second.kernelHaltElfs.end())
-      return false;
-
-    return contextIt->second.implementation->scheduleHalt(hwCtxImpl, kernelIt->second);
-#else
-    (void)hwCtxImpl;
-    (void)kernelName;
-    return false;
 #endif
   }
 
@@ -191,31 +157,36 @@ namespace xdp {
                                    const std::string& kernel_name)
   {
 #if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
-    const bool added = prepareHalt(hwCtxImpl, kernel_name);
-    auto contextIt = contextHaltElfs.find(hwCtxImpl);
-    if (contextIt == contextHaltElfs.end())
+    ContextHalt* context = ensureContext(hwCtxImpl);
+    if (!context)
       return;
 
-    const auto& kernelHaltElfs = contextIt->second.kernelHaltElfs;
-    if (kernelHaltElfs.find(kernel_name) == kernelHaltElfs.end())
-      return;
-
-    const bool firstRunForElf = added;
-    const bool firstRunForContext = added && kernelHaltElfs.size() == 1;
-    const bool firstEver = firstRunForContext && contextHaltElfs.size() == 1;
+    // The only live context's first halt. A context created after the previous
+    // one has been released is first again. An overlapping second context is not.
+    const bool firstEver = contextHalts.size() == 1 && context->haltCount == 0;
+    const bool haltEvery = xrt_core::config::get_aie_halt_settings_halt_on_every_run();
 
     std::stringstream msg;
     msg << "AIE Halt run start for kernel '" << kernel_name
-        << "' first_ever=" << firstEver
-        << " first_run_for_context=" << firstRunForContext
-        << " first_run_for_elf=" << firstRunForElf;
+        << "' context_id=" << context->contextId
+        << " first_ever=" << firstEver;
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", msg.str());
 
-    // Later partitions are already past main's first acquire unless the cores
-    // are reset. Halt the first run unless told to halt every one.
-    if (firstEver ||
-        xrt_core::config::detail::get_bool_value("AIE_halt_settings.halt_on_every_run", false))
-      scheduleHalt(hwCtxImpl, kernel_name);
+    if (!(firstEver || haltEvery))
+      return;
+
+    const uint32_t haltCount = context->haltCount + 1;
+    xrt::kernel haltKernel;
+    if (!context->implementation->prepareHalt(hwCtxImpl, kernel_name,
+                                              context->contextId, haltCount,
+                                              haltKernel)) {
+      if (context->haltCount == 0)
+        contextHalts.erase(hwCtxImpl);
+      return;
+    }
+
+    context->haltCount = haltCount;
+    context->implementation->scheduleHalt(hwCtxImpl, haltKernel);
 #else
     (void)hwCtxImpl;
     (void)kernel_name;
@@ -225,12 +196,12 @@ namespace xdp {
   void AIEHaltPlugin::finishflushDevice(void* hwCtxImpl)
   {
 #if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
-    auto contextIt = contextHaltElfs.find(hwCtxImpl);
-    if (contextIt == contextHaltElfs.end())
+    auto contextIt = contextHalts.find(hwCtxImpl);
+    if (contextIt == contextHalts.end())
       return;
 
     contextIt->second.implementation->finishflushDevice(hwCtxImpl);
-    contextHaltElfs.erase(contextIt);
+    contextHalts.erase(contextIt);
 #else
     (void)hwCtxImpl;
 #endif
@@ -239,9 +210,9 @@ namespace xdp {
   void AIEHaltPlugin::writeAll(bool /*openNewFiles*/)
   {
 #if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
-    for (auto& entry : contextHaltElfs)
+    for (auto& entry : contextHalts)
       entry.second.implementation->finishflushDevice(entry.first);
-    contextHaltElfs.clear();
+    contextHalts.clear();
 #endif
   }
 

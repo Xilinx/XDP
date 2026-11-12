@@ -17,6 +17,7 @@
 #define XDP_PLUGIN_SOURCE
 
 #include <sstream>
+#include <string>
 
 #include <boost/property_tree/ptree.hpp>
 
@@ -48,31 +49,19 @@ namespace xdp {
   {
   }
 
-  bool AIEHaltVE2Impl::prepareHalt(void* hwCtxImpl, const std::string& userKernelName,
+  bool AIEHaltVE2Impl::prepareHalt(void* hwCtxImpl, const std::string& /*userKernelName*/,
+                                   uint32_t contextId, uint32_t haltCount,
                                    xrt::kernel& haltKernel)
   {
-    // Temporary: every kernel name on this context reuses one halt ELF.
-    // A later change might generate a specialized ELF per kernel name that
-    // writes a kernel id to spare registers
-    (void)userKernelName;
-    if (mHaltKernel) {
-      haltKernel = *mHaltKernel;
-      return true;
-    }
-
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
               "In AIEHaltVE2Impl::prepareHalt");
 
-    xrt::kernel created;
-    if (!generateHaltControlCode(hwCtxImpl, created)) {
+    if (!generateHaltControlCode(hwCtxImpl, contextId, haltCount, haltKernel)) {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
                 "Could not generate AIE Halt control code. Falling back to prebuilt control code ELF.");
-      if (!loadHaltElf(created))
+      if (!loadHaltElf(haltKernel))
         return false;
     }
-
-    mHaltKernel = created;
-    haltKernel = *mHaltKernel;
     return true;
   }
 
@@ -92,7 +81,8 @@ namespace xdp {
     return true;
   }
 
-  bool AIEHaltVE2Impl::generateHaltControlCode(void* hwCtxImpl, xrt::kernel& haltKernel)
+  bool AIEHaltVE2Impl::generateHaltControlCode(void* hwCtxImpl, uint32_t contextId,
+                                              uint32_t haltCount, xrt::kernel& haltKernel)
   {
     using severity_level = xrt_core::message::severity_level;
 
@@ -218,15 +208,21 @@ namespace xdp {
 
     std::stringstream msg;
     msg << "Set AIE Core breakpoint at Lock Acquire Req Instr and reset cores, Start col "
-        << startCol << ", Num col " << numCols;
+        << startCol << ", Num col " << numCols
+        << ", context id " << contextId
+        << ", halt count " << haltCount;
     xrt_core::message::send(severity_level::info, "XRT", msg.str());
 
     // Submit through the path matching the hw_context: add_config for full ELF,
     // xrt::module for xclbin.
     tranxHandler->setElfFlow(isFullELFFlow);
 
+    // A new ELF on every halt, so the registered kernel name cannot collide.
+    const std::string tranxName =
+      "AieHalt_" + std::to_string(contextId) + "_" + std::to_string(haltCount);
+
     // Record driver calls into the control code ASM.
-    if (!tranxHandler->initializeTransaction(&aieDevInst, "AieHalt")) {
+    if (!tranxHandler->initializeTransaction(&aieDevInst, tranxName)) {
       xrt_core::message::send(severity_level::warning, "XRT", "AIE Halt transaction initialization failed.");
       return false;
     }
@@ -246,6 +242,15 @@ namespace xdp {
         XAie_MaskWrite32(&aieDevInst, tileOffset + XAIE2PSGBL_CORE_MODULE_CORE_CONTROL,
                          XAIE2PSGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK,
                          XAIE2PSGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK);
+      }
+    }
+    // Cores are held in reset. These values survive the release.
+    // Counter 1 is the xrt-smi context id. Counter 2 is this context's halt count.
+    for (uint8_t c = static_cast<uint8_t>(startCol); c < static_cast<uint8_t>(startCol + numCols); c++) {
+      for (uint8_t r = meta_config.aie_tile_row_start; r < meta_config.num_rows; r++) {
+        auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
+        XAie_Write32(&aieDevInst, tileOffset + XAIE2PSGBL_CORE_MODULE_PERFORMANCE_COUNTER1, contextId);
+        XAie_Write32(&aieDevInst, tileOffset + XAIE2PSGBL_CORE_MODULE_PERFORMANCE_COUNTER2, haltCount);
       }
     }
     for (uint8_t c = static_cast<uint8_t>(startCol); c < static_cast<uint8_t>(startCol + numCols); c++) {

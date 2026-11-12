@@ -20,7 +20,7 @@
 #include "xdp/config.h"
 #include "xdp/profile/plugin/aie_halt/aie_halt_impl.h"
 
-#include <optional>
+#include <cstdint>
 
 namespace xdp {
 
@@ -35,13 +35,14 @@ namespace xdp {
       void updateDevice(void* hwCtxImpl) override;
       void finishflushDevice(void* hwCtxImpl) override;
       bool prepareHalt(void* hwCtxImpl, const std::string& userKernelName,
+                       uint32_t contextId, uint32_t haltCount,
                        xrt::kernel& haltKernel) override;
       bool scheduleHalt(void* hwCtxImpl, const xrt::kernel& haltKernel) override;
 
     private:
-      // temporarily cache a single halt kernel
-      // this won't be needed if a unique halt is generated for every kernel
-      std::optional<xrt::kernel> mHaltKernel;
+      // Written into performance counters by the transaction built in scheduleHalt.
+      uint32_t mContextId = 0;
+      uint32_t mHaltCount = 0;
   };
 
 }

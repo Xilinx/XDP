@@ -20,8 +20,7 @@
 #include "xdp/profile/plugin/aie_halt/aie_halt_impl.h"
 #include "xdp/profile/plugin/vp_base/vp_base_plugin.h"
 
-#include "core/include/xrt/xrt_kernel.h"
-
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -49,18 +48,19 @@ namespace xdp {
 
     private:
 
-    struct ContextHaltElfs {
+    // One live hardware context. Halt kernels are generated per run and are
+    // not stored. haltCount is the number of halt ELFs this context has run.
+    struct ContextHalt {
       std::unique_ptr<AIEHaltImpl> implementation;
-      std::unordered_map<std::string, xrt::kernel> kernelHaltElfs;
+      uint32_t contextId = 0;
+      uint32_t haltCount = 0;
     };
 
-    bool prepareHalt(void* hwCtxImpl, const std::string& kernelName);
-    bool scheduleHalt(void* hwCtxImpl, const std::string& kernelName);
-    ContextHaltElfs* ensureContext(void* hwCtxImpl);
+    ContextHalt* ensureContext(void* hwCtxImpl);
 
     static bool live;
 
-    std::unordered_map<void*, ContextHaltElfs> contextHaltElfs;
+    std::unordered_map<void*, ContextHalt> contextHalts;
   };
 
 } // end namespace xdp

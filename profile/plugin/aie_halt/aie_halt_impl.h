@@ -44,10 +44,10 @@ namespace xdp {
       virtual void updateDevice(void*) = 0;
       virtual void finishflushDevice(void*) = 0;
 
-      // Generate a halt ELF and run it. contextId is the xrt-smi slot index.
-      // haltCount is how many times this context has halted, including this run.
+      // Generate a halt ELF and run it. haltCount is how many times this
+      // context has halted, including this run.
       virtual bool runHalt(void* hwCtxImpl, const std::string& userKernelName,
-                           uint32_t contextId, uint32_t haltCount) = 0;
+                           uint32_t haltCount) = 0;
 
       void setHwContext(xrt::hw_context ctx)
       {

@@ -33,7 +33,7 @@ namespace xdp {
       void updateDevice(void* hwCtxImpl) override;
       void finishflushDevice(void* hwCtxImpl) override;
       bool runHalt(void* hwCtxImpl, const std::string& userKernelName,
-                   uint32_t contextId, uint32_t haltCount) override;
+                   uint32_t haltCount) override;
   };
 
 }

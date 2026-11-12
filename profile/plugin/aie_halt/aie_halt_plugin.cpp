@@ -133,15 +133,6 @@ namespace xdp {
     }
     (db->getStaticInfo()).setDeviceName(deviceId, deviceName);
 
-    try {
-      mContextId = xrt_core::hw_context_int::get_slotidx(hwContext);
-    } catch (const std::exception& e) {
-      std::stringstream msg;
-      msg << "AIE Halt cannot read the hardware context id: " << e.what();
-      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
-      return;
-    }
-
     mHaltCount = 0;
     DeviceDataEntry.valid = true;
 #if defined(XDP_VE2_BUILD)
@@ -180,15 +171,14 @@ namespace xdp {
 
     std::stringstream msg;
     msg << "AIE Halt run start for kernel '" << kernel_name
-        << "' context_id=" << mContextId
-        << " first_ever=" << firstEver;
+        << "' first_ever=" << firstEver;
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", msg.str());
 
     if (!(firstEver || haltEvery))
       return;
 
     const uint32_t haltCount = mHaltCount + 1;
-    if (!DeviceDataEntry.implementation->runHalt(hwCtxImpl, kernel_name, mContextId, haltCount))
+    if (!DeviceDataEntry.implementation->runHalt(hwCtxImpl, kernel_name, haltCount))
       return;
 
     mHaltCount = haltCount;
@@ -204,7 +194,6 @@ namespace xdp {
     DeviceDataEntry.implementation.reset();
     mHwCtxImpl = nullptr;
     mDeferredConfiguration = false;
-    mContextId = 0;
     mHaltCount = 0;
 #endif
   }

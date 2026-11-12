@@ -59,7 +59,7 @@ namespace xdp {
   }
 
   bool AIEHaltClientDevImpl::runHalt(void* hwCtxImpl, const std::string& /*userKernelName*/,
-                                     uint32_t contextId, uint32_t haltCount)
+                                     uint32_t haltCount)
   {
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
               "In AIEHaltClientDevImpl::runHalt");
@@ -127,7 +127,6 @@ namespace xdp {
     std::stringstream msg;
     msg << " Set AIE Core breakpoint at Lock Acquire Req Instr and reset cores, Start col "
         << startCol << ", Num col " << numCols
-        << ", context id " << contextId
         << ", halt count " << haltCount << std::endl;
     xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", msg.str());
 
@@ -147,13 +146,11 @@ namespace xdp {
                          XAIEMLGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK);
       }
     }
-    // Cores are held in reset. These values survive the release.
-    // Counter 1 is the xrt-smi context id. Counter 2 is this context's halt count.
+    // Cores are held in reset. Counter 1 keeps this context's halt count.
     for (uint8_t c = static_cast<uint8_t>(startCol) ; c < (static_cast<uint8_t>(startCol + numCols)) ; c++ ) {
       for (uint8_t r = 2; r < 6 ; r++) {
         auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
-        XAie_Write32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_PERFORMANCE_COUNTER1, contextId);
-        XAie_Write32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_PERFORMANCE_COUNTER2, haltCount);
+        XAie_Write32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_PERFORMANCE_COUNTER1, haltCount);
       }
     }
     for (uint8_t c = static_cast<uint8_t>(startCol) ; c < (static_cast<uint8_t>(startCol + numCols)) ; c++ ) {

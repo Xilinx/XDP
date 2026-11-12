@@ -49,11 +49,11 @@ namespace xdp {
       void updateDevice(void* hwCtxImpl) override;
       void finishflushDevice(void* hwCtxImpl) override;
       bool runHalt(void* hwCtxImpl, const std::string& userKernelName,
-                   uint32_t contextId, uint32_t haltCount) override;
+                   uint32_t haltCount) override;
 
     private:
       // Generate the halt control code and run it.
-      bool generateHaltControlCode(void* hwCtxImpl, uint32_t contextId, uint32_t haltCount);
+      bool generateHaltControlCode(void* hwCtxImpl, uint32_t haltCount);
 
       // Fallback path: load and run a prebuilt control code ELF from disk.
       bool loadHaltElf();

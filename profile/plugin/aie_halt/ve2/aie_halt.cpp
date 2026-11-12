@@ -50,12 +50,12 @@ namespace xdp {
   }
 
   bool AIEHaltVE2Impl::runHalt(void* hwCtxImpl, const std::string& /*userKernelName*/,
-                               uint32_t contextId, uint32_t haltCount)
+                               uint32_t haltCount)
   {
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
               "In AIEHaltVE2Impl::runHalt");
 
-    if (generateHaltControlCode(hwCtxImpl, contextId, haltCount))
+    if (generateHaltControlCode(hwCtxImpl, haltCount))
       return true;
 
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
@@ -63,8 +63,7 @@ namespace xdp {
     return loadHaltElf();
   }
 
-  bool AIEHaltVE2Impl::generateHaltControlCode(void* hwCtxImpl, uint32_t contextId,
-                                              uint32_t haltCount)
+  bool AIEHaltVE2Impl::generateHaltControlCode(void* hwCtxImpl, uint32_t haltCount)
   {
     using severity_level = xrt_core::message::severity_level;
 
@@ -191,7 +190,6 @@ namespace xdp {
     std::stringstream msg;
     msg << "Set AIE Core breakpoint at Lock Acquire Req Instr and reset cores, Start col "
         << startCol << ", Num col " << numCols
-        << ", context id " << contextId
         << ", halt count " << haltCount;
     xrt_core::message::send(severity_level::info, "XRT", msg.str());
 
@@ -200,8 +198,7 @@ namespace xdp {
     tranxHandler->setElfFlow(isFullELFFlow);
 
     // A new ELF on every halt, so the registered kernel name cannot collide.
-    const std::string tranxName =
-      "AieHalt_" + std::to_string(contextId) + "_" + std::to_string(haltCount);
+    const std::string tranxName = "AieHalt_" + std::to_string(haltCount);
 
     // Record driver calls into the control code ASM.
     if (!tranxHandler->initializeTransaction(&aieDevInst, tranxName)) {
@@ -226,13 +223,11 @@ namespace xdp {
                          XAIE2PSGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK);
       }
     }
-    // Cores are held in reset. These values survive the release.
-    // Counter 1 is the xrt-smi context id. Counter 2 is this context's halt count.
+    // Cores are held in reset. Counter 1 keeps this context's halt count.
     for (uint8_t c = static_cast<uint8_t>(startCol); c < static_cast<uint8_t>(startCol + numCols); c++) {
       for (uint8_t r = meta_config.aie_tile_row_start; r < meta_config.num_rows; r++) {
         auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
-        XAie_Write32(&aieDevInst, tileOffset + XAIE2PSGBL_CORE_MODULE_PERFORMANCE_COUNTER1, contextId);
-        XAie_Write32(&aieDevInst, tileOffset + XAIE2PSGBL_CORE_MODULE_PERFORMANCE_COUNTER2, haltCount);
+        XAie_Write32(&aieDevInst, tileOffset + XAIE2PSGBL_CORE_MODULE_PERFORMANCE_COUNTER1, haltCount);
       }
     }
     for (uint8_t c = static_cast<uint8_t>(startCol); c < static_cast<uint8_t>(startCol + numCols); c++) {

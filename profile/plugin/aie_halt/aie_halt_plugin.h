@@ -58,8 +58,7 @@ namespace xdp {
 
     void* mHwCtxImpl = nullptr;
     bool mDeferredConfiguration = false;
-    // xrt-smi context id, and how many halts this context has run.
-    uint32_t mContextId = 0;
+    // How many halts this context has run.
     uint32_t mHaltCount = 0;
   };
 

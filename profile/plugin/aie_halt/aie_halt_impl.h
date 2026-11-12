@@ -18,7 +18,6 @@
 #define XDP_PLUGIN_AIE_HALT_IMPL_H
 
 #include "core/include/xrt/xrt_hw_context.h"
-#include "core/include/xrt/xrt_kernel.h"
 
 #include <cstdint>
 #include <string>
@@ -45,14 +44,10 @@ namespace xdp {
       virtual void updateDevice(void*) = 0;
       virtual void finishflushDevice(void*) = 0;
 
-      // Build a new halt kernel for this run. contextId is the xrt-smi slot
-      // index. haltCount is how many times this context has halted, including
-      // this run. The kernel is not retained.
-      virtual bool prepareHalt(void* hwCtxImpl, const std::string& userKernelName,
-                               uint32_t contextId, uint32_t haltCount,
-                               xrt::kernel& haltKernel) = 0;
-
-      virtual bool scheduleHalt(void* hwCtxImpl, const xrt::kernel& haltKernel) = 0;
+      // Generate a halt ELF and run it. contextId is the xrt-smi slot index.
+      // haltCount is how many times this context has halted, including this run.
+      virtual bool runHalt(void* hwCtxImpl, const std::string& userKernelName,
+                           uint32_t contextId, uint32_t haltCount) = 0;
 
       void setHwContext(xrt::hw_context ctx)
       {

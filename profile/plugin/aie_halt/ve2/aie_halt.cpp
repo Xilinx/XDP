@@ -49,40 +49,22 @@ namespace xdp {
   {
   }
 
-  bool AIEHaltVE2Impl::prepareHalt(void* hwCtxImpl, const std::string& /*userKernelName*/,
-                                   uint32_t contextId, uint32_t haltCount,
-                                   xrt::kernel& haltKernel)
+  bool AIEHaltVE2Impl::runHalt(void* hwCtxImpl, const std::string& /*userKernelName*/,
+                               uint32_t contextId, uint32_t haltCount)
   {
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-              "In AIEHaltVE2Impl::prepareHalt");
+              "In AIEHaltVE2Impl::runHalt");
 
-    if (!generateHaltControlCode(hwCtxImpl, contextId, haltCount, haltKernel)) {
-      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-                "Could not generate AIE Halt control code. Falling back to prebuilt control code ELF.");
-      if (!loadHaltElf(haltKernel))
-        return false;
-    }
-    return true;
-  }
+    if (generateHaltControlCode(hwCtxImpl, contextId, haltCount))
+      return true;
 
-  bool AIEHaltVE2Impl::scheduleHalt(void* /*hwCtxImpl*/, const xrt::kernel& haltKernel)
-  {
-    try {
-      xrt::run rn{haltKernel};
-      rn.start();
-      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-                "In AIEHaltVE2Impl run start, going to wait");
-      rn.wait2();
-    } catch (const std::exception& e) {
-      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
-                std::string("AIE Halt run failed: ") + e.what());
-      return false;
-    }
-    return true;
+    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+              "Could not generate AIE Halt control code. Falling back to prebuilt control code ELF.");
+    return loadHaltElf();
   }
 
   bool AIEHaltVE2Impl::generateHaltControlCode(void* hwCtxImpl, uint32_t contextId,
-                                              uint32_t haltCount, xrt::kernel& haltKernel)
+                                              uint32_t haltCount)
   {
     using severity_level = xrt_core::message::severity_level;
 
@@ -261,25 +243,35 @@ namespace xdp {
       }
     }
 
-    // Assemble the recorded ASM into an ELF and open its kernel. The run is
-    // started later by scheduleHalt.
+    // Assemble the recorded ASM into an ELF and run it.
     if (!tranxHandler->completeASM(&aieDevInst) || !tranxHandler->generateELF()) {
       xrt_core::message::send(severity_level::warning, "XRT",
                 "Failed to generate AIE Halt control code.");
       return false;
     }
+    xrt::kernel haltKernel;
     if (!tranxHandler->prepareKernel(mHwContext, haltKernel)) {
       xrt_core::message::send(severity_level::warning, "XRT",
                 "Failed to prepare AIE Halt kernel.");
       return false;
     }
 
+    try {
+      xrt::run rn{haltKernel};
+      rn.start();
+      rn.wait2();
+    } catch (const std::exception& e) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+                std::string("AIE Halt run failed: ") + e.what());
+      return false;
+    }
+
     xrt_core::message::send(severity_level::info, "XRT",
-              "Successfully generated AIE Halt control code.");
+              "Successfully generated and scheduled AIE Halt control code.");
     return true;
   }
 
-  bool AIEHaltVE2Impl::loadHaltElf(xrt::kernel& haltKernel)
+  bool AIEHaltVE2Impl::loadHaltElf()
   {
     std::string inputCtrlCode = xrt_core::config::get_aie_halt_settings_control_code();
     if (inputCtrlCode.empty()) {
@@ -307,6 +299,7 @@ namespace xdp {
                 std::string("Failed to query ELF flow for AIE halt, assuming xclbin flow: ") + e.what());
     }
 
+    xrt::kernel haltKernel;
     try {
       if (isFullELFFlow) {
         mHwContext.add_config(haltElf);
@@ -322,8 +315,15 @@ namespace xdp {
       return false;
     }
 
-    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-              "In AIEHaltVE2Impl New Kernel Object for XDP_KERNEL created for running control code Elf");
+    try {
+      xrt::run rn{haltKernel};
+      rn.start();
+      rn.wait2();
+    } catch (const std::exception& e) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+                std::string("AIE Halt run failed: ") + e.what());
+      return false;
+    }
     return true;
   }
 

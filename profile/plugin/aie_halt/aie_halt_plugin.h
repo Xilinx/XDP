@@ -22,8 +22,7 @@
 
 #include <cstdint>
 #include <memory>
-#include <string>
-#include <unordered_map>
+
 
 namespace xdp {
 
@@ -47,20 +46,21 @@ namespace xdp {
                       const std::string& kernel_name) override;
 
     private:
-
-    // One live hardware context. Halt kernels are generated per run and are
-    // not stored. haltCount is the number of halt ELFs this context has run.
-    struct ContextHalt {
-      std::unique_ptr<AIEHaltImpl> implementation;
-      uint32_t contextId = 0;
-      uint32_t haltCount = 0;
-    };
-
-    ContextHalt* ensureContext(void* hwCtxImpl);
+    void configureDevice();
+    void clearDevice();
 
     static bool live;
 
-    std::unordered_map<void*, ContextHalt> contextHalts;
+    struct DeviceData {
+      bool valid = false;
+      std::unique_ptr<AIEHaltImpl> implementation;
+    } DeviceDataEntry;
+
+    void* mHwCtxImpl = nullptr;
+    bool mDeferredConfiguration = false;
+    // xrt-smi context id, and how many halts this context has run.
+    uint32_t mContextId = 0;
+    uint32_t mHaltCount = 0;
   };
 
 } // end namespace xdp

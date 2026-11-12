@@ -58,28 +58,15 @@ namespace xdp {
   {
   }
 
-  bool AIEHaltClientDevImpl::prepareHalt(void* /*hwCtxImpl*/, const std::string& /*userKernelName*/,
-                                         uint32_t contextId, uint32_t haltCount,
-                                         xrt::kernel& haltKernel)
+  bool AIEHaltClientDevImpl::runHalt(void* hwCtxImpl, const std::string& /*userKernelName*/,
+                                     uint32_t contextId, uint32_t haltCount)
   {
-    mContextId = contextId;
-    mHaltCount = haltCount;
+    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+              "In AIEHaltClientDevImpl::runHalt");
 
     aie::ClientTransaction txnHandler(mHwContext, "AIE Halt");
     if (!txnHandler.initializeKernel("XDP_KERNEL"))
       return false;
-
-    haltKernel = txnHandler.getKernel();
-    return true;
-  }
-
-  bool AIEHaltClientDevImpl::scheduleHalt(void* hwCtxImpl, const xrt::kernel& haltKernel)
-  {
-    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-              "In AIEHaltClientDevImpl::scheduleHalt");
-
-    aie::ClientTransaction txnHandler(mHwContext, "AIE Halt");
-    txnHandler.useKernel(haltKernel);
 
     boost::property_tree::ptree aieMetadata;
     try {
@@ -140,8 +127,8 @@ namespace xdp {
     std::stringstream msg;
     msg << " Set AIE Core breakpoint at Lock Acquire Req Instr and reset cores, Start col "
         << startCol << ", Num col " << numCols
-        << ", context id " << mContextId
-        << ", halt count " << mHaltCount << std::endl;
+        << ", context id " << contextId
+        << ", halt count " << haltCount << std::endl;
     xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", msg.str());
 
     // Initial break on Event 44: Lock Acquire instruction
@@ -165,8 +152,8 @@ namespace xdp {
     for (uint8_t c = static_cast<uint8_t>(startCol) ; c < (static_cast<uint8_t>(startCol + numCols)) ; c++ ) {
       for (uint8_t r = 2; r < 6 ; r++) {
         auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
-        XAie_Write32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_PERFORMANCE_COUNTER1, mContextId);
-        XAie_Write32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_PERFORMANCE_COUNTER2, mHaltCount);
+        XAie_Write32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_PERFORMANCE_COUNTER1, contextId);
+        XAie_Write32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_PERFORMANCE_COUNTER2, haltCount);
       }
     }
     for (uint8_t c = static_cast<uint8_t>(startCol) ; c < (static_cast<uint8_t>(startCol + numCols)) ; c++ ) {

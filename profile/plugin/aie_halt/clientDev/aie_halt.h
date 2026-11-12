@@ -20,8 +20,6 @@
 #include "xdp/config.h"
 #include "xdp/profile/plugin/aie_halt/aie_halt_impl.h"
 
-#include <cstdint>
-
 namespace xdp {
 
   class AIEHaltClientDevImpl : public AIEHaltImpl
@@ -34,15 +32,8 @@ namespace xdp {
 
       void updateDevice(void* hwCtxImpl) override;
       void finishflushDevice(void* hwCtxImpl) override;
-      bool prepareHalt(void* hwCtxImpl, const std::string& userKernelName,
-                       uint32_t contextId, uint32_t haltCount,
-                       xrt::kernel& haltKernel) override;
-      bool scheduleHalt(void* hwCtxImpl, const xrt::kernel& haltKernel) override;
-
-    private:
-      // Written into performance counters by the transaction built in scheduleHalt.
-      uint32_t mContextId = 0;
-      uint32_t mHaltCount = 0;
+      bool runHalt(void* hwCtxImpl, const std::string& userKernelName,
+                   uint32_t contextId, uint32_t haltCount) override;
   };
 
 }

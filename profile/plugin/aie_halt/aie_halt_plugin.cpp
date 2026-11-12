@@ -58,97 +58,98 @@ namespace xdp {
     return AIEHaltPlugin::live;
   }
 
-  void AIEHaltPlugin::updateDevice(void* /*hwCtxImpl*/)
+  void AIEHaltPlugin::updateDevice(void* hwCtxImpl)
   {
 #if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
-    // updateDevice can run from hw_context::add_config while that context's
-    // mutex is held, and an empty context has no handle yet. Halt registration
-    // waits until runStartImpl.
-    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-      "Deferring AIE Halt configuration until run start.");
-#endif
-  }
+    if (mHwCtxImpl) {
+      // Only 1 device and xclbin is supported now.
+      return;
+    }
+    mHwCtxImpl = hwCtxImpl;
 
-  AIEHaltPlugin::ContextHalt*
-  AIEHaltPlugin::ensureContext(void* hwCtxImpl)
-  {
-#if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
-    if (!hwCtxImpl)
-      return nullptr;
+    xrt::hw_context hwContext = xrt_core::hw_context_int::create_hw_context_from_implementation(mHwCtxImpl);
 
-    auto existing = contextHalts.find(hwCtxImpl);
-    if (existing != contextHalts.end())
-      return &existing->second;
-
-    xrt::hw_context hwContext =
-      xrt_core::hw_context_int::create_hw_context_from_implementation(hwCtxImpl);
-
+    // Full ELF flow carries AIE metadata in an xrt::elf (no xclbin).
     bool isFullELFFlow = false;
     try {
       isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
     } catch (const std::exception& e) {
       std::stringstream msg;
-      msg << e.what() << " AIE Halt cannot be enabled before complete configuration.";
+      msg << e.what() << " AIE Halt cannot be enabled before complete configuration, plugin configuration deferred.";
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
-      return nullptr;
+      mDeferredConfiguration = true;
+      return;
     }
 
+    if (isFullELFFlow) {
+      // updateDevice can be called by hw_context::add_config() while it holds
+      // the hw-context mutex. Defer all APIs which reacquire that mutex until
+      // the first user run is constructed.
+      mDeferredConfiguration = true;
+      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+        "Deferring AIE Halt full-ELF configuration until the first user run.");
+      return;
+    }
+
+    mDeferredConfiguration = false;
+    configureDevice();
+#endif
+  }
+
+  void AIEHaltPlugin::configureDevice()
+  {
+#if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
 #if defined(XDP_VE2_BUILD)
     const std::string deviceName = "ve2_device";
 #else
     const std::string deviceName = "win_device";
 #endif
 
-    std::shared_ptr<xrt_core::device> coreDevice =
-      xrt_core::hw_context_int::get_core_device(hwContext);
+    xrt::hw_context hwContext = xrt_core::hw_context_int::create_hw_context_from_implementation(mHwCtxImpl);
+    std::shared_ptr<xrt_core::device> coreDevice = xrt_core::hw_context_int::get_core_device(hwContext);
+
     uint64_t deviceId = 0;
-    if (isFullELFFlow) {
+    if (mDeferredConfiguration) {
       xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
         "Applying deferred configuration for AIE Halt.");
-      deviceId = (db->getStaticInfo()).getHwCtxImplUidElf(hwCtxImpl);
+      deviceId = (db->getStaticInfo()).getHwCtxImplUidElf(mHwCtxImpl);
       auto elfMap = xrt_core::hw_context_int::get_elf_map(hwContext);
       if (elfMap.empty()) {
         xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
           "AIE Halt ELF flow: hw_context has no registered ELFs, halt cannot be configured.");
-        return nullptr;
+        return;
       }
       auto elf = util::getAieMetadataElf(elfMap);
       if (!elf) {
         xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
           "Metadata not found in ELF map, halt cannot be configured.");
-        return nullptr;
+        return;
       }
       (db->getStaticInfo()).updateDeviceFromCoreDeviceElf(deviceId, coreDevice, std::move(*elf));
     } else {
+      // Only one device for the Client/VE2 device flow
       deviceId = db->addDevice(deviceName);
       (db->getStaticInfo()).updateDeviceFromCoreDevice(deviceId, coreDevice, false);
     }
     (db->getStaticInfo()).setDeviceName(deviceId, deviceName);
 
-    uint32_t contextId = 0;
     try {
-      contextId = xrt_core::hw_context_int::get_slotidx(hwContext);
+      mContextId = xrt_core::hw_context_int::get_slotidx(hwContext);
     } catch (const std::exception& e) {
       std::stringstream msg;
       msg << "AIE Halt cannot read the hardware context id: " << e.what();
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg.str());
-      return nullptr;
+      return;
     }
 
-    ContextHalt context;
+    mHaltCount = 0;
+    DeviceDataEntry.valid = true;
 #if defined(XDP_VE2_BUILD)
-    context.implementation = std::make_unique<AIEHaltVE2Impl>(db);
+    DeviceDataEntry.implementation = std::make_unique<AIEHaltVE2Impl>(db);
 #else
-    context.implementation = std::make_unique<AIEHaltClientDevImpl>(db);
+    DeviceDataEntry.implementation = std::make_unique<AIEHaltClientDevImpl>(db);
 #endif
-    context.contextId = contextId;
-    context.implementation->setHwContext(std::move(hwContext));
-
-    auto inserted = contextHalts.emplace(hwCtxImpl, std::move(context));
-    return &inserted.first->second;
-#else
-    (void)hwCtxImpl;
-    return nullptr;
+    DeviceDataEntry.implementation->setHwContext(hwContext);
 #endif
   }
 
@@ -157,62 +158,82 @@ namespace xdp {
                                    const std::string& kernel_name)
   {
 #if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
-    ContextHalt* context = ensureContext(hwCtxImpl);
-    if (!context)
+    if (mDeferredConfiguration) {
+      if (hwCtxImpl != mHwCtxImpl) {
+        xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+            "New Hw Context Impl passed in AIE Halt Plugin runStartImpl, aborting configuration.");
+        mDeferredConfiguration = false;
+      } else {
+        configureDevice();
+        if (DeviceDataEntry.valid)
+          mDeferredConfiguration = false;
+      }
+    }
+
+    if (!DeviceDataEntry.valid || hwCtxImpl != mHwCtxImpl)
       return;
 
-    // The only live context's first halt. A context created after the previous
-    // one has been released is first again. An overlapping second context is not.
-    const bool firstEver = contextHalts.size() == 1 && context->haltCount == 0;
+    // Halt the first run of this context, or every run when requested.
+    // A context created after the previous one was released starts again at 0.
+    const bool firstEver = mHaltCount == 0;
     const bool haltEvery = xrt_core::config::get_aie_halt_settings_halt_on_every_run();
 
     std::stringstream msg;
     msg << "AIE Halt run start for kernel '" << kernel_name
-        << "' context_id=" << context->contextId
+        << "' context_id=" << mContextId
         << " first_ever=" << firstEver;
     xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", msg.str());
 
     if (!(firstEver || haltEvery))
       return;
 
-    const uint32_t haltCount = context->haltCount + 1;
-    xrt::kernel haltKernel;
-    if (!context->implementation->prepareHalt(hwCtxImpl, kernel_name,
-                                              context->contextId, haltCount,
-                                              haltKernel)) {
-      if (context->haltCount == 0)
-        contextHalts.erase(hwCtxImpl);
+    const uint32_t haltCount = mHaltCount + 1;
+    if (!DeviceDataEntry.implementation->runHalt(hwCtxImpl, kernel_name, mContextId, haltCount))
       return;
-    }
 
-    context->haltCount = haltCount;
-    context->implementation->scheduleHalt(hwCtxImpl, haltKernel);
-#else
-    (void)hwCtxImpl;
-    (void)kernel_name;
+    mHaltCount = haltCount;
+#endif
+  }
+
+  void AIEHaltPlugin::clearDevice()
+  {
+#if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
+    if (DeviceDataEntry.implementation)
+      DeviceDataEntry.implementation->finishflushDevice(mHwCtxImpl);
+    DeviceDataEntry.valid = false;
+    DeviceDataEntry.implementation.reset();
+    mHwCtxImpl = nullptr;
+    mDeferredConfiguration = false;
+    mContextId = 0;
+    mHaltCount = 0;
 #endif
   }
 
   void AIEHaltPlugin::finishflushDevice(void* hwCtxImpl)
   {
 #if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
-    auto contextIt = contextHalts.find(hwCtxImpl);
-    if (contextIt == contextHalts.end())
+    if (!mHwCtxImpl) {
       return;
+    }
 
-    contextIt->second.implementation->finishflushDevice(hwCtxImpl);
-    contextHalts.erase(contextIt);
-#else
-    (void)hwCtxImpl;
+    if (hwCtxImpl != mHwCtxImpl) {
+      xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+          "New Hw Context Impl passed in AIE Halt Plugin finishflushDevice.");
+      return;
+    }
+
+    clearDevice();
 #endif
   }
 
   void AIEHaltPlugin::writeAll(bool /*openNewFiles*/)
   {
 #if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
-    for (auto& entry : contextHalts)
-      entry.second.implementation->finishflushDevice(entry.first);
-    contextHalts.clear();
+    if (!mHwCtxImpl) {
+      return;
+    }
+
+    clearDevice();
 #endif
   }
 

@@ -17,6 +17,7 @@
 #define XDP_PLUGIN_SOURCE
 
 #include <sstream>
+#include <string>
 
 #include <boost/property_tree/ptree.hpp>
 
@@ -44,38 +45,38 @@ namespace xdp {
     tranxHandler = std::make_unique<xdp::aie::VE2Transaction>();
   }
 
-  void AIEHaltVE2Impl::updateDevice(void* hwCtxImpl)
+  void AIEHaltVE2Impl::updateDevice(void* /*hwCtxImpl*/)
   {
-    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-              "In AIEHaltVE2Impl::updateDevice");
-
-    xrt::hw_context hwContext =
-      xrt_core::hw_context_int::create_hw_context_from_implementation(hwCtxImpl);
-
-    // Primary path: generate the halt control code on the fly using aie-codegen.
-    if (generateHaltControlCode(hwCtxImpl, hwContext))
-      return;
-
-    // Fallback path: load a prebuilt control code ELF from disk.
-    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-              "Could not generate AIE Halt control code. Falling back to prebuilt control code ELF.");
-    loadHaltElf(hwContext);
   }
 
-  bool AIEHaltVE2Impl::generateHaltControlCode(void* hwCtxImpl, xrt::hw_context hwContext)
+  bool AIEHaltVE2Impl::runHalt(void* hwCtxImpl, const std::string& /*userKernelName*/,
+                               uint32_t haltCount)
+  {
+    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+              "In AIEHaltVE2Impl::runHalt");
+
+    if (generateHaltControlCode(hwCtxImpl, haltCount))
+      return true;
+
+    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
+              "Could not generate AIE Halt control code. Falling back to prebuilt control code ELF.");
+    return loadHaltElf();
+  }
+
+  bool AIEHaltVE2Impl::generateHaltControlCode(void* hwCtxImpl, uint32_t haltCount)
   {
     using severity_level = xrt_core::message::severity_level;
 
-    // Detect flow first: 
+    // Detect flow first:
     // - full-ELF carries AIE_METADATA in the ELF custom section
     // - the xclbin path uses AIE_TRACE_METADATA / AIE_METADATA axlf sections
-    // Using get_xclbin() on full-ELF segfaults in get_axlf_section
+    // Using get_xclbin() on full-ELF segfaults in get_axlf_section.
     bool isFullELFFlow = false;
     size_t partitionSize = 0;
     try {
-      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
+      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(mHwContext);
       if (isFullELFFlow)
-        partitionSize = xrt_core::hw_context_int::get_partition_size(hwContext);
+        partitionSize = xrt_core::hw_context_int::get_partition_size(mHwContext);
     } catch (const std::exception& e) {
       xrt_core::message::send(severity_level::warning, "XRT",
                 std::string("Failed to query ELF flow for AIE halt, assuming xclbin flow: ") + e.what());
@@ -88,7 +89,7 @@ namespace xdp {
 
       if (isFullELFFlow) {
         // full elf flow: AIE info in elf custom section AIE_METADATA
-        auto elfMap = xrt_core::hw_context_int::get_elf_map(hwContext);
+        auto elfMap = xrt_core::hw_context_int::get_elf_map(mHwContext);
         auto elf = util::getAieMetadataElf(elfMap);
         if (!elf) {
           xrt_core::message::send(severity_level::warning, "XRT",
@@ -110,9 +111,11 @@ namespace xdp {
         xrt_core::message::send(severity_level::debug, "XRT",
                   "AIE Halt: AIE metadata read from ELF custom section.");
       } else {
-        // xclbin flow: AIE info in AIE_TRACE_METADATA, falling back to AIE_METADATA
-        auto device = xrt_core::hw_context_int::get_core_device(hwContext);
-        xrt::xclbin xrtXclbin = device->get_xclbin(hwContext.get_xclbin_uuid());
+        // xclbin flow: AIE info in AIE_TRACE_METADATA, falling back to AIE_METADATA.
+        // get_xclbin_uuid() reads the sysfs xclbinid file, which is absent on the XDNA path,
+        // so use the uuid from the hw context.
+        auto device = xrt_core::hw_context_int::get_core_device(mHwContext);
+        xrt::xclbin xrtXclbin = device->get_xclbin(mHwContext.get_xclbin_uuid());
 
         auto data = xrt_core::xclbin_int::get_axlf_section(xrtXclbin, AIE_TRACE_METADATA);
         if (!data.first || !data.second)
@@ -185,16 +188,20 @@ namespace xdp {
     }
 
     std::stringstream msg;
-    msg << "Set AIE Core breakpoint at Lock Acquire Req Instr, Start col "
-        << startCol << ", Num col " << numCols;
+    msg << "Set AIE Core breakpoint at Lock Acquire Req Instr and reset cores, Start col "
+        << startCol << ", Num col " << numCols
+        << ", halt count " << haltCount;
     xrt_core::message::send(severity_level::info, "XRT", msg.str());
 
     // Submit through the path matching the hw_context: add_config for full ELF,
     // xrt::module for xclbin.
     tranxHandler->setElfFlow(isFullELFFlow);
 
+    // A new ELF on every halt, so the registered kernel name cannot collide.
+    const std::string tranxName = "AieHalt_" + std::to_string(haltCount);
+
     // Record driver calls into the control code ASM.
-    if (!tranxHandler->initializeTransaction(&aieDevInst, "AieHalt")) {
+    if (!tranxHandler->initializeTransaction(&aieDevInst, tranxName)) {
       xrt_core::message::send(severity_level::warning, "XRT", "AIE Halt transaction initialization failed.");
       return false;
     }
@@ -208,13 +215,49 @@ namespace xdp {
       for (uint8_t r = meta_config.aie_tile_row_start; r < meta_config.num_rows; r++) {
         auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
         XAie_Write32(&aieDevInst, tileOffset + XAIE2PSGBL_CORE_MODULE_DEBUG_CONTROL1, dbg_ctrl_1_reg);
+        // Hold every core in reset before releasing any of them. A later
+        // partition is already parked past main's acquire, and this breakpoint
+        // only fires on a new lock-acquire request.
+        XAie_MaskWrite32(&aieDevInst, tileOffset + XAIE2PSGBL_CORE_MODULE_CORE_CONTROL,
+                         XAIE2PSGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK,
+                         XAIE2PSGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK);
+      }
+    }
+    // Cores are held in reset. Counter 1 keeps this context's halt count.
+    for (uint8_t c = static_cast<uint8_t>(startCol); c < static_cast<uint8_t>(startCol + numCols); c++) {
+      for (uint8_t r = meta_config.aie_tile_row_start; r < meta_config.num_rows; r++) {
+        auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
+        XAie_Write32(&aieDevInst, tileOffset + XAIE2PSGBL_CORE_MODULE_PERFORMANCE_COUNTER1, haltCount);
+      }
+    }
+    for (uint8_t c = static_cast<uint8_t>(startCol); c < static_cast<uint8_t>(startCol + numCols); c++) {
+      for (uint8_t r = meta_config.aie_tile_row_start; r < meta_config.num_rows; r++) {
+        auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
+        XAie_MaskWrite32(&aieDevInst, tileOffset + XAIE2PSGBL_CORE_MODULE_CORE_CONTROL,
+                         XAIE2PSGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK, 0);
       }
     }
 
-    // Assemble the recorded ASM into an ELF and run it on XDP_KERNEL.
-    if (!tranxHandler->submitTransaction(&aieDevInst, hwContext)) {
+    // Assemble the recorded ASM into an ELF and run it.
+    if (!tranxHandler->completeASM(&aieDevInst) || !tranxHandler->generateELF()) {
       xrt_core::message::send(severity_level::warning, "XRT",
-                "Failed to generate/submit AIE Halt control code.");
+                "Failed to generate AIE Halt control code.");
+      return false;
+    }
+    xrt::kernel haltKernel;
+    if (!tranxHandler->prepareKernel(mHwContext, haltKernel)) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+                "Failed to prepare AIE Halt kernel.");
+      return false;
+    }
+
+    try {
+      xrt::run rn{haltKernel};
+      rn.start();
+      rn.wait2();
+    } catch (const std::exception& e) {
+      xrt_core::message::send(severity_level::warning, "XRT",
+                std::string("AIE Halt run failed: ") + e.what());
       return false;
     }
 
@@ -223,7 +266,7 @@ namespace xdp {
     return true;
   }
 
-  void AIEHaltVE2Impl::loadHaltElf(xrt::hw_context hwContext)
+  bool AIEHaltVE2Impl::loadHaltElf()
   {
     std::string inputCtrlCode = xrt_core::config::get_aie_halt_settings_control_code();
     if (inputCtrlCode.empty()) {
@@ -238,44 +281,45 @@ namespace xdp {
     } catch (...) {
       std::string msg = "Failed to load " + inputCtrlCode + ". Cannot configure AIE to halt.";
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT", msg);
-      return;
+      return false;
     }
 
     // Full-ELF flow registers the ELF via add_config() and opens the kernel by
     // name; the xclbin flow uses an explicit xrt::module.
     bool isFullELFFlow = false;
     try {
-      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(hwContext);
+      isFullELFFlow = xrt_core::hw_context_int::get_elf_flow(mHwContext);
     } catch (const std::exception& e) {
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
                 std::string("Failed to query ELF flow for AIE halt, assuming xclbin flow: ") + e.what());
     }
 
-    xrt::kernel krnl;
+    xrt::kernel haltKernel;
     try {
       if (isFullELFFlow) {
-        hwContext.add_config(haltElf);
-        krnl = xrt::ext::kernel{hwContext, "XDP_KERNEL:IPUV1CNN"};
+        mHwContext.add_config(haltElf);
+        haltKernel = xrt::ext::kernel{mHwContext, "XDP_KERNEL:IPUV1CNN"};
       }
       else {
         xrt::module mod{haltElf};
-        krnl = xrt::ext::kernel{hwContext, mod, "XDP_KERNEL:{IPUV1CNN}"};
+        haltKernel = xrt::ext::kernel{mHwContext, mod, "XDP_KERNEL:{IPUV1CNN}"};
       }
     } catch (...) {
       xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
                 "XDP_KERNEL not found in HW Context. Cannot configure AIE to halt.");
-      return;
+      return false;
     }
 
-    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-              "In AIEHaltVE2Impl New Kernel Object for XDP_KERNEL created for running control code Elf");
-
-    xrt::run rn{krnl};
-    rn.start();
-    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
-              "In AIEHaltVE2Impl run start, going to wait");
-
-    rn.wait2();
+    try {
+      xrt::run rn{haltKernel};
+      rn.start();
+      rn.wait2();
+    } catch (const std::exception& e) {
+      xrt_core::message::send(xrt_core::message::severity_level::warning, "XRT",
+                std::string("AIE Halt run failed: ") + e.what());
+      return false;
+    }
+    return true;
   }
 
   void AIEHaltVE2Impl::finishflushDevice(void* /*hwCtxImpl*/)

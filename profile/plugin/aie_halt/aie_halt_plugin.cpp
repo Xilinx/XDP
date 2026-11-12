@@ -8,6 +8,7 @@
 #include<cassert>
 #include<sstream>
 
+#include "core/common/config_reader.h"
 #include "core/common/device.h"
 #include "core/common/message.h"
 #include "core/common/api/hw_context_int.h"
@@ -132,6 +133,7 @@ namespace xdp {
     }
     (db->getStaticInfo()).setDeviceName(deviceId, deviceName);
 
+    mHaltCount = 0;
     DeviceDataEntry.valid = true;
 #if defined(XDP_VE2_BUILD)
     DeviceDataEntry.implementation = std::make_unique<AIEHaltVE2Impl>(db);
@@ -139,31 +141,67 @@ namespace xdp {
     DeviceDataEntry.implementation = std::make_unique<AIEHaltClientDevImpl>(db);
 #endif
     DeviceDataEntry.implementation->setHwContext(hwContext);
-    DeviceDataEntry.implementation->updateDevice(mHwCtxImpl);
 #endif
   }
 
   void AIEHaltPlugin::runStartImpl(void* /*run_impl_ptr*/, void* hwCtxImpl,
                                    uint32_t /*run_uid*/,
-                                   const std::string& /*kernel_name*/)
+                                   const std::string& kernel_name)
   {
 #if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
     if (mDeferredConfiguration) {
       if (hwCtxImpl != mHwCtxImpl) {
         xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT",
             "New Hw Context Impl passed in AIE Halt Plugin runStartImpl, aborting configuration.");
+        mDeferredConfiguration = false;
       } else {
         configureDevice();
+        if (DeviceDataEntry.valid)
+          mDeferredConfiguration = false;
       }
-      mDeferredConfiguration = false;
     }
+
+    if (!DeviceDataEntry.valid || hwCtxImpl != mHwCtxImpl)
+      return;
+
+    // Halt the first run of this context, or every run when requested.
+    // A context created after the previous one was released starts again at 0.
+    const bool firstEver = mHaltCount == 0;
+    const bool haltEvery = xrt_core::config::get_aie_halt_settings_halt_on_every_run();
+
+    std::stringstream msg;
+    msg << "AIE Halt run start for kernel '" << kernel_name
+        << "' first_ever=" << firstEver;
+    xrt_core::message::send(xrt_core::message::severity_level::debug, "XRT", msg.str());
+
+    if (!(firstEver || haltEvery))
+      return;
+
+    const uint32_t haltCount = mHaltCount + 1;
+    if (!DeviceDataEntry.implementation->runHalt(hwCtxImpl, kernel_name, haltCount))
+      return;
+
+    mHaltCount = haltCount;
+#endif
+  }
+
+  void AIEHaltPlugin::clearDevice()
+  {
+#if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
+    if (DeviceDataEntry.implementation)
+      DeviceDataEntry.implementation->finishflushDevice(mHwCtxImpl);
+    DeviceDataEntry.valid = false;
+    DeviceDataEntry.implementation.reset();
+    mHwCtxImpl = nullptr;
+    mDeferredConfiguration = false;
+    mHaltCount = 0;
 #endif
   }
 
   void AIEHaltPlugin::finishflushDevice(void* hwCtxImpl)
   {
 #if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
-    if (!mHwCtxImpl || !DeviceDataEntry.valid) {
+    if (!mHwCtxImpl) {
       return;
     }
 
@@ -173,22 +211,18 @@ namespace xdp {
       return;
     }
 
-    DeviceDataEntry.valid = false;
-    DeviceDataEntry.implementation->finishflushDevice(mHwCtxImpl);
+    clearDevice();
 #endif
   }
 
   void AIEHaltPlugin::writeAll(bool /*openNewFiles*/)
   {
 #if defined(XDP_CLIENT_BUILD) || defined(XDP_VE2_BUILD)
-
-    if (!mHwCtxImpl || !DeviceDataEntry.valid) {
+    if (!mHwCtxImpl) {
       return;
     }
 
-    // For client device flow, only 1 device and xclbin is supported now.
-    DeviceDataEntry.valid = false;
-    DeviceDataEntry.implementation->finishflushDevice(mHwCtxImpl);
+    clearDevice();
 #endif
   }
 

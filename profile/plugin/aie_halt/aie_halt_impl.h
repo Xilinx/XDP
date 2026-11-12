@@ -19,6 +19,9 @@
 
 #include "core/include/xrt/xrt_hw_context.h"
 
+#include <cstdint>
+#include <string>
+
 namespace xdp {
 
   class VPDatabase;
@@ -40,6 +43,11 @@ namespace xdp {
 
       virtual void updateDevice(void*) = 0;
       virtual void finishflushDevice(void*) = 0;
+
+      // Generate a halt ELF and run it. haltCount is how many times this
+      // context has halted, including this run.
+      virtual bool runHalt(void* hwCtxImpl, const std::string& userKernelName,
+                           uint32_t haltCount) = 0;
 
       void setHwContext(xrt::hw_context ctx)
       {

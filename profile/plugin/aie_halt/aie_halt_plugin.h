@@ -20,6 +20,9 @@
 #include "xdp/profile/plugin/aie_halt/aie_halt_impl.h"
 #include "xdp/profile/plugin/vp_base/vp_base_plugin.h"
 
+#include <cstdint>
+#include <memory>
+
 
 namespace xdp {
 
@@ -44,16 +47,19 @@ namespace xdp {
 
     private:
     void configureDevice();
+    void clearDevice();
 
     static bool live;
 
     struct DeviceData {
-      bool valid;
+      bool valid = false;
       std::unique_ptr<AIEHaltImpl> implementation;
     } DeviceDataEntry;
 
     void* mHwCtxImpl = nullptr;
     bool mDeferredConfiguration = false;
+    // How many halts this context has run.
+    uint32_t mHaltCount = 0;
   };
 
 } // end namespace xdp

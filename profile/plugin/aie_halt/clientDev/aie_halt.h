@@ -30,8 +30,10 @@ namespace xdp {
 
       ~AIEHaltClientDevImpl() = default;
 
-      virtual void updateDevice(void* hwCtxImpl);
-      virtual void finishflushDevice(void* hwCtxImpl);
+      void updateDevice(void* hwCtxImpl) override;
+      void finishflushDevice(void* hwCtxImpl) override;
+      bool runHalt(void* hwCtxImpl, const std::string& userKernelName,
+                   uint32_t haltCount) override;
   };
 
 }

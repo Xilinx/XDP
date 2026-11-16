@@ -34,6 +34,7 @@ namespace xdp::aie {
       bool submitTransaction(XAie_DevInst* aieDevInst, xrt::hw_context hwContext);
       bool completeASM(XAie_DevInst* aieDevInst);
       bool generateELF();
+      bool prepareKernel(xrt::hw_context hwContext, xrt::kernel& kernel);
       bool submitELF(xrt::hw_context hwContext);
 
       void setTransactionName(std::string newTransactionName) {m_transactionName = newTransactionName;}

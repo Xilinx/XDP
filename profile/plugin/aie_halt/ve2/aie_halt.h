@@ -48,14 +48,15 @@ namespace xdp {
 
       void updateDevice(void* hwCtxImpl) override;
       void finishflushDevice(void* hwCtxImpl) override;
+      bool runHalt(void* hwCtxImpl, const std::string& userKernelName,
+                   uint32_t haltCount) override;
 
     private:
-      // Primary path: generate the halt control code on the fly via aie-codegen.
-      // Returns true if it was generated and scheduled successfully.
-      bool generateHaltControlCode(void* hwCtxImpl, xrt::hw_context hwContext);
+      // Generate the halt control code and run it.
+      bool generateHaltControlCode(void* hwCtxImpl, uint32_t haltCount);
 
       // Fallback path: load and run a prebuilt control code ELF from disk.
-      void loadHaltElf(xrt::hw_context hwContext);
+      bool loadHaltElf();
 
       XAie_DevInst aieDevInst = {0};
       std::unique_ptr<xdp::aie::VE2Transaction> tranxHandler;

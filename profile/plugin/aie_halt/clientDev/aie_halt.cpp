@@ -125,39 +125,32 @@ namespace xdp {
     }
 
     std::stringstream msg;
-    msg << " Set AIE Core breakpoint at Lock Acquire Req Instr and reset cores, Start col "
+    msg << " Set AIE Core breakpoints at Lock Acquire Req and Lock Stall falling edge, Start col "
         << startCol << ", Num col " << numCols
         << ", halt count " << haltCount << std::endl;
     xrt_core::message::send(xrt_core::message::severity_level::info, "XRT", msg.str());
 
-    // Initial break on Event 44: Lock Acquire instruction
+    // Event 0: lock-acquire request (44). Event 1: falling edge of lock stall (26).
+    // A core that has not yet acquired halts on the request. A core already
+    // stalled in main halts when that stall ends. No core reset.
     constexpr uint32_t AIE_EVENT_INSTR_LOCK_ACQ_REQ = 0x2C;
-    uint32_t dbg_ctrl_1_reg = AIE_EVENT_INSTR_LOCK_ACQ_REQ << XAIEMLGBL_CORE_MODULE_DEBUG_CONTROL1_DEBUG_HALT_CORE_EVENT0_LSB;
+    constexpr uint32_t AIE_EVENT_LOCK_STALL = 26;
+    constexpr uint32_t AIE_EVENT_EDGE_DETECTION_0 = 13;
+    const uint32_t edgeCtrl =
+        (AIE_EVENT_LOCK_STALL
+         << XAIEMLGBL_CORE_MODULE_EDGE_DETECTION_EVENT_CONTROL_EDGE_DETECTION_EVENT_0_LSB)
+      | (1u << XAIEMLGBL_CORE_MODULE_EDGE_DETECTION_EVENT_CONTROL_EDGE_DETECTION_0_TRIGGER_FALLING_LSB);
+    const uint32_t dbgCtrl =
+        (AIE_EVENT_INSTR_LOCK_ACQ_REQ << XAIEMLGBL_CORE_MODULE_DEBUG_CONTROL1_DEBUG_HALT_CORE_EVENT0_LSB)
+      | (AIE_EVENT_EDGE_DETECTION_0 << XAIEMLGBL_CORE_MODULE_DEBUG_CONTROL1_DEBUG_HALT_CORE_EVENT1_LSB);
     XAie_StartTransaction(&aieDevInst, XAIE_TRANSACTION_DISABLE_AUTO_FLUSH);
     for (uint8_t c = static_cast<uint8_t>(startCol) ; c < (static_cast<uint8_t>(startCol + numCols)) ; c++ ) {
       for (uint8_t r = 2; r < 6 ; r++) {
         auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
-        XAie_Write32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_DEBUG_CONTROL1, dbg_ctrl_1_reg);
-        // Hold every core in reset before releasing any of them. A later
-        // partition is already parked past main's acquire, and this breakpoint
-        // only fires on a new lock-acquire request.
-        XAie_MaskWrite32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_CORE_CONTROL,
-                         XAIEMLGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK,
-                         XAIEMLGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK);
-      }
-    }
-    // Cores are held in reset. Counter 1 keeps this context's halt count.
-    for (uint8_t c = static_cast<uint8_t>(startCol) ; c < (static_cast<uint8_t>(startCol + numCols)) ; c++ ) {
-      for (uint8_t r = 2; r < 6 ; r++) {
-        auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
+        XAie_Write32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_EDGE_DETECTION_EVENT_CONTROL, edgeCtrl);
+        XAie_Write32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_DEBUG_CONTROL1, dbgCtrl);
+        // Counter 1 keeps this context's halt count.
         XAie_Write32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_PERFORMANCE_COUNTER1, haltCount);
-      }
-    }
-    for (uint8_t c = static_cast<uint8_t>(startCol) ; c < (static_cast<uint8_t>(startCol + numCols)) ; c++ ) {
-      for (uint8_t r = 2; r < 6 ; r++) {
-        auto tileOffset = XAie_GetTileAddr(&aieDevInst, r, c);
-        XAie_MaskWrite32(&aieDevInst, tileOffset + XAIEMLGBL_CORE_MODULE_CORE_CONTROL,
-                         XAIEMLGBL_CORE_MODULE_CORE_CONTROL_RESET_MASK, 0);
       }
     }
 

@@ -178,7 +178,9 @@ namespace xdp {
       return;
 
     const uint32_t haltCount = mHaltCount + 1;
-    if (!DeviceDataEntry.implementation->runHalt(hwCtxImpl, kernel_name, haltCount))
+    // 0 tells MLDebugger this context halts only on its first run.
+    const uint32_t counterValue = haltEvery ? haltCount : 0;
+    if (!DeviceDataEntry.implementation->runHalt(hwCtxImpl, kernel_name, counterValue))
       return;
 
     mHaltCount = haltCount;

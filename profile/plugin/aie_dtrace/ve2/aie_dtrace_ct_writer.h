@@ -186,11 +186,16 @@ public:
 
   /**
    * @brief Generate a self-contained CT file combining bandwidth and/or a
-   *        core-tile metric set into a single begin block + counter reads.
+   *        core-tile metric set into per-UC begin blocks + counter reads.
    *
    * Either family can be enabled independently; when both are enabled the shim
    * bandwidth counters and the core-tile counters are emitted into the same CT
    * file.
+   *
+   * Each begin:ucN block holds the register writes for the columns that UC
+   * owns, so every UC programs its own counters before its jprobes can fire.
+   * A bare begin block runs only on uc0, which leaves the other UCs free to
+   * read counters that are not configured yet.
    *
    * The selection is passed in rather than read back off the metadata because
    * a single hardware context can generate one CT per inference, each with a
@@ -587,16 +592,54 @@ private:
       uint64_t tileAddress, std::vector<CTRegisterWrite>& writes);
 
   /**
-   * @brief Write a self-contained counter CT file with begin-block register writes
+   * @brief Partition-relative column of a tile register address
+   * @param address Register address built as (col << columnShift) | (row << rowShift) + offset
+   * @return Column the register belongs to
+   */
+  int columnOf(uint64_t address) const;
+
+  /**
+   * @brief Assign each begin-block write to the UC that owns its column
+   *
+   * A write goes to the first UC in asmFileInfoList whose [colStart, colEnd] holds its
+   * column. Keying by ucNumber rather than by ASM file keeps aiebu's one-begin-per-UC
+   * rule even when two control programs share a UC or their column ranges overlap.
+   * The lowest UC always has an entry, since its begin block carries the counter
+   * metadata. Writes outside every UC are dropped; their counters are never read either.
+   *
+   * @param writes Register writes for the whole partition, in emission order
+   * @param asmFileInfoList ASM file info sorted by UC start column
+   * @return Map of UC number to its register writes, in emission order
+   */
+  std::map<int, std::vector<CTRegisterWrite>> groupBeginWritesByUc(
+      const std::vector<CTRegisterWrite>& writes,
+      const std::vector<ASMFileInfo>& asmFileInfoList);
+
+  /**
+   * @brief Emit begin-block register writes as write_reg / mask_write_reg actions
+   * @param ctFile Output CT file stream
+   * @param writes Register writes for one begin block
+   */
+  void writeRegisterWrites(std::ofstream& ctFile, const std::vector<CTRegisterWrite>& writes);
+
+  /**
+   * @brief Emit the per-UC counter metadata as a commented JSON operation block
+   * @param ctFile Output CT file stream
+   * @param asmFileInfoList ASM file info with filtered counters
+   */
+  void writeCounterMetadata(std::ofstream& ctFile, const std::vector<ASMFileInfo>& asmFileInfoList);
+
+  /**
+   * @brief Write a self-contained counter CT file with per-UC begin-block register writes
    * @param asmFileInfoList Vector of ASMFileInfo with timestamps
    * @param allCounters Vector of all CTCounterInfo for metadata
-   * @param beginBlockWrites Vector of register writes for begin block
+   * @param beginWritesByUc Register writes for each UC's begin:ucN block
    * @param outputPath Full path for the output CT file
    * @return true if file was written successfully
    */
   bool writeCounterCTFile(const std::vector<ASMFileInfo>& asmFileInfoList,
                           const std::vector<CTCounterInfo>& allCounters,
-                          const std::vector<CTRegisterWrite>& beginBlockWrites,
+                          const std::map<int, std::vector<CTRegisterWrite>>& beginWritesByUc,
                           const std::string& outputPath);
 
   std::vector<CTRegisterWrite> generateMemtilePerfCounterConfig(

@@ -356,13 +356,16 @@ private:
    * @return true if bandwidth config was appended
    */
   bool appendBandwidthConfig(void* hwctx, const std::string& metricSet, uint8_t channel,
-      std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites);
+      std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites,
+      const std::map<uint8_t, std::vector<uint8_t>>* plioChannels = nullptr);
 
   /**
    * @brief Append PLIO SOUTH-port bandwidth counters and begin-block writes
    *
-   * PLIO columns and south channels come from plip_info.json (via metadata), not
-   * the partition shim columns. Each selected south port gets running and
+   * PLIO columns and south channels come from plip_info.json. A profile_runs
+   * entry passes the columns it resolved; otherwise the shared metadata map
+   * from the single-configuration form is used. They are not the partition
+   * shim columns. Each selected south port gets running and
    * stalled event counts on counters 0 and 1 (start event == stop event).
    * Counter 2 counts clocks: begin arms its start on PL User Event 1 and
    * resets it once. Each pl_wts.json jprobe sets counter 0's event-value to
@@ -376,7 +379,8 @@ private:
    * @return true if any PLIO bandwidth config was appended
    */
   bool appendPlioBandwidthConfig(const std::string& metricSet,
-      std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites);
+      std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites,
+      const std::map<uint8_t, std::vector<uint8_t>>* plioChannels);
 
   // Build the PLIO counter configs for one shim column's south channels.
   // Counters 0 and 1 are the first port's running and stall counts.

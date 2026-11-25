@@ -245,9 +245,9 @@ namespace xdp::aie::dtrace {
   {
     std::vector<PlioInfoPort> ports;
 
-    // Tests drop plip_info.json in the directory they are launched from.
+    // The overlay drops plip_info.json under overlay/ in the launch directory.
     const std::filesystem::path jsonPath =
-        std::filesystem::current_path() / "plip_info.json";
+        std::filesystem::current_path() / "overlay" / "plip_info.json";
 
     std::error_code ec;
     if (!std::filesystem::exists(jsonPath, ec)) {

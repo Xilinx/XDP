@@ -48,8 +48,8 @@ namespace xdp::aie::dtrace {
   // south1 to 3, etc. (tile_control_rsp=0, fifo=1 occupy the first two slots).
   uint8_t getPlioSouthStreamPortIndex(uint8_t channel);
 
-  // Parse the PLIO overlay metadata (plip_info.json) and return the available
-  // PLIO controller ports (column + south channel). The file is read from the
+  // Parse the PLIO overlay metadata and return the available PLIO controller
+  // ports (column + south channel). The file is overlay/plip_info.json in the
   // current working directory.
   std::vector<PlioInfoPort> parsePlioInfoJson();
 

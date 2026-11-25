@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,11 @@ struct MetricSelection {
   bool includeBandwidth = false;
   std::string bandwidthMetricSet = "peak_read_bandwidth";
   uint8_t bandwidthChannel = 0;
+  // Absolute shim column -> south channels for plio_*_bandwidth. Set only by a
+  // profile_runs entry, which resolves plip_info.json itself. Unset means the
+  // CT writer uses the shared configPlioChannels map from the single-configuration
+  // form. An empty map means this inference asked for PLIO and none matched.
+  std::optional<std::map<uint8_t, std::vector<uint8_t>>> plioChannels;
   std::string coreMetricSet;     // empty means no core (aie) tile metrics
   bool includeL2L2 = false;
   // Memory conflicts use mem tile counter 4, so they can be on in the same
@@ -102,7 +108,16 @@ class AieDtraceMetadata {
                                            const std::vector<std::string>& metricsSettings);
     void getConfigMetricsForAIETiles(int moduleIdx,
                                       const std::vector<std::string>& metricsSettings);
-    // Populate configMetrics for plio_read/write_bandwidth from plip_info.json.
+    // Columns and south channels a plio_*_bandwidth setting selects from
+    // plip_info.json. isPlio is false when tokens do not name that metric.
+    struct plio_column_selection_t {
+      bool isPlio = false;
+      std::string metric;
+      std::map<uint8_t, std::vector<uint8_t>> channelsByColumn;
+    };
+    plio_column_selection_t resolvePlioColumns(const std::vector<std::string>& tokens) const;
+
+    // Populate configMetrics for plio_read_bandwidth from plip_info.json.
     // Returns true when the setting was a PLIO metric and has been handled here
     // (so the generic column/channel passes should skip it).
     bool addPlioBandwidthTiles(int moduleIdx, const std::vector<std::string>& tokens);

@@ -1445,12 +1445,13 @@ std::vector<ASMFileInfo> AieDtraceCTWriter::buildAsmFileInfoList(
 
 bool AieDtraceCTWriter::appendBandwidthConfig(
     void* hwctx, const std::string& metricSet, uint8_t channel,
-    std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites)
+    std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites,
+    const std::map<uint8_t, std::vector<uint8_t>>* plioChannels)
 {
   // PLIO SOUTH-port bandwidth is driven by plip_info.json columns, not the
   // partition shim columns, so it has its own path.
   if (xdp::aie::dtrace::isPlioBandwidthMetric(metricSet))
-    return appendPlioBandwidthConfig(metricSet, counters, beginWrites);
+    return appendPlioBandwidthConfig(metricSet, counters, beginWrites, plioChannels);
 
   auto shimColumns = getShimTileColumns(hwctx);
   if (shimColumns.empty()) {
@@ -1625,10 +1626,19 @@ std::vector<CTRegisterWrite> AieDtraceCTWriter::generatePlioPerfCounterConfig(
 
 bool AieDtraceCTWriter::appendPlioBandwidthConfig(
     const std::string& metricSet,
-    std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites)
+    std::vector<CTCounterInfo>& counters, std::vector<CTRegisterWrite>& beginWrites,
+    const std::map<uint8_t, std::vector<uint8_t>>* plioChannels)
 {
-  auto plioChannels = metadata->getConfigPlioChannels();
-  if (plioChannels.empty()) {
+  // A profile_runs entry carries the columns it resolved. The single-configuration
+  // form leaves that unset and uses the map filled at startup.
+  std::map<uint8_t, std::vector<uint8_t>> fromMetadata;
+  if (!plioChannels) {
+    for (const auto& [tile, channels] : metadata->getConfigPlioChannels())
+      fromMetadata.emplace(tile.col, channels);
+    plioChannels = &fromMetadata;
+  }
+
+  if (plioChannels->empty()) {
     xrt_core::message::send(severity_level::warning, "XRT",
         "AIE dtrace: No PLIO columns configured for " + metricSet + ".");
     return false;
@@ -1636,10 +1646,10 @@ bool AieDtraceCTWriter::appendPlioBandwidthConfig(
 
   bool appended = false;
 
-  for (const auto& [tile, channels] : plioChannels) {
+  for (const auto& [col, channels] : *plioChannels) {
     // plip_info.json columns are absolute; the CT file uses partition-relative columns.
-    uint8_t relCol = (tile.col >= partitionStartCol)
-                   ? static_cast<uint8_t>(tile.col - partitionStartCol) : tile.col;
+    uint8_t relCol = (col >= partitionStartCol)
+                   ? static_cast<uint8_t>(col - partitionStartCol) : col;
 
     // Metadata only stores channels that are actually declared for this column, so
     // there is no invented fallback here; just honor the configured (capped) set.
@@ -2034,7 +2044,8 @@ bool AieDtraceCTWriter::generateCT(
   // distinct addresses.
   if (selection.includeBandwidth)
     appendBandwidthConfig(hwctx, selection.bandwidthMetricSet, selection.bandwidthChannel,
-                          allCounters, beginBlockWrites);
+                          allCounters, beginBlockWrites,
+                          selection.plioChannels ? &*selection.plioChannels : nullptr);
 
   if (selection.coreMetricSet == "compute_io_bound")
     appendComputeIoBoundConfig(allCounters, beginBlockWrites);

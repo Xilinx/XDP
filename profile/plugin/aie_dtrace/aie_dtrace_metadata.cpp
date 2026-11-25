@@ -404,8 +404,8 @@ namespace xdp {
         metricSelections.push_back(buildSelectionFromProfileRun(runs[i], i));
 
       std::stringstream msg;
-      msg << "AIE dtrace: profiling the first " << metricSelections.size()
-          << " inferences of each kernel:";
+      msg << "AIE dtrace: profile_runs configures " << metricSelections.size()
+          << " inferences per kernel, one per metric set:";
       for (size_t i = 0; i < metricSelections.size(); ++i)
         msg << "\n  inference " << i << ": "
             << metricSelections[i].describe();
@@ -520,26 +520,47 @@ namespace xdp {
     if (run.interface_tile.has_value() && !run.interface_tile->empty()) {
       std::vector<std::string> parts;
       boost::split(parts, *run.interface_tile, boost::is_any_of(":"));
-      const std::string& metricSet = parts.front();
 
-      if (!isBandwidthMetricSet(metricSet)) {
-        xrt_core::message::send(severity_level::warning, "XRT",
-            "AIE dtrace: " + scope + ".interface_tile='" + *run.interface_tile
-            + "' is not a known interface tile metric set; no bandwidth counters "
-              "will be programmed for that inference.");
-      }
-      else if (metricSet != "off") {
-        selection.includeBandwidth = true;
-        selection.bandwidthMetricSet = metricSet;
-
-        if (parts.size() > 1) {
-          try {
-            selection.bandwidthChannel = aie::convertStringToUint8(parts[1]);
+      // PLIO columns come from plip_info.json, not the partition shim tiles.
+      // Resolve them onto this inference so a later profile_runs entry is not
+      // dropped just because an earlier entry had no interface_tile.
+      const auto plio = resolvePlioColumns(parts);
+      if (plio.isPlio) {
+        if (plio.metric != "off") {
+          selection.includeBandwidth = true;
+          selection.bandwidthMetricSet = plio.metric;
+          // Keep an empty map rather than falling back to the shared one, which
+          // describes a different inference.
+          selection.plioChannels = plio.channelsByColumn;
+          if (!plio.channelsByColumn.empty()) {
+            xrt_core::message::send(severity_level::info, "XRT",
+                "AIE dtrace: " + scope + " '" + plio.metric + "' on "
+                + std::to_string(plio.channelsByColumn.size()) + " PLIO columns.");
           }
-          catch (const std::invalid_argument&) {
-            xrt_core::message::send(severity_level::warning, "XRT",
-                "AIE dtrace: channel '" + parts[1] + "' in " + scope
-                + ".interface_tile is not an integer; using channel 0.");
+        }
+      }
+      else {
+        const std::string& metricSet = parts.front();
+
+        if (!isBandwidthMetricSet(metricSet)) {
+          xrt_core::message::send(severity_level::warning, "XRT",
+              "AIE dtrace: " + scope + ".interface_tile='" + *run.interface_tile
+              + "' is not a known interface tile metric set; no bandwidth counters "
+                "will be programmed for that inference.");
+        }
+        else if (metricSet != "off") {
+          selection.includeBandwidth = true;
+          selection.bandwidthMetricSet = metricSet;
+
+          if (parts.size() > 1) {
+            try {
+              selection.bandwidthChannel = aie::convertStringToUint8(parts[1]);
+            }
+            catch (const std::invalid_argument&) {
+              xrt_core::message::send(severity_level::warning, "XRT",
+                  "AIE dtrace: channel '" + parts[1] + "' in " + scope
+                  + ".interface_tile is not an integer; using channel 0.");
+            }
           }
         }
       }
@@ -696,10 +717,12 @@ namespace xdp {
     return coreMetricSets().count(metricSet) > 0;
   }
 
-  bool AieDtraceMetadata::addPlioBandwidthTiles(int moduleIdx,
-      const std::vector<std::string>& tokens)
+  AieDtraceMetadata::plio_column_selection_t
+  AieDtraceMetadata::resolvePlioColumns(const std::vector<std::string>& tokens) const
   {
-    // Locate the plio_read/write_bandwidth token in "<colspec>:<metric>[:<ch0>[:<ch1>]]".
+    plio_column_selection_t result;
+
+    // Locate the plio_read_bandwidth token in "<colspec>:<metric>[:<ch0>[:<ch1>]]".
     int metricIdx = -1;
     for (size_t k = 0; k < tokens.size(); ++k) {
       if (xdp::aie::dtrace::isPlioBandwidthMetric(tokens[k])) {
@@ -708,9 +731,11 @@ namespace xdp {
       }
     }
     if (metricIdx < 0)
-      return false;
+      return result;
 
-    const std::string& metric = tokens[metricIdx];
+    result.isPlio = true;
+    result.metric = tokens[metricIdx];
+    const std::string& metric = result.metric;
 
     // Trailing tokens are user-specified south channels (max two: 6 shim counters / 3 per port).
     static constexpr size_t MAX_PLIO_PORTS = 2;
@@ -744,7 +769,7 @@ namespace xdp {
       catch (const std::invalid_argument&) {
         xrt_core::message::send(severity_level::warning, "XRT",
             "AIE dtrace: invalid column specification for PLIO metric, ignoring setting.");
-        return true;  // Consumed as a (malformed) PLIO setting.
+        return result;  // Consumed as a (malformed) PLIO setting.
       }
     }
 
@@ -752,7 +777,7 @@ namespace xdp {
     if (plioPorts.empty()) {
       xrt_core::message::send(severity_level::warning, "XRT",
           "AIE dtrace: no PLIO ports found in overlay metadata for metric set " + metric + ".");
-      return true;
+      return result;
     }
 
     // Aggregate the JSON-declared south channels per selected column (preserving order).
@@ -793,6 +818,20 @@ namespace xdp {
         continue;
       }
 
+      result.channelsByColumn[col] = std::move(channels);
+    }
+
+    return result;
+  }
+
+  bool AieDtraceMetadata::addPlioBandwidthTiles(int moduleIdx,
+      const std::vector<std::string>& tokens)
+  {
+    const auto resolved = resolvePlioColumns(tokens);
+    if (!resolved.isPlio)
+      return false;
+
+    for (const auto& [col, channels] : resolved.channelsByColumn) {
       tile_type tile;
       tile.col = col;
       tile.row = 0;
@@ -802,11 +841,11 @@ namespace xdp {
       if (tileItr != configMetrics[moduleIdx].end()) {
         xrt_core::message::send(severity_level::warning, "XRT",
             "Tile " + std::to_string(tile.col) + ",0 is already configured with metric set "
-            + configMetrics[moduleIdx][tile] + ". Ignoring setting for set " + metric + ".");
+            + configMetrics[moduleIdx][tile] + ". Ignoring setting for set " + resolved.metric + ".");
         continue;
       }
 
-      configMetrics[moduleIdx][tile] = metric;
+      configMetrics[moduleIdx][tile] = resolved.metric;
       configChannel0[tile] = channels.front();
       configChannel1[tile] = channels.back();
       configPlioChannels[tile] = channels;

@@ -207,8 +207,8 @@ namespace xdp {
   {
     (db->getStaticInfo()).unregisterPluginFromHwContext(handle);
 
-    // Last chance to tell the user that the application did not run enough
-    // inferences to collect everything they configured.
+    // Last chance to tell the user that the application ran fewer or more
+    // inferences than the metric sets configured in profile_runs.
     impl.reportUnusedSelections();
   }
 

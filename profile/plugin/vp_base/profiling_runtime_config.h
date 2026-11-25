@@ -32,8 +32,11 @@
 //
 // control_instrumentation may instead carry "profile_runs", which collects the
 // metric sets that used to require one design run each into a single run: entry
-// i is applied to inference i of each kernel. The first inference is 0, and at
-// most five inferences of a kernel are profiled. Either an explicit array:
+// i is applied to inference i of each kernel. The first inference is 0. An
+// explicit list is profiled for one inference per entry, however long the list
+// is. The kernel should be run once per entry; fewer or more inferences are
+// reported against the metric sets in the list. A super metric set is the only
+// form capped at five inferences. Either an explicit array:
 //   "control_instrumentation": {
 //     "profile_runs": [
 //       {"aie_tile":"compute_io_bound"},
@@ -65,12 +68,13 @@ namespace xdp::profiling_runtime_config {
     std::optional<std::string> memory_tile_conflict_points; // conflicts {column,row:bank} list
 
     // Per-inference metric selections in execution order: profile_runs[i] is
-    // applied to inference i of each kernel. The first inference is 0, and a
-    // kernel is profiled for at most five inferences. Populated from the
-    // "profile_runs" array, or from its super-metric-set shorthand. When the
-    // blob carries no "profile_runs" this holds a single entry synthesized
-    // from the four fields above, so a consumer can always iterate it rather
-    // than special-casing the single-configuration form.
+    // applied to inference i of each kernel. The first inference is 0. An
+    // explicit list is kept in full; only a super metric set is capped at five
+    // inferences. Populated from the "profile_runs" array, or from its
+    // super-metric-set shorthand. When the blob carries no "profile_runs" this
+    // holds a single entry synthesized from the four fields above, so a
+    // consumer can always iterate it rather than special-casing the
+    // single-configuration form.
     std::vector<profile_run_t> profile_runs;
 
     // True when "profile_runs" came from the blob rather than being synthesized

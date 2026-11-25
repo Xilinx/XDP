@@ -167,8 +167,10 @@ namespace xdp::profiling_runtime_config {
 
       // Compute boundness on its own on the first inference, then the four DDR
       // bandwidth channels, which cannot share a run because they contend for
-      // the same interface tile counters.
-      runs.resize(5);
+      // the same interface tile counters. A super metric set profiles at most
+      // five inferences. An explicit profile_runs list is not capped.
+      constexpr size_t max_super_metric_set_inferences = 5;
+      runs.resize(max_super_metric_set_inferences);
       runs[0].aie_tile = "compute_io_bound";
       runs[1].interface_tile = "detailed_ddr_read_bandwidth:0";
       runs[2].interface_tile = "detailed_ddr_read_bandwidth:1";
@@ -180,11 +182,6 @@ namespace xdp::profiling_runtime_config {
 
       return runs;
     }
-
-    // A kernel is profiled for at most this many inferences. A longer
-    // profile_runs list is truncated, and a kernel that keeps running past
-    // the list is not profiled further.
-    constexpr size_t max_profiled_inferences = 5;
 
     // Parse the control_instrumentation subtree: copy known string keys into
     // the returned struct and warn about any unknown keys.
@@ -228,9 +225,10 @@ namespace xdp::profiling_runtime_config {
                  + value + "'");
         }
         else if (key == "profile_runs") {
-          // A ptree node with no children is a scalar, i.e. the shorthand
-          // string; one with children is the JSON array, whose elements ptree
-          // exposes as children with empty keys.
+          // A ptree node with no children is a scalar, the super-metric-set
+          // shorthand, and the only form capped at five inferences. A node
+          // with children is the JSON array and is kept in full: its length
+          // is how many inferences the kernel is expected to run.
           if (kv.second.empty()) {
             ci.profile_runs = expand_super_metric_set(value);
           }
@@ -238,14 +236,11 @@ namespace xdp::profiling_runtime_config {
             size_t index = 0;
             for (const auto& entry : kv.second)
               ci.profile_runs.push_back(parse_profile_run(entry.second, index++));
-          }
-          if (ci.profile_runs.size() > max_profiled_inferences) {
-            warn("profiling_runtime_config.control_instrumentation.profile_runs has "
-                 + std::to_string(ci.profile_runs.size())
-                 + " entries; only the first "
-                 + std::to_string(max_profiled_inferences)
-                 + " inferences of each kernel are profiled.");
-            ci.profile_runs.resize(max_profiled_inferences);
+            if (!ci.profile_runs.empty())
+              info("profiling_runtime_config.control_instrumentation.profile_runs lists "
+                   + std::to_string(ci.profile_runs.size())
+                   + " metric sets. Run each kernel that many times; fewer or more "
+                     "inferences are reported against these metric sets.");
           }
           ci.has_explicit_profile_runs = !ci.profile_runs.empty();
         }

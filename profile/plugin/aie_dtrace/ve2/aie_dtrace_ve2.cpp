@@ -260,7 +260,8 @@ namespace xdp {
       // 0-based. The map keeps the count of inferences started, so the value
       // returned here is the index of this one and the stored value is the
       // count reportUnusedSelections reads. Each kernel is profiled only for
-      // its first profile_runs entries, which is at most five.
+      // its configured profile_runs entries: one per metric set in an explicit
+      // list, or the five a super metric set expands to.
       inferenceNumber = m_inference_counts[kernel_name]++;
 
       const auto* ctFiles = findCTFiles(kernel_name);
@@ -275,13 +276,16 @@ namespace xdp {
       }
 
       if (inferenceNumber >= ctFiles->size()) {
-        // Warn only on the first inference past the window; a long-running
-        // application would otherwise log this on every remaining one.
+        // Warn only on the first inference past the metric-set list; a
+        // long-running application would otherwise log this on every remaining one.
+        // reportUnusedSelections repeats this at teardown with the metric sets
+        // and the final inference count.
         if (inferenceNumber == ctFiles->size())
           xrt_core::message::send(severity_level::warning, "XRT",
-              "AIE dtrace: Kernel '" + kernel_name + "' has run more than "
+              "AIE dtrace: Kernel '" + kernel_name + "' has run more inferences than the "
               + std::to_string(ctFiles->size())
-              + " inferences; inference " + std::to_string(inferenceNumber)
+              + " metric sets in profile_runs; inference "
+              + std::to_string(inferenceNumber)
               + " onwards will not be profiled.");
       }
       else {
@@ -316,30 +320,38 @@ namespace xdp {
     if (!metadata->isMultiInference())
       return;
 
-    const uint64_t configured = metadata->getMetricSelections().size();
+    const auto& selections = metadata->getMetricSelections();
+    const uint64_t configured = selections.size();
 
     std::lock_guard<std::mutex> lock(m_mutex);
 
     for (const auto& entry : m_ct_files) {
       const auto& kernel_name = entry.first;
       // The map stores how many inferences have started, not the last index.
-      // The window is inferences 0 through configured-1, at most five.
+      // The expected count is the metric-set list: one inference per entry.
       const uint64_t ran = m_inference_counts.count(kernel_name)
           ? m_inference_counts.at(kernel_name) : 0;
-      const uint64_t profiled = std::min(ran, configured);
 
-      if (profiled >= configured)
+      if (ran == configured)
         continue;
 
       std::stringstream msg;
-      msg << "AIE dtrace: Kernel '" << kernel_name << "' ran " << ran
-          << " inferences, so only " << profiled << " of the " << configured
-          << " configured profile_runs were collected. Run the kernel at least "
-          << configured
-          << " times to collect the whole sequence. Missing:";
-      for (uint64_t i = profiled; i < configured; ++i)
-        msg << "\n  inference " << i << ": "
-            << metadata->getMetricSelections()[i].describe();
+      if (ran < configured) {
+        msg << "AIE dtrace: Kernel '" << kernel_name << "' ran " << ran
+            << " inferences, fewer than the " << configured
+            << " metric sets in profile_runs. Run the kernel " << configured
+            << " times to collect every metric set. Missing:";
+        for (uint64_t i = ran; i < configured; ++i)
+          msg << "\n  inference " << i << ": " << selections[i].describe();
+      }
+      else {
+        msg << "AIE dtrace: Kernel '" << kernel_name << "' ran " << ran
+            << " inferences, more than the " << configured
+            << " metric sets in profile_runs. Only these metric sets were collected:";
+        for (uint64_t i = 0; i < configured; ++i)
+          msg << "\n  inference " << i << ": " << selections[i].describe();
+        msg << "\n  inference " << configured << " onwards were not profiled.";
+      }
       xrt_core::message::send(severity_level::warning, "XRT", msg.str());
     }
   }

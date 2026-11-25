@@ -404,8 +404,8 @@ namespace xdp {
         metricSelections.push_back(buildSelectionFromProfileRun(runs[i], i));
 
       std::stringstream msg;
-      msg << "AIE dtrace: profiling the first " << metricSelections.size()
-          << " inferences of each kernel:";
+      msg << "AIE dtrace: profile_runs configures " << metricSelections.size()
+          << " inferences per kernel, one per metric set:";
       for (size_t i = 0; i < metricSelections.size(); ++i)
         msg << "\n  inference " << i << ": "
             << metricSelections[i].describe();
